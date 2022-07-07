@@ -4,7 +4,7 @@ import itertools
 import os
 from pathlib import Path
 from pdb import set_trace as TT
-from typing import Tuple
+from typing import List, Optional, Tuple
 import cv2
 from einops import rearrange, repeat
 import gym
@@ -17,15 +17,21 @@ from ray.rllib.env.env_context import EnvContext
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
-from ray.tune import CLIReporter, ExperimentAnalysis, grid_search
+from ray.tune import Callback, CLIReporter, ExperimentAnalysis, grid_search, Stopper
 from ray.tune.logger import Logger
+from ray.tune.trial import Trial
 from ray.tune.utils import validate_save_restore
 import torch as th
-from torch import nn 
+from torch import nn
+
+from env import HamiltonGrid 
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--infer", action="store_true")
 parser.add_argument("--resume", action="store_true")
+parser.add_argument("--resume_sequential", action="store_true", help="A bit of a hack. Resumes one experiment at a time "
+    "if we need to run it for more iterations than specified in the initial config")
 parser.add_argument("--render", action="store_true")
 # parser.add_argument("--algo", type=str, default="PPO")
 # parser.add_argument("--torch", action="store_true")
@@ -88,83 +94,48 @@ class CustomPPOTrainer(PPOTrainer):
         return result
 
 
-class HamiltonGridEnv(gym.Env):
-    adjs = np.array([[-1, 0], [1, 0], [0, -1], [0, 1]])
-    adj_mask = th.Tensor([
-        [0, 1, 0],
-        [1, 0, 1],
-        [0, 1, 0]
-    ])
-    # def __init__(self, h, w, static_prob=0.1):
-    def __init__(self, config: EnvContext):
-        self.h, self.w = config['h'], config['w']
-        self.static_prob = config['static_prob']
-        self.map: np.ndarray = None
-        self.static_builds: np.ndarray = None
-        self.curr_pos_arr: np.ndarray = None
-        self.curr_pos: Tuple[int] = None
-        self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Box(0, 1, (self.w, self.h, 3))
-        self.build_hist: list = []
-        self.window = None
-        self.rend_im: np.ndarray = None
+class CustomCallbacks(Callback):
+    # arguments here match Experiment.public_spec
+    def setup(
+        self,
+        stop: Optional["Stopper"] = None,
+        num_samples: Optional[int] = None,
+        total_num_samples: Optional[int] = None,
+        **info,
+    ):
+        """Called once at the very beginning of training.
 
-    def reset(self):
-        self.map = np.zeros((self.w, self.h), dtype=np.uint8)
-        self.static_builds = (np.random.random((self.w, self.h)) < self.static_prob).astype(np.uint8)
-        nonstatic_idxs = np.argwhere(self.static_builds != True)
-        self.curr_pos = tuple(nonstatic_idxs[np.random.choice(len(nonstatic_idxs))])
-        self.curr_pos_arr = np.zeros_like(self.map)
-        self.curr_pos_arr[tuple(self.curr_pos)] = 1
-        self.map[self.curr_pos] = 1
-        self.build_hist = [self.curr_pos]
-        return self.get_obs()
+        Any Callback setup should be added here (setting environment
+        variables, etc.)
 
-    def render(self, mode='human'):
-        if self.window is None:
-            self.window = cv2.namedWindow('Hamilton Grid', cv2.WINDOW_NORMAL)
-            self.rend_im = np.zeros_like(self.map)
-            self.rend_im = repeat(self.rend_im, 'h w -> h w 3')
-        self.rend_im[self.curr_pos] = [1, 0, 0]
-        self.rend_im[np.where(self.static_builds == True)] = [0, 0, 1]
-        # self.rend_im[np.where(self.map == 1)] = [0, 1, 0]
-        tile_size = 16
-        pw = 4
-        self.rend_im = repeat(self.rend_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-        b0 = self.build_hist[0]
-        for b1 in self.build_hist[1:]:
-            x0, x1 = sorted([b0[0], b1[0]])
-            y0, y1 = sorted([b0[1], b1[1]])
-            self.rend_im[
-                x0 * tile_size + tile_size // 2 - pw: x1 * tile_size + tile_size // 2 + pw,
-                y0 * tile_size + tile_size // 2 - pw: y1 * tile_size + tile_size // 2 + pw] = [0, 1, 0]
-            b0 = b1
-        cv2.imshow('Hamilton Grid', self.rend_im * 255)
-        cv2.waitKey(1)
+        Arguments:
+            stop: Stopping criteria.
+                If ``time_budget_s`` was passed to ``tune.run``, a
+                ``TimeoutStopper`` will be passed here, either by itself
+                or as a part of a ``CombinedStopper``.
+            num_samples: Number of times to sample from the
+                hyperparameter space. Defaults to 1. If `grid_search` is
+                provided as an argument, the grid will be repeated
+                `num_samples` of times. If this is -1, (virtually) infinite
+                samples are generated until a stopping condition is met.
+            total_num_samples: Total number of samples factoring
+                in grid search samplers.
+            **info: Kwargs dict for forward compatibility.
+        """
+        pass
 
-    def step(self, action):
-        new_pos = tuple(np.clip(np.array(self.curr_pos) + self.adjs[action], (0, 0), (self.w - 1, self.h - 1)))
-        if self.map[new_pos] == 1 or self.static_builds[new_pos] == 1:
-            reward = -1
-            done = True
-        else:
-            self.map[new_pos] = 1
-            self.build_hist.append(new_pos)
-            self.curr_pos = new_pos
-            self.curr_pos_arr = np.zeros_like(self.map)
-            self.curr_pos_arr[tuple(self.curr_pos)] = 1
-            done = False
-            reward = 1
-        nb_idxs = np.array(self.curr_pos) + self.adjs + 1
-        neighb_map = np.pad(self.map, 1, mode='constant', constant_values=1)[nb_idxs[:, 0], nb_idxs[:, 1]]
-        neighb_static = np.pad(self.static_builds, 1, mode='constant', constant_values=1)[nb_idxs[:, 0], nb_idxs[:, 1]]
-        # Terminate if all neighboring tiles already have path or do not belong to graph.
-        done = done or (neighb_map | neighb_static).all()
-        return self.get_obs(), reward, done, {}
+    def on_trial_restore(
+        self, iteration: int, trials: List["Trial"], trial: "Trial", **info
+    ):
+        """Called after restoring a trial instance.
 
-    def get_obs(self):
-        obs = rearrange([self.map, self.static_builds, self.curr_pos_arr], 'b h w -> h w b')
-        return obs.astype(np.float32)
+        Arguments:
+            iteration: Number of iterations of the tuning loop.
+            trials: List of trials.
+            trial: Trial that just has been restored.
+            **info: Kwargs dict for forward compatibility.
+        """
+        pass
 
 
 class TrialProgressReporter(CLIReporter):
@@ -219,15 +190,17 @@ def trial_name_creator(trial):
 def trial_dirname_creator(trial):
     return trial_name_creator(trial)
 
+
 PROJ_DIR = Path(__file__).parent.parent
 DEBUG = False
+EnvCls = HamiltonGrid
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
 
     if DEBUG:
-        env = HamiltonGridEnv(dict(w=16, h=16))
+        env = EnvCls(dict(w=16, h=16))
         for i in range(50):
             env.reset()
             env.render()
@@ -244,13 +217,9 @@ if __name__ == "__main__":
         "lr": grid_search([
             1e-2, 
             1e-3, 
-            # 1e-4, 
-            1e-5, 
-            1e-6, 
-            1e-7
         ]),
         "exp_id": 0,
-        "env": HamiltonGridEnv,  # or "corridor" if registered above
+        "env": EnvCls,  # or "corridor" if registered above
         "env_config": {
             "h": 16,
             "w": 16,
@@ -282,28 +251,51 @@ if __name__ == "__main__":
     trainer_name = f"{env_name}_PPO"
     tune.register_trainable(trainer_name, CustomPPOTrainer)
 
-    if args.infer:
+    # TODO: if we want to resumt training with more training iterations, we have to restore each trial sequentially 
+    #   (eesh!)
+    if args.infer or args.resume_sequential:
+        config['lr'] = 0.0  # dummy to allow us to initialize the trainer without issue
+        trainer = CustomPPOTrainer(config=config)
         analysis = ExperimentAnalysis(f"~/ray_results/{trainer_name}")
-        TT()
+        ckp_paths = [analysis.get_trial_checkpoints_paths(analysis.trials[i]) for i in range(len(analysis.trials))]
+        assert np.all([len(paths) == 1 for paths in ckp_paths])
+        ckp_paths = [p for paths in ckp_paths for p in paths]
+        for ckp_path in ckp_paths:
+            if args.infer:
+                trainer.restore(ckp_path[0])
+                trainer.evaluate()
+            elif args.resume_sequential:
+                analysis = tune.run(
+                    trainer_name, 
+                    callbacks=[CustomCallbacks()],
+                    checkpoint_at_end = True,
+                    checkpoint_freq=10,
+                    config=config, 
+                    keep_checkpoints_num=1,
+                    progress_reporter=reporter,
+                    reuse_actors=True,
+                    resume="AUTO" if args.resume else False,
+                    stop=stop,
+                    trial_name_creator=trial_name_creator,
+                    trial_dirname_creator=trial_dirname_creator,
+                    verbose=1,
+                )
     else:
         analysis = tune.run(
             trainer_name, 
+            callbacks=[CustomCallbacks()],
             checkpoint_at_end = True,
             checkpoint_freq=10,
             config=config, 
             keep_checkpoints_num=1,
             progress_reporter=reporter,
-            reuse_actors = True,
+            reuse_actors=True,
             resume="AUTO" if args.resume else False,
             stop=stop,
             trial_name_creator=trial_name_creator,
             trial_dirname_creator=trial_dirname_creator,
             verbose=1,
         )
-        # TODO: save analysis object
-        # TODO: load checkpoints if inferring/evaluating
-        #   - get trials that config *would* create if passed to run
-        #   - load each checkpoint
         ray.shutdown()
 
 

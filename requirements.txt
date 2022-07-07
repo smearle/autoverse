@@ -1,0 +1,3 @@
+gym
+pandas
+ray[rllib,tune]
