@@ -1,3 +1,4 @@
 gym
 pandas
+pygame
 ray[rllib,tune]
