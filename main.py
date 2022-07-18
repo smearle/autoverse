@@ -1,30 +1,28 @@
 import argparse
 from collections import namedtuple
-import itertools
 import os
 from pathlib import Path
 from pdb import set_trace as TT
 from typing import List, Optional, Tuple
-import cv2
-from einops import rearrange, repeat
-import gym
-from gym import spaces
 import numpy as np
 import ray
 from ray import tune
 from ray.rllib.agents.ppo import PPOTrainer
-from ray.rllib.env.env_context import EnvContext
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
 from ray.tune import Callback, CLIReporter, ExperimentAnalysis, grid_search, Stopper
-from ray.tune.logger import Logger
+from ray.tune.registry import register_env
 from ray.tune.trial import Trial
 from ray.tune.utils import validate_save_restore
 import torch as th
 from torch import nn
 
-from env import HamiltonGrid 
+# from env import HamiltonGrid 
+from games import maze
+
+# Register custom environment with ray
+register_env("maze", maze.make_env)
 
 
 parser = argparse.ArgumentParser()
@@ -192,15 +190,17 @@ def trial_dirname_creator(trial):
 
 
 PROJ_DIR = Path(__file__).parent.parent
-DEBUG = False
-EnvCls = HamiltonGrid
+DEBUG = True
+# EnvCls = HamiltonGrid
+EnvCls = maze.make_env()
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
 
     if DEBUG:
-        env = EnvCls(dict(w=16, h=16))
+        # env = EnvCls(dict(w=16, h=16))
+        env = maze.make_env()
         for i in range(50):
             env.reset()
             env.render()
@@ -215,15 +215,16 @@ if __name__ == "__main__":
 
     config = {
         "lr": grid_search([
-            1e-2, 
+            # 1e-2, 
             1e-3, 
         ]),
         "exp_id": 0,
-        "env": EnvCls,  # or "corridor" if registered above
+        # "env": EnvCls,  # or "corridor" if registered above
+        "env": "maze",
         "env_config": {
-            "h": 16,
-            "w": 16,
-            "static_prob": 0.0,
+            # "h": 16,
+            # "w": 16,
+            # "static_prob": 0.0,
         },
         # Use GPUs iff 'RLLIB_NUM_GPUS' env var set to > 0.
         "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "0")),
@@ -236,16 +237,19 @@ if __name__ == "__main__":
         "train_batch_size": 16000,
         "render_env": args.render,
     }
-    stop = {
-        "training_iteration": args.stop_iters,
-        "episode_reward_mean": args.stop_reward,
-        "timesteps_total": args.stop_timesteps,
 
+    # FIXME: Can't reload multiple trials at once with different (longer) stop condition. So not including any stop
+    #  stop conditions for now (will this train indefinitely as intended?).
+    stop = {
+        # "training_iteration": args.stop_iters,
+        # "episode_reward_mean": args.stop_reward,
+        # "timesteps_total": args.stop_timesteps,
     }
  
     ray.init()
     # validate_save_restore(CustomPPOTrainer, config=config)
-    env_name = "Hamilton"
+    # env_name = "Hamilton"
+    env_name = "maze"
     algo_name = "PPO"
     # For convenience, organizing log directories.
     trainer_name = f"{env_name}_PPO"

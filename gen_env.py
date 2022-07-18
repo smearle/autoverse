@@ -1,99 +1,26 @@
-import cv2
+from enum import Enum
 from pdb import set_trace as TT
 from typing import Iterable, List, Tuple
 
+import cv2
 from einops import rearrange, repeat
 import gym
 from gym import spaces
 import numpy as np
 import pygame
 
-
-colors = {
-    'red': (255, 0, 0),
-    'green': (0, 255, 0),
-    'blue': (0, 0, 255),
-    'yellow': (255, 255, 0),
-    'cyan': (0, 255, 255),
-    'magenta': (255, 0, 255),
-    'black': (0, 0, 0),
-    'white': (255, 255, 255),
-    'gray': (128, 128, 128),
-    'orange': (255, 165, 0),
-    'purple': (128, 0, 128),
-    'brown': (165, 42, 42),
-    'error': (255, 192, 203),  # pink
-}
-colors = {k: np.array(v) for k, v in colors.items()}
-
-
-class TileType():
-    def __init__(self, name: str, prob: float, color: Tuple[int], passable: bool = False, num: int = None,
-            parents: List = []):
-        """Initialize a new tile type.
-
-        Args:
-            name (str): Name of the tile
-            prob (float): Probability of the tile spawning during random map generation, if applicable. If 0, then `num`
-                must be specified to spawn an exact number of this tile.
-            color (Tuple[int]): The color of the tile during rendering.
-            passable (bool, optional): Whether this tile is passable to player. Defaults to False.
-            num (int, optional): Exactly how many instances of this tile should spawn during random map generation. 
-                Defaults to None.
-            parents (List[TileType]): A list of tile types from which this tile can be considered a sub-type. Useful 
-                for rules that consider parent types.
-        """
-        self.name = name
-        self.prob = prob
-        self.color = color
-        self.passable = passable
-        self.num = num
-        self.idx = None  # This needs to be set externally, given some consistent ordering of the tiles.
-        self.parents = parents
-
-    def get_idx(self):
-        if self is None:
-            return -1
-        return self.idx
-
-    def __str__(self):
-        return self.name
-    
-    def __repr__(self):
-        return f"TileType: {self.name}"
-
-
-class Rule():
-    """Rules match input to output patterns. When the environment ticks, the input patters are identified and replaced 
-    by the output patterns. Each rule may consist of multiple sub-rules, any one of which can be applied. Each rule may
-    consist of multiple subpatterns, which may all match in order for the subrule to be applied.
-    Input and output are 2D patches of tiles.
-    """
-    def __init__(self, name: str, in_out: Iterable[TileType], rotate: bool = True):
-        """Process the main subrule `in_out`, potentially rotating it to produce a set of subrules. Also convert 
-        subrules from containing TileType objects to their indices for fast matching during simulation.
-
-        Args:
-            name (str): The rule's name. For human-readable purposes.
-            in_out (Iterable[TileType]): A sub-rule with shape (2, n_subpatterns, h, w)
-            rotate (bool): Whether subpatterns .
-        """
-        self.name = name
-        # List of subrules resulting from rule (i.e. if applying rotation).
-        in_out_int = np.vectorize(TileType.get_idx)(in_out)
-        subrules = [in_out_int]
-        if rotate:
-            subrules += [np.rot90(in_out_int, k=1, axes=(2, 3)), np.rot90(in_out_int, k=2, axes=(2,3)), 
-                np.rot90(in_out_int, k=3, axes=(2,3))]
-        self.subrules = subrules
+from games.common import colors
+from rules import Rule
+from tiles import TileType
 
 
 class GenEnv(gym.Env):
     adjs = np.array([[-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 16
     
-    def __init__(self, width: int, height: int, tiles: List[TileType], rules: List[Rule], 
-            player_placeable_tiles: List[TileType]):
+    def __init__(self, width: int, height: int, tiles: Iterable[TileType], rules: List[Rule], 
+            player_placeable_tiles: List[TileType], baseline_rew: int = 0, done_at_reward: int = None,
+            max_episode_steps: int = 100):
         """_summary_
 
         Args:
@@ -101,15 +28,18 @@ class GenEnv(gym.Env):
             height (int): The height of the 2D game map.
             tiles (list): A list of TileType objects. Must include a tile-type with name `player`.
             rules (list): A list of Rule objects, between TileTypes.
+            done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
-        self._is_done = False
+        self._done = False
+        self._n_step = 0
+        self.max_episode_steps = max_episode_steps
         self.w, self.h = width, height
         self.tiles = tiles
-        [setattr(tile, 'idx', i) for i, tile in enumerate(tiles)]
+        # [setattr(tile, 'idx', i) for i, tile in enumerate(tiles)]
+        self._baseline_rew = baseline_rew
         tiles_by_name = {t.name: t for t in tiles}
         # Assuming here that we always have player and floor...
         self.player_idx = tiles_by_name['player'].idx
-        self.floor_idx = tiles_by_name['floor'].idx
         self.tile_probs = [tile.prob for tile in tiles]
         self.tile_colors = np.array([tile.color if tile.color is not None else colors['error'] for tile in tiles], dtype=np.uint8)
         self.rules = rules
@@ -132,36 +62,57 @@ class GenEnv(gym.Env):
         # Here we assume that the player can place tiles at positions adjacent to the player. Could make this more 
         # flexible in the future.
         self._actions = [(tile_type.idx, i) for i in range(4) for tile_type in player_placeable_tiles]
+        self._done_at_reward = done_at_reward
+        self._map_queue = []
+        self._map_id = 0
+
+    def queue_maps(self, maps: Iterable[np.ndarray]):
+        self._map_queue = maps
 
     def _update_player_pos(self, map_arr):
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)
         assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
+        
+    def _update_cooccurs(self, map_arr):
+        for tile_type in self.tiles:
+            if tile_type.cooccurs:
+                for cooccur in tile_type.cooccurs:
+                    map_arr[cooccur.idx, map_arr[tile_type.idx] == 1] = 1
 
     def gen_random_map(self):
+        # Generate frequency-based tiles with certain probabilities.
         int_map = np.random.choice(len(self.tiles), size=(self.w, self.h), p=self.tile_probs)
         map_coords = np.argwhere(int_map != -1)
+        # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
+        n_fixed = sum([tile.num for tile in self.tiles if tile.num is not None])
+        fixed_coords = map_coords[np.random.choice(map_coords.shape[0], size=n_fixed, replace=False)]
+        i = 0
         for tile in self.tiles:
             if tile.prob == 0 and tile.num is not None:
-                coord_list = map_coords[np.random.choice(map_coords.shape[0], size=tile.num, replace=False)]
+                coord_list = fixed_coords[i: i + tile.num]
                 int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
+                i += tile.num
         map_arr = np.eye(len(self.tiles))[int_map]
         map_arr = rearrange(map_arr, "h w c -> c h w")
         self._update_player_pos(map_arr)
-        # Hard-code that there is floor, and nothing else, is underneath the player to start. Make this more general later?
-        map_arr[:, self.player_pos[0], self.player_pos[1]] = 0
-        map_arr[self.floor_idx, self.player_pos[0], self.player_pos[1]] = 1
-        map_arr[self.player_idx, self.player_pos[0], self.player_pos[1]] = 1
+        # Activate parent/co-occuring tiles.
         for tile in self.tiles:
-            if len(tile.parents) > 0:
-                for parent in tile.parents:
+            coactive_tiles = tile.parents + tile.cooccurs
+            if len(coactive_tiles) > 0:
+                for cotile in coactive_tiles:
                     # Activate parent channels of any child tiles wherever the latter are active.
-                    map_arr[parent.idx, map_arr[tile.idx] == 1] = 1
+                    map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
         return map_arr
 
     def reset(self):
+        self._n_step = 0
         self._reward = 0
-        self.map = self.gen_random_map()
+        if len(self._map_queue) == 0:
+            self.map = self.gen_random_map()
+        else:
+            self.map = self._map_queue[self._map_id]
+            self._map_id = (self._map_id + 1) % len(self._map_queue)
         # Extra channel to denote passable/impassable for player.
         # self.static_builds = (np.random.random((self.w, self.h)) < self.static_prob).astype(np.uint8)
         # nonstatic_idxs = np.argwhere(self.static_builds != True)
@@ -178,8 +129,9 @@ class GenEnv(gym.Env):
         self.act(action)
         self.tick()
         reward = self._reward
-        self._reward = 0
-        return self.get_obs(), reward, self._is_done, {}
+        self._reward = self._baseline_rew
+        self._n_step += 1
+        return self.get_obs(), reward, self._done, {}
 
     def act(self, action):
         new_tile, adj_id = self._actions[action]
@@ -211,13 +163,13 @@ class GenEnv(gym.Env):
     
     def render(self, mode='human'):
         tile_size = self.tile_size
-        if self.window is None:
-            if mode == 'human':
+        if mode == 'human':
+            if self.window is None:
                 self.window = cv2.namedWindow('Generated Environment', cv2.WINDOW_NORMAL)
             # self.rend_im = np.zeros_like(self.int_map)
         # Create an int map where the last tiles in `self.tiles` take priority.
         int_map = np.zeros(self.map[0].shape, dtype=np.uint8)
-        for tile in tiles:
+        for tile in self.tiles:
             if tile.color is not None:
                 int_map[self.map[tile.idx] == 1] = tile.idx
         self.rend_im = self.tile_colors[int_map]
@@ -233,20 +185,25 @@ class GenEnv(gym.Env):
             # b0 = b1
         # self.rend_im *= 255
         if mode == "human":
+            # pass
             cv2.imshow('Generated Environment', self.rend_im)
             cv2.waitKey(1)
-        elif mode == "pygame":
+        if mode == "pygame":
             if self.screen is None:
                 pygame.init()
                 # Set up the drawing window
-                self.screen = pygame.display.set_mode([h*GenEnv.tile_size, w*GenEnv.tile_size])
+                self.screen = pygame.display.set_mode([self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
             pygame_render_im(self.screen, self.rend_im)
         else:
             return self.rend_im
 
     def tick(self):
-        apply_rules(self.map, self.rules)
+        self.map, self._reward, self._done = apply_rules(self.map, self.rules)
         self._update_player_pos(self.map)
+        self._update_cooccurs(self.map)
+        if self._done_at_reward is not None:
+            self._done = self._done or self._reward == self._done_at_reward
+        self._done = self._done or self._n_step >= self.max_episode_steps
 
     def tick_human(self):
         done = False
@@ -260,7 +217,7 @@ class GenEnv(gym.Env):
                     obs, rew, done, info = self.step(action)
 
                     self.render(mode='pygame')
-                    print('\nreward:', rew)
+                    # print('\nreward:', rew)
                 elif event.key == pygame.K_x:
                     done = True
             if done:
@@ -276,7 +233,9 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
         map (np.ndarray): A one-hot encoded map representing the game state.
         rules (List[Rule]): A list of rules for mutating the onehot-encoded map.
     """
-    print(map)
+    # print(map)
+    done = False
+    reward = 0
     h, w = map.shape[1:]
     for rule in rules:
         for subrule in rule.subrules:
@@ -302,18 +261,20 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
                                     match = False
                                     break
                     if match:
-                        print(f'matched rule {rule.name} at {x}, {y}')
-                        print(f'rule has input \n{inp}\n and output \n{out}')
+                        # print(f'matched rule {rule.name} at {x}, {y}')
+                        # print(f'rule has input \n{inp}\n and output \n{out}')
+                        reward += rule.reward
+                        done = done or rule.done
                         for k, subp in enumerate(out):
                             for i in range(subp.shape[0]):
                                 for j in range(subp.shape[1]):
+                                    # Remove the corresponding tile in the input pattern if one exists.
+                                    if inp[k, i, j] != -1:
+                                        map[inp[k, i, j], x + i, y + j] = 0
                                     if subp[i, j] == -1:
-                                        # Remove the corresponding tile in the input pattern if appropriate.
-                                        if inp[k, i, j] != -1:
-                                            map[inp[k, i, j], x + i, y + j] = 0
                                         continue
                                     map[subp[i, j], x + i, y + j] = 1
-    return map
+    return map, reward, done
 
 
 def pygame_render_im(screen, img):
@@ -323,45 +284,3 @@ def pygame_render_im(screen, img):
     screen.blit(surf, (0, 0))
     # Flip the display
     pygame.display.flip()
-
-
-if __name__ == "__main__":
-    force = TileType(name='force', prob=0, color=None)
-    passable = TileType(name='passable', prob=0, color=None)
-    floor = TileType('floor', prob=0.8, color=colors['white'], parents=[passable])
-    player = TileType('player', prob=0, color=colors['blue'], num=1, parents=[passable])
-    wall = TileType('wall', prob=0.2, color=colors['black'])
-
-    tiles = [force, passable, floor, player, wall]
-    [setattr(tile, 'idx', i) for i, tile in enumerate(tiles)]
-
-    player_move = Rule(
-        'player_move', 
-        in_out=np.array(  [# Both input patterns must be present to activate the rule.
-            [[[player, passable]],  # Player next to a passable tile.
-            [[None, force]], # A force is active on said passable tile.
-              ]  
-            ,
-          # Both changes are applied to the relevant channels, given by the respective input subpatterns.
-            [[[None, player]],  # Player moves to target. No change at source.
-            [[None, None]],  # Force is removed from target tile.
-            ],
-        ]
-        ),
-        rotate=True,)
-    rules = [player_move]
-
-    h = 10
-    w = 10
-    env = GenEnv(height=h, width=w, tiles=tiles, rules=rules, player_placeable_tiles=[force])
-    env.reset()
-    env.render(mode='pygame')
-    done = False
-
-    running = True
-
-    while running:
-        env.tick_human()
-
-    # Done! Time to quit.
-    pygame.quit()
