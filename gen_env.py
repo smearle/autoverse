@@ -113,15 +113,6 @@ class GenEnv(gym.Env):
         else:
             self.map = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
-        # Extra channel to denote passable/impassable for player.
-        # self.static_builds = (np.random.random((self.w, self.h)) < self.static_prob).astype(np.uint8)
-        # nonstatic_idxs = np.argwhere(self.static_builds != True)
-        # self.curr_pos = tuple(nonstatic_idxs[np.random.choice(len(nonstatic_idxs))])
-        # self.curr_pos_arr = np.zeros_like(self.map)
-        # self.curr_pos_arr[tuple(self.curr_pos)] = 1
-        # self.player_force_arr = np.zeros_like(self.map)
-        # self.map[self.curr_pos] = 1
-        # self.build_hist = [self.curr_pos]
         obs = self.get_obs()
         return obs
 
@@ -139,23 +130,7 @@ class GenEnv(gym.Env):
         pos = self.player_pos + self.adjs[adj_id]
         if np.any(pos < 0) or pos[0] >= self.w or pos[1] >= self.h:
             return
-        # pos = tuple(np.clip(np.array(self.player_pos) + self.adjs[adj_id], (0, 0), (self.w - 1, self.h - 1)))
         self.map[new_tile, pos[0], pos[1]] = 1
-        # if self.map[new_pos] == 1 or self.static_builds[new_pos] == 1:
-        #     reward = -1
-        #     done = True
-        # else:
-        #     self.map[new_pos] = 1
-        #     self.build_hist.append(new_pos)
-        #     self.player_pos = new_pos
-        #     self.curr_pos_arr = np.zeros_like(self.map)
-        #     self.curr_pos_arr[tuple(self.player_pos)] = 1
-        #     done = False
-        #     reward = 1
-        # nb_idxs = np.array(self.player_pos) + self.adjs + 1
-        # neighb_map = np.pad(self.map, 1, mode='constant', constant_values=1)[nb_idxs[:, 0], nb_idxs[:, 1]]
-        # neighb_static = np.pad(self.static_builds, 1, mode='constant', constant_values=1)[nb_idxs[:, 0], nb_idxs[:, 1]]
-        # Terminate if all neighboring tiles already have path or do not belong to graph.
 
     def get_obs(self):
         obs = rearrange(self.map, 'b h w -> h w b')
@@ -195,7 +170,9 @@ class GenEnv(gym.Env):
                 self.screen = pygame.display.set_mode([self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
             pygame_render_im(self.screen, self.rend_im)
         else:
-            return self.rend_im
+            cv2.imshow('Generated Environment', self.rend_im)
+            cv2.waitKey(1)
+            # return self.rend_im
 
     def tick(self):
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)

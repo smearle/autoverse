@@ -4,22 +4,26 @@ import os
 from pathlib import Path
 from pdb import set_trace as TT
 from typing import List, Optional, Tuple
+from venv import create
+from fire import Fire
 import numpy as np
 import ray
 from ray import tune
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.rllib.models import ModelCatalog
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.models.torch.fcnet import FullyConnectedNetwork as TorchFC
 from ray.tune import Callback, CLIReporter, ExperimentAnalysis, grid_search, Stopper
+from ray.tune.automl import ContinuousSpace, DiscreteSpace
+from ray.tune.automl.search_policy import AutoMLSearcher, GridSearch
+from ray.tune.automl.search_space import SearchSpace
 from ray.tune.registry import register_env
+from ray.tune.suggest import Repeater, SearchAlgorithm
+from ray.tune.suggest.basic_variant import BasicVariantGenerator
 from ray.tune.trial import Trial
 from ray.tune.utils import validate_save_restore
-import torch as th
-from torch import nn
 
 # from env import HamiltonGrid 
 from games import maze
+from model import CustomFeedForwardModel
 
 # Register custom environment with ray
 register_env("maze", maze.make_env)
@@ -151,53 +155,34 @@ class TrialProgressReporter(CLIReporter):
         return done
 
 
-class TorchCustomModel(TorchModelV2, nn.Module):
-    """Example of a PyTorch custom model that just delegates to a fc-net."""
-    def __init__(self, obs_space, action_space, num_outputs, model_config, name):
-        TorchModelV2.__init__(
-            self, obs_space, action_space, num_outputs, model_config, name
-        )
-        nn.Module.__init__(self)
-        self.torch_sub_model = TorchFC(
-            obs_space, action_space, num_outputs, model_config, name
-        )
-    def forward(self, input_dict, state, seq_lens):
-        input_dict["obs"] = input_dict["obs"].float()
-        fc_out, _ = self.torch_sub_model(input_dict, state, seq_lens)
-        return fc_out, []
-    def value_function(self):
-        return th.reshape(self.torch_sub_model.value_function(), [-1])
-
-
 reporter = TrialProgressReporter(
     metric_columns={
         "training_iteration": "itr",
         "timesteps_total": "timesteps",
         "episode_reward_mean": "reward",
+        "episode_len_mean": "len",
         "fps": "fps",
     },
     max_progress_rows=10,
     )
 
+def create_trial_name(cfg):
+    return f"lr-{cfg['lr']:.1e}"
 
 def trial_name_creator(trial):
     # return str(trial)
-    cfg = trial.config
-    return f"lr-{cfg['lr']:.1e}"
+    return create_trial_name(trial.config)
 
 def trial_dirname_creator(trial):
     return trial_name_creator(trial)
 
 
 PROJ_DIR = Path(__file__).parent.parent
-DEBUG = True
+DEBUG = False
 # EnvCls = HamiltonGrid
 EnvCls = maze.make_env()
 
-
-if __name__ == "__main__":
-    args = parser.parse_args()
-
+def main(args, exp_cfg):
     if DEBUG:
         # env = EnvCls(dict(w=16, h=16))
         env = maze.make_env()
@@ -210,14 +195,17 @@ if __name__ == "__main__":
                 env.render()
 
     ModelCatalog.register_custom_model(
-        "my_model", TorchCustomModel
+        "my_model", CustomFeedForwardModel
     )
 
     config = {
-        "lr": grid_search([
-            # 1e-2, 
-            1e-3, 
-        ]),
+        **exp_cfg,
+        # "lr": grid_search([
+        #     1e-2, 
+        #     1e-3, 
+        #     # 1e-4,
+        #     # 1e-5,
+        # ]),
         "exp_id": 0,
         # "env": EnvCls,  # or "corridor" if registered above
         "env": "maze",
@@ -232,10 +220,11 @@ if __name__ == "__main__":
             "custom_model": "my_model",
             "vf_share_layers": True,
         },
-        "num_workers": 0,  # parallelism
+        "num_workers": 6 if not args.infer else 0,  # parallelism
         "framework": "torch",
         "train_batch_size": 16000,
         "render_env": args.render,
+        "num_envs_per_worker": 20,
     }
 
     # FIXME: Can't reload multiple trials at once with different (longer) stop condition. So not including any stop
@@ -252,55 +241,64 @@ if __name__ == "__main__":
     env_name = "maze"
     algo_name = "PPO"
     # For convenience, organizing log directories.
-    trainer_name = f"{env_name}_PPO"
+    trainer_name = f"{env_name}_{algo_name}"
     tune.register_trainable(trainer_name, CustomPPOTrainer)
+    local_dir = "./runs"
+    exp_name =f"{trainer_name}_{create_trial_name(exp_cfg)}"
 
-    # TODO: if we want to resumt training with more training iterations, we have to restore each trial sequentially 
-    #   (eesh!)
-    if args.infer or args.resume_sequential:
-        config['lr'] = 0.0  # dummy to allow us to initialize the trainer without issue
-        trainer = CustomPPOTrainer(config=config)
-        analysis = ExperimentAnalysis(f"~/ray_results/{trainer_name}")
-        ckp_paths = [analysis.get_trial_checkpoints_paths(analysis.trials[i]) for i in range(len(analysis.trials))]
-        assert np.all([len(paths) == 1 for paths in ckp_paths])
-        ckp_paths = [p for paths in ckp_paths for p in paths]
-        for ckp_path in ckp_paths:
-            if args.infer:
-                trainer.restore(ckp_path[0])
-                trainer.evaluate()
-            elif args.resume_sequential:
-                analysis = tune.run(
-                    trainer_name, 
-                    callbacks=[CustomCallbacks()],
-                    checkpoint_at_end = True,
-                    checkpoint_freq=10,
-                    config=config, 
-                    keep_checkpoints_num=1,
-                    progress_reporter=reporter,
-                    reuse_actors=True,
-                    resume="AUTO" if args.resume else False,
-                    stop=stop,
-                    trial_name_creator=trial_name_creator,
-                    trial_dirname_creator=trial_dirname_creator,
-                    verbose=1,
-                )
-    else:
-        analysis = tune.run(
-            trainer_name, 
+    def launch_analysis():
+        return tune.run(
+            run_or_experiment=trainer_name, 
+            name=exp_name,
             callbacks=[CustomCallbacks()],
             checkpoint_at_end = True,
             checkpoint_freq=10,
             config=config, 
             keep_checkpoints_num=1,
+            local_dir=local_dir,
             progress_reporter=reporter,
             reuse_actors=True,
             resume="AUTO" if args.resume else False,
+            # resume=False,
+            # search_alg=search_alg if args.resume else None,
             stop=stop,
-            trial_name_creator=trial_name_creator,
-            trial_dirname_creator=trial_dirname_creator,
+            # trial_name_creator=trial_name_creator,
+            # trial_dirname_creator=trial_dirname_creator,
             verbose=1,
         )
+
+    if args.infer:
+        config['lr'] = 0.0  # dummy to allow us to initialize the trainer without issue
+        trainer = CustomPPOTrainer(config=config)
+        analysis = ExperimentAnalysis(os.path.join(local_dir, exp_name))
+        ckp_paths = [analysis.get_trial_checkpoints_paths(analysis.trials[i]) for i in range(len(analysis.trials))]
+        assert np.all([len(paths) == 1 for paths in ckp_paths]), f"Expected 1 checkpoint per trial, got {[len(paths) for paths in ckp_paths]}."
+        ckp_paths = [p for paths in ckp_paths for p in paths]
+        for ckp_path in ckp_paths:
+            if args.infer:
+                trainer.restore(ckp_path[0])
+                for i in range(10):
+                    print(f'eval {i}')
+                    trainer.evaluate()
+            # elif args.resume_sequential:
+                # analysis = launch_analysis()
+    else:
+        analysis = launch_analysis()
         ray.shutdown()
 
 
 
+if __name__ == "__main__":
+    args = parser.parse_args()
+    batch_cfg = {
+        "lr": [
+            # 1e-2,
+            1e-3,
+        ],
+    }
+    exp_cfgs = [{k: batch_cfg[k][0] for k in batch_cfg}]
+    for k, v in batch_cfg.items():
+        for i in v[1:]:
+            exp_cfgs += [{**exp_cfg, k: i} for exp_cfg in exp_cfgs]
+    for exp_cfg in exp_cfgs:
+        main(args, exp_cfg)

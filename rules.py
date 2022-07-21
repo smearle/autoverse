@@ -5,6 +5,32 @@ import numpy as np
 from tiles import TileType
 
 
+"""Goal: compile rules as differential convolutional neural networks.
+
+Assumptions to start:
+- each rule will be applied in sequence. Whenever a rule is applied, we expect everything else on the map
+to remain fixed. 
+- two applications of the same rule will not overlap.
+- don't worry about differentiability *too much* yet. Can use step functions for now then scale things later to make it
+  smooth/differentiable (?)
+
+- weight of 2 from channel to itself at same (center) tile
+- bias of -1 everywhere
+- step function activations
+
+  (This would any instances of A by 1 to the right at each tick.)
+- [A, -] -> [-, A]: weight of 1 from channel to itself at adjacent tile
+                    weight of -1 from channel to itself at center tile
+
+  (i.e. player (A) moving toward user-input force (B))
+- [A, B] -> [-, A]: weight of 1 from channel to itself at center tile (by default)
+                    weight of 1/2 from A center to B right, 1/2 from B right to B right; and the -1/2 from both to A left  
+
+- [A, -] -> [B, -]: weight of 2 from A center to B center
+                    nothing else since empty tile in output does not replace anything
+"""
+
+
 class Rule():
     """Rules match input to output patterns. When the environment ticks, the input patters are identified and replaced 
     by the output patterns. Each rule may consist of multiple sub-rules, any one of which can be applied. Each rule may
