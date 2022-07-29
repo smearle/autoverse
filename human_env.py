@@ -1,24 +1,19 @@
+import argparse
 from enum import Enum
+from fire import Fire
 
 import numpy as np
 import pygame
 
 from gen_env import GenEnv, Rule, colors, TileType
-from games import hamilton, maze, sokoban
-from games.common import GamesEnum
+from games import (hamilton, maze, power_line, sokoban)
 
 
-# GAME = TestGame.MAZE
-# GAME = TestGame.SOKOBAN
-GAME = GamesEnum.HAMILTON
+def main(game=maze):
+    if isinstance(game, str):
+        game = globals()[game]
 
-if __name__ == "__main__":
-    if GAME == GamesEnum.MAZE:
-        env = maze.make_env()
-    elif GAME == GamesEnum.SOKOBAN:
-        env = sokoban.make_env()
-    elif GAME == GamesEnum.HAMILTON:
-        env = hamilton.make_env()
+    env: GenEnv = game.make_env()
     env.reset()
     env.render(mode='pygame')
     done = False
@@ -28,5 +23,7 @@ if __name__ == "__main__":
     while running:
         env.tick_human()
 
-    # Done! Time to quit.
     pygame.quit()
+
+if __name__ == "__main__":
+    Fire(main)

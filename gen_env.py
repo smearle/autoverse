@@ -11,15 +11,15 @@ import pygame
 
 from games.common import colors
 from rules import Rule
-from tiles import TileType
+from tiles import TilePlacement, TileType
 
 
 class GenEnv(gym.Env):
-    adjs = np.array([[-1, 0], [1, 0], [0, -1], [0, 1]])
+    placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 16
     
     def __init__(self, width: int, height: int, tiles: Iterable[TileType], rules: List[Rule], 
-            player_placeable_tiles: List[TileType], baseline_rew: int = 0, done_at_reward: int = None,
+            player_placeable_tiles: List[Tuple[TileType, TilePlacement]], done_at_reward: int = None,
             max_episode_steps: int = 100):
         """_summary_
 
@@ -36,7 +36,6 @@ class GenEnv(gym.Env):
         self.w, self.h = width, height
         self.tiles = tiles
         # [setattr(tile, 'idx', i) for i, tile in enumerate(tiles)]
-        self._baseline_rew = baseline_rew
         tiles_by_name = {t.name: t for t in tiles}
         # Assuming here that we always have player and floor...
         self.player_idx = tiles_by_name['player'].idx
@@ -52,16 +51,25 @@ class GenEnv(gym.Env):
         self.build_hist: list = []
         self.window = None
         self.rend_im: np.ndarray = None
+
+        # Map human-input keys to action indices. Here we assume the first 4 actions correspond to player navigation 
+        # (i.e. placement of `force` at adjacent tiles).
         self.keys_to_acts = {
             pygame.K_LEFT: 0,
             pygame.K_RIGHT: 1,
             pygame.K_UP: 2,
             pygame.K_DOWN: 3,
+            pygame.K_q: 4,
         }
         self.screen = None
-        # Here we assume that the player can place tiles at positions adjacent to the player. Could make this more 
-        # flexible in the future.
-        self._actions = [(tile_type.idx, i) for i in range(4) for tile_type in player_placeable_tiles]
+        self._actions = []
+        for tile, placement in player_placeable_tiles:
+            if placement == TilePlacement.CURRENT:
+                self._actions += [(tile.idx, 0)]
+            elif placement == TilePlacement.ADJACENT:
+                self._actions += [(tile.idx, i) for i in range(1, 5)]
+            else:
+                raise Exception
         self._done_at_reward = done_at_reward
         self._map_queue = []
         self._map_id = 0
@@ -74,11 +82,17 @@ class GenEnv(gym.Env):
         assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
         
-    def _update_cooccurs(self, map_arr):
+    def _update_cooccurs(self, map_arr: np.ndarray):
         for tile_type in self.tiles:
             if tile_type.cooccurs:
                 for cooccur in tile_type.cooccurs:
                     map_arr[cooccur.idx, map_arr[tile_type.idx] == 1] = 1
+
+    def _update_inhibits(self, map_arr: np.ndarray):
+        for tile_type in self.tiles:
+            if tile_type.inhibits:
+                for inhibit in tile_type.inhibits:
+                    map_arr[inhibit.idx, map_arr[tile_type.idx] == 1] = 0
 
     def gen_random_map(self):
         # Generate frequency-based tiles with certain probabilities.
@@ -107,6 +121,7 @@ class GenEnv(gym.Env):
 
     def reset(self):
         self._n_step = 0
+        self._last_reward = 0
         self._reward = 0
         if len(self._map_queue) == 0:
             self.map = self.gen_random_map()
@@ -118,16 +133,14 @@ class GenEnv(gym.Env):
 
     def step(self, action):
         self.act(action)
-        self.tick()
-        reward = self._reward
-        self._reward = self._baseline_rew
+        reward = self.tick()
         self._n_step += 1
         return self.get_obs(), reward, self._done, {}
 
     def act(self, action):
-        new_tile, adj_id = self._actions[action]
+        new_tile, placement_id = self._actions[action]
         # Do not place anything over the edge of the map. Should we wrap by default instead?
-        pos = self.player_pos + self.adjs[adj_id]
+        pos = self.player_pos + self.placement_positions[placement_id]
         if np.any(pos < 0) or pos[0] >= self.w or pos[1] >= self.h:
             return
         self.map[new_tile, pos[0], pos[1]] = 1
@@ -175,12 +188,15 @@ class GenEnv(gym.Env):
             # return self.rend_im
 
     def tick(self):
+        self._last_reward = self._reward
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)
         self._update_player_pos(self.map)
         self._update_cooccurs(self.map)
+        self._update_inhibits(self.map)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
         self._done = self._done or self._n_step >= self.max_episode_steps
+        return self._reward
 
     def tick_human(self):
         done = False
@@ -194,7 +210,8 @@ class GenEnv(gym.Env):
                     obs, rew, done, info = self.step(action)
 
                     self.render(mode='pygame')
-                    # print('\nreward:', rew)
+                    if self._last_reward != self._reward:
+                        print(f"Cumulative reward: {self._reward}")
                 elif event.key == pygame.K_x:
                     done = True
             if done:

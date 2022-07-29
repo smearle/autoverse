@@ -1,17 +1,17 @@
-from typing import Iterable
+"""Rules determine a game's mechanics. They map input tile patterns to output patterns, rewards, done state (... and 
+changes in global variables?).
 
-import numpy as np
+During each step of the game engine, rules are applied in order, and the application of each rule involves scanning over
+the tiles in the board in search of the relevant input pattern.
 
-from tiles import TileType
 
-
-"""Goal: compile rules as differential convolutional neural networks.
+Implementation goal / design principle: compile rules as differential convolutional neural networks.
 
 Assumptions to start:
 - each rule will be applied in sequence. Whenever a rule is applied, we expect everything else on the map
 to remain fixed. 
 - two applications of the same rule will not overlap.
-- don't worry about differentiability *too much* yet. Can use step functions for now then scale things later to make it
+- don't worry about differentiability *too much* yet. E.g., can use step functions for now then scale things later to make it
   smooth/differentiable (?)
 
 - weight of 2 from channel to itself at same (center) tile
@@ -29,6 +29,11 @@ to remain fixed.
 - [A, -] -> [B, -]: weight of 2 from A center to B center
                     nothing else since empty tile in output does not replace anything
 """
+from typing import Iterable
+
+import numpy as np
+
+from tiles import TileType
 
 
 class Rule():

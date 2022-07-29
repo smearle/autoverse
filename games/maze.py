@@ -6,7 +6,7 @@ import numpy as np
 from games.common import colors
 from gen_env import GenEnv
 from rules import Rule, RuleSet
-from tiles import TileSet, TileType
+from tiles import TilePlacement, TileSet, TileType
 
 
 def make_env(env_cfg={}):
@@ -48,9 +48,5 @@ def make_env(env_cfg={}):
         done=True,
     )
     rules = RuleSet([player_move, player_consume_goal])
-    env = GenEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[force])
-    # env = partial(GenEnv, h=10, w=10, tiles=tiles, rules=rules, player_placeable_tiles=[force])
-
-    # env.queue_maps([np.array([
-    # ])])
+    env = GenEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
     return env

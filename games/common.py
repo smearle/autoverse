@@ -20,7 +20,7 @@ colors = {
     'magenta': (255, 0, 255),
     'black': (0, 0, 0),
     'white': (255, 255, 255),
-    'gray': (128, 128, 128),
+    'grey': (128, 128, 128),
     'orange': (255, 165, 0),
     'purple': (128, 0, 128),
     'brown': (165, 42, 42),
@@ -42,8 +42,7 @@ player_move = Rule(
     in_out=np.array(  [# Both input patterns must be present to activate the rule.
         [[[player, floor]],  # Player next to a passable/floor tile.
         [[None, force]], # A force is active on said passable tile.
-            ]  
-        ,
+        ],
         # Both changes are applied to the relevant channels, given by the respective input subpatterns.
         [[[None, player]],  # Player moves to target. No change at source.
         [[None, None]],  # Force is removed from target tile.
