@@ -4,6 +4,12 @@ changes in global variables?).
 During each step of the game engine, rules are applied in order, and the application of each rule involves scanning over
 the tiles in the board in search of the relevant input pattern.
 
+TODO: 
+  - Add a `random_order` boolean value to rules that will result in scanning the board in a random order. THis will 
+  allow, e.g., NPCs that move randomly on the board.
+  - Re-implement some of MarkovJunior's level generation algos. Each game can optionally have a separate set of 
+    map-generation rules so that we get, e.g., reasonable-looking mazes.
+
 
 Implementation goal / design principle: compile rules as differential convolutional neural networks.
 
@@ -42,7 +48,9 @@ class Rule():
     consist of multiple subpatterns, which may all match in order for the subrule to be applied.
     Input and output are 2D patches of tiles.
     """
-    def __init__(self, name: str, in_out: Iterable[TileType], rotate: bool = True, reward: int = 0, done: bool = False):
+    def __init__(self, name: str, in_out: Iterable[TileType], rotate: bool = True, reward: int = 0, done: bool = False,
+            random: bool = False, max_applications: int = 1, inhibits: Iterable = [], children: Iterable = [],
+            application_funcs: Iterable = [],):
         """Process the main subrule `in_out`, potentially rotating it to produce a set of subrules. Also convert 
         subrules from containing TileType objects to their indices for fast matching during simulation.
 
@@ -54,16 +62,23 @@ class Rule():
         self.name = name
         self._in_out = in_out
         self._rotate = rotate
-        self.reward = reward
+        self.application_funcs = application_funcs
+        self.children = children
         self.done = done
+        self.inhibits = inhibits
+        self.max_applications = 1
+        self.random = random
+        self.reward = reward
 
     def compile(self):
         # List of subrules resulting from rule (i.e. if applying rotation).
-        in_out_int = np.vectorize(TileType.get_idx)(self._in_out)
-        subrules = [in_out_int]
+        # in_out = np.vectorize(TileType.get_idx)(self._in_out)
+        # subrules = [in_out]
+        in_out = self._in_out
+        subrules = [in_out]
         if self._rotate:
-            subrules += [np.rot90(in_out_int, k=1, axes=(2, 3)), np.rot90(in_out_int, k=2, axes=(2,3)), 
-                np.rot90(in_out_int, k=3, axes=(2,3))]
+            subrules += [np.rot90(in_out, k=1, axes=(2, 3)), np.rot90(in_out, k=2, axes=(2,3)), 
+                np.rot90(in_out, k=3, axes=(2,3))]
         self.subrules = subrules
 
 
@@ -71,3 +86,4 @@ class RuleSet(list):
     def __init__(self, rules: Iterable[Rule]):
         super().__init__(rules)
         [rule.compile() for rule in rules]
+

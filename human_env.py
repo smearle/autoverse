@@ -6,7 +6,7 @@ import numpy as np
 import pygame
 
 from gen_env import GenEnv, Rule, colors, TileType
-from games import (hamilton, maze, power_line, sokoban)
+from games import (hamilton, maze, maze_pcg, maze_npc, power_line, sokoban)
 
 
 def main(game=maze):
@@ -21,6 +21,8 @@ def main(game=maze):
     running = True
 
     while running:
+        # env.step(env.action_space.sample())
+        # env.render()
         env.tick_human()
 
     pygame.quit()

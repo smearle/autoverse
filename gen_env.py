@@ -1,3 +1,4 @@
+from copy import copy
 from enum import Enum
 from pdb import set_trace as TT
 from typing import Iterable, List, Tuple
@@ -8,10 +9,12 @@ import gym
 from gym import spaces
 import numpy as np
 import pygame
+from events import Event, EventGraph
 
 from games.common import colors
 from rules import Rule
-from tiles import TilePlacement, TileType
+from tiles import TileNot, TilePlacement, TileType
+from variables import Variable
 
 
 class GenEnv(gym.Env):
@@ -19,8 +22,12 @@ class GenEnv(gym.Env):
     tile_size = 16
     
     def __init__(self, width: int, height: int, tiles: Iterable[TileType], rules: List[Rule], 
-            player_placeable_tiles: List[Tuple[TileType, TilePlacement]], done_at_reward: int = None,
-            max_episode_steps: int = 100):
+            player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
+            events: Iterable[Event] = [],
+            variables: Iterable[Variable] = [],
+            done_at_reward: int = None,
+            max_episode_steps: int = 100
+            ):
         """_summary_
 
         Args:
@@ -31,7 +38,8 @@ class GenEnv(gym.Env):
             done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
         self._done = False
-        self._n_step = 0
+        self.event_graph = EventGraph(events)
+        self.n_step = 0
         self.max_episode_steps = max_episode_steps
         self.w, self.h = width, height
         self.tiles = tiles
@@ -49,6 +57,7 @@ class GenEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         self.build_hist: list = []
+        self.variables = variables
         self.window = None
         self.rend_im: np.ndarray = None
 
@@ -79,7 +88,11 @@ class GenEnv(gym.Env):
 
     def _update_player_pos(self, map_arr):
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)
-        assert self.player_pos.shape[0] == 1
+        if self.player_pos.shape[0] != 1:
+            self.player_pos = None
+            return
+            # TT()
+        # assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
         
     def _update_cooccurs(self, map_arr: np.ndarray):
@@ -120,7 +133,9 @@ class GenEnv(gym.Env):
         return map_arr
 
     def reset(self):
-        self._n_step = 0
+        [v.reset() for v in self.variables]
+        self.event_graph.reset()
+        self.n_step = 0
         self._last_reward = 0
         self._reward = 0
         if len(self._map_queue) == 0:
@@ -132,12 +147,20 @@ class GenEnv(gym.Env):
         return obs
 
     def step(self, action):
+        # TODO: Only pass global variable object to event graph.
+        self.event_graph.tick(self)
         self.act(action)
         reward = self.tick()
-        self._n_step += 1
+        self.n_step += 1
+        if self._done:
+            print('done at step')
         return self.get_obs(), reward, self._done, {}
 
     def act(self, action):
+        if self.player_pos is None:
+            return
+        if action >= len(self._actions):
+            return
         new_tile, placement_id = self._actions[action]
         # Do not place anything over the edge of the map. Should we wrap by default instead?
         pos = self.player_pos + self.placement_positions[placement_id]
@@ -190,12 +213,13 @@ class GenEnv(gym.Env):
     def tick(self):
         self._last_reward = self._reward
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)
-        self._update_player_pos(self.map)
-        self._update_cooccurs(self.map)
-        self._update_inhibits(self.map)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
-        self._done = self._done or self._n_step >= self.max_episode_steps
+        self._done = self._done or self.n_step >= self.max_episode_steps
+        if not self._done:
+            self._update_player_pos(self.map)
+            self._update_cooccurs(self.map)
+            self._update_inhibits(self.map)
         return self._reward
 
     def tick_human(self):
@@ -228,47 +252,81 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
         rules (List[Rule]): A list of rules for mutating the onehot-encoded map.
     """
     # print(map)
+    rules = copy(rules)
+    print([r.name for r in rules])
+    next_map = map.copy()
     done = False
     reward = 0
     h, w = map.shape[1:]
+    # These rules may become blocked when other rules are activated.
+    blocked_rules = set({})
     for rule in rules:
+        if rule in blocked_rules:
+            continue
+        n_rule_applications = 0
+        subrules = rule.subrules
+        if rule.random:
+            # Apply rotations of base rule in a random order.
+            np.random.shuffle(subrules)
         for subrule in rule.subrules:
+            # Apply, e.g., rotations of the base rule
             inp, out = subrule
-            for x in range(h):
-                # print(f'x: {x}')
-                for y in range(w):
-                    # print(f'y: {y}')
-                    match = True
-                    for subp in inp:
-                        if subp.shape[0] + x > h or subp.shape[1] + y > w:
-                            match = False
-                            break
+            xys = np.indices((h, w))
+            xys = rearrange(xys, 'xy h w -> (h w) xy')
+            if rule.random:
+                np.random.shuffle(xys)
+                # print(f'y: {y}')
+            for (x, y) in xys:
+                match = True
+                for subp in inp:
+                    if subp.shape[0] + x > h or subp.shape[1] + y > w:
+                        match = False
+                        break
+                    if not match:
+                        break
+                    for i in range(subp.shape[0]):
                         if not match:
                             break
-                        for i in range(subp.shape[0]):
-                            if not match:
+                        for j in range(subp.shape[1]):
+                            tile = subp[i, j]
+                            if tile is None:
+                                continue
+                            if map[tile.get_idx(), x + i, y + j] != tile.trg_val:
+                                match = False
                                 break
+                if match:
+                    # print(f'matched rule {rule.name} at {x}, {y}')
+                    # print(f'rule has input \n{inp}\n and output \n{out}')
+                    [f() for f in rule.application_funcs]
+                    [blocked_rules.add(r) for r in rule.inhibits]
+                    [rules.append(r) for r in rule.children]
+                    reward += rule.reward
+                    done = done or rule.done
+                    for k, subp in enumerate(out):
+                        for i in range(subp.shape[0]):
                             for j in range(subp.shape[1]):
-                                if subp[i, j] == -1:
+                                # Remove the corresponding tile in the input pattern if one exists.
+                                in_tile = inp[k, i, j]
+                                if in_tile is not None:
+                                    # Note that this has no effect when in_tile is a NotTile.
+                                    next_map[in_tile.get_idx(), x + i, y + j] = 0
+                                out_tile = subp[i, j]
+                                if out_tile is None:
                                     continue
-                                if map[subp[i, j], x + i, y + j] != 1:
-                                    match = False
-                                    break
-                    if match:
-                        # print(f'matched rule {rule.name} at {x}, {y}')
-                        # print(f'rule has input \n{inp}\n and output \n{out}')
-                        reward += rule.reward
-                        done = done or rule.done
-                        for k, subp in enumerate(out):
-                            for i in range(subp.shape[0]):
-                                for j in range(subp.shape[1]):
-                                    # Remove the corresponding tile in the input pattern if one exists.
-                                    if inp[k, i, j] != -1:
-                                        map[inp[k, i, j], x + i, y + j] = 0
-                                    if subp[i, j] == -1:
-                                        continue
-                                    map[subp[i, j], x + i, y + j] = 1
-    return map, reward, done
+                                next_map[out_tile.get_idx(), x + i, y + j] = 1
+                    n_rule_applications += 1
+                    if n_rule_applications >= rule.max_applications:
+                        print(f'Rule {rule.name} exceeded max applications')
+                        break
+                
+            else:
+                continue
+
+            # Will break the subrule loop if we have broken the board-scanning loop.
+            break
+                        
+                    
+    return next_map, reward, done
 
 
 def pygame_render_im(screen, img):

@@ -1,4 +1,5 @@
 from enum import Enum
+from pdb import set_trace as TT
 from typing import Iterable, List, Tuple
 
 
@@ -39,6 +40,8 @@ class TileType():
         self.parents = parents
         self.cooccurs = cooccurs
         self.inhibits = inhibits
+        # When this tile is ``active'' in the multihot encoding. Overwritten by TileNot wrapper for pattern matching.
+        self.trg_val = 1  
 
     def get_idx(self):
         if self is None:
@@ -57,3 +60,12 @@ class TileSet(list):
         [setattr(tile, "idx", i) for i, tile in enumerate(tiles)]
         super().__init__(tiles)
 
+
+class TileNot():
+    def __init__(self, tile: TileType):
+        self.tile = tile
+        self.get_idx = tile.get_idx
+        self.trg_val = 0
+
+    def __str__(self):
+        return f"TileNot {self.tile}"
