@@ -1,7 +1,8 @@
-from copy import copy
+import copy
 from enum import Enum
 from pdb import set_trace as TT
-from typing import Iterable, List, Tuple
+import time
+from typing import Dict, Iterable, List, Tuple
 
 import cv2
 from einops import rearrange, repeat
@@ -88,11 +89,11 @@ class GenEnv(gym.Env):
 
     def _update_player_pos(self, map_arr):
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)
-        if self.player_pos.shape[0] != 1:
+        if self.player_pos.shape[0] < 1:
             self.player_pos = None
             return
             # TT()
-        # assert self.player_pos.shape[0] == 1
+        assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
         
     def _update_cooccurs(self, map_arr: np.ndarray):
@@ -120,7 +121,7 @@ class GenEnv(gym.Env):
                 coord_list = fixed_coords[i: i + tile.num]
                 int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
                 i += tile.num
-        map_arr = np.eye(len(self.tiles))[int_map]
+        map_arr = np.eye(len(self.tiles), dtype=np.uint8)[int_map]
         map_arr = rearrange(map_arr, "h w c -> c h w")
         self._update_player_pos(map_arr)
         # Activate parent/co-occuring tiles.
@@ -172,7 +173,7 @@ class GenEnv(gym.Env):
         obs = rearrange(self.map, 'b h w -> h w b')
         return obs.astype(np.float32)
     
-    def render(self, mode='human'):
+    def render(self, mode='pygame'):
         tile_size = self.tile_size
         if mode == 'human':
             if self.window is None:
@@ -217,10 +218,13 @@ class GenEnv(gym.Env):
             self._done = self._done or self._reward == self._done_at_reward
         self._done = self._done or self.n_step >= self.max_episode_steps
         if not self._done:
-            self._update_player_pos(self.map)
-            self._update_cooccurs(self.map)
-            self._update_inhibits(self.map)
+            self._compile_map()
         return self._reward
+
+    def _compile_map(self):
+        self._update_player_pos(self.map)
+        self._update_cooccurs(self.map)
+        self._update_inhibits(self.map)
 
     def tick_human(self):
         done = False
@@ -243,6 +247,28 @@ class GenEnv(gym.Env):
                 done = False
                 self.render(mode='pygame')
 
+    def get_state(self):
+        return {
+            'n_step': self.n_step,  # TODO: Make this a Variable? Maybe not.
+            'map_arr': self.map.copy(),
+        }
+
+    def set_state(self, state: Dict):
+        state = copy.deepcopy(state)
+        self.n_step = state['n_step']
+        map_arr = state['map_arr']
+        self._set_map(map_arr)
+        # TODO: setting variables and event graph.
+
+    def hashable(state):
+        # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
+        return hash(state['map_arr'].data.tobytes('C'))
+
+
+    def _set_map(self, map_arr):
+        self.map = map_arr
+        self._compile_map()
+
 
 def apply_rules(map: np.ndarray, rules: List[Rule]):
     """Apply rules to a one-hot encoded map state, to return a mutated map.
@@ -252,8 +278,8 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
         rules (List[Rule]): A list of rules for mutating the onehot-encoded map.
     """
     # print(map)
-    rules = copy(rules)
-    print([r.name for r in rules])
+    rules = copy.copy(rules)
+    # print([r.name for r in rules])
     next_map = map.copy()
     done = False
     reward = 0
@@ -316,7 +342,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
                                 next_map[out_tile.get_idx(), x + i, y + j] = 1
                     n_rule_applications += 1
                     if n_rule_applications >= rule.max_applications:
-                        print(f'Rule {rule.name} exceeded max applications')
+                        # print(f'Rule {rule.name} exceeded max applications')
                         break
                 
             else:

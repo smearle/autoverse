@@ -30,7 +30,7 @@ class EventGraph():
 
     def tick(self, env):
         to_pop = []
-        print(f'frontier events: {[e.name for e in self.frontier_events]}')
+        # print(f'frontier events: {[e.name for e in self.frontier_events]}')
         for event in self.frontier_events:
             if event.init_cond():
                 event.tick_func(env)
