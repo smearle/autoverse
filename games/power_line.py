@@ -3,21 +3,20 @@ from pdb import set_trace as TT
 
 import numpy as np
 
-from games.common import colors
 from gen_env import GenEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(env_cfg={}):
-    force = TileType(name='force', prob=0, color=None)
-    wall = TileType('wall', prob=0.1, color=colors['black'])
-    floor = TileType('floor', prob=0.9, color=colors['white'])
-    player = TileType('player', prob=0, color=colors['blue'], num=1, cooccurs=[floor])
-    wire = TileType('wire', color=colors['grey'], cooccurs=[wall], inhibits=[floor])
-    powered_wire = TileType('powered_wire', color=colors['yellow'])
-    source = TileType('source', num=1, color=colors['green'], cooccurs=[powered_wire])
-    target = TileType('target', num=1, color=colors['red'], cooccurs=[wire])
+def make_env(height, width):
+    force = TileType(name='force', prob=0, color='purple')
+    wall = TileType('wall', prob=0.1, color='black')
+    floor = TileType('floor', prob=0.9, color='white')
+    player = TileType('player', prob=0, color='blue', num=1, cooccurs=[floor])
+    wire = TileType('wire', color='grey', cooccurs=[wall], inhibits=[floor])
+    powered_wire = TileType('powered_wire', color='yellow', cooccurs=[floor])
+    source = TileType('source', num=1, color='green', cooccurs=[powered_wire])
+    target = TileType('target', num=1, color='red', cooccurs=[wire])
     tiles = TileSet([force, floor, wall, wire, powered_wire, source, target, player])  # Overlapping tiles are rendered in this order.
 
     player_move = Rule(
@@ -62,7 +61,7 @@ def make_env(env_cfg={}):
         reward=1,
     )
     rules = RuleSet([player_move, wire_conduct_power, reward_powered_target])
-    env = GenEnv(10, 10, tiles=tiles, rules=rules, 
+    env = GenEnv(height, width, tiles=tiles, rules=rules, 
         player_placeable_tiles=[(force, TilePlacement.ADJACENT), (wire, TilePlacement.CURRENT)])
     # env = partial(GenEnv, h=10, w=10, tiles=tiles, rules=rules, player_placeable_tiles=[force])
 

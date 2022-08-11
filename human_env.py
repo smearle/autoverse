@@ -4,16 +4,26 @@ from fire import Fire
 
 import numpy as np
 import pygame
+from evolve import Individual, init_base_env, load_game_to_env
 
-from gen_env import GenEnv, Rule, colors, TileType
-from games import (hamilton, maze, maze_pcg, maze_npc, power_line, sokoban)
+from gen_env import GenEnv, Rule, TileType
+from games import *
 
 
-def main(game=maze):
+def main(game=maze, height: int = 10, width: int = 10):
     if isinstance(game, str):
-        game = globals()[game]
+        if '/' in game:
+            # Then it's a filepath, so we are loading up an evolved game, saved to a yaml.
+            fname = game
+            env = init_base_env()
+            individual = Individual.load(fname)
+            load_game_to_env(env, individual)
+        else:
+            game = globals()[game]
+            env: GenEnv = game.make_env(height, width)
 
-    env: GenEnv = game.make_env()
+    # Set numpy seed
+    np.random.seed(0)
     env.reset()
     env.render(mode='pygame')
     done = False

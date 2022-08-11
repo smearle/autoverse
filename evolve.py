@@ -1,383 +1,205 @@
-"""Uses CMA-ME to train linear agents in Lunar Lander.
-This script uses the same setup as the tutorial, but it also uses Dask to
-parallelize evaluations on a single machine and adds in a CLI. Refer to the
-tutorial here: https://docs.pyribs.org/en/stable/tutorials/lunar_lander.html for
-more info.
-You should not need much familiarity with Dask to read this example. However, if
-you would like to know more about Dask, we recommend referring to the quickstart
-for Dask distributed: https://distributed.dask.org/en/latest/quickstart.html.
-This script creates an output directory (defaults to `lunar_lander_output/`, see
-the --outdir flag) with the following files:
-    - archive.csv: The CSV representation of the final archive, obtained with
-      as_pandas().
-    - archive_ccdf.png: A plot showing the (unnormalized) complementary
-      cumulative distribution function of objective values in the archive. For
-      each objective value p on the x-axis, this plot shows the number of
-      solutions that had an objective value of at least p.
-    - heatmap.png: A heatmap showing the performance of solutions in the
-      archive.
-    - metrics.json: Metrics about the run, saved as a mapping from the metric
-      name to a list of x values (iteration number) and a list of y values
-      (metric value) for that metric.
-    - {metric_name}.png: Plots of the metrics, currently just `archive_size` and
-      `max_score`.
-In evaluation mode (--run-eval flag), the script will read in the archive from
-the output directory and simulate 10 random solutions from the archive. It will
-write videos of these simulations to a `videos/` subdirectory in the output
-directory.
-Usage:
-    # Basic usage - should take ~1 hour with 4 cores.
-    python lunar_lander.py NUM_WORKERS
-    # Now open the Dask dashboard at http://localhost:8787 to view worker
-    # status.
-    # Evaluation mode. If you passed a different outdir and/or env_seed when
-    # running the algorithm with the command above, you must pass the same
-    # outdir and/or env_seed here.
-    python lunar_lander.py --run-eval
-Help:
-    python lunar_lander.py --help
-"""
-import json
-import time
-from pathlib import Path
+import copy
+import os
+from pdb import set_trace as TT
+import random
+import shutil
+from typing import Iterable
 
-import fire
-import gym
-import matplotlib.pyplot as plt
+from fire import Fire
 import numpy as np
-import pandas as pd
-from alive_progress import alive_bar
-from dask.distributed import Client, LocalCluster
+# import pool from ray
+from ray.util.multiprocessing import Pool
+import yaml
 
-from ribs.archives import GridArchive
-from ribs.emitters import ImprovementEmitter
-from ribs.optimizers import Optimizer
-from ribs.visualize import grid_archive_heatmap
-
-
-def simulate(model, seed=None, video_env=None):
-    """Simulates the lunar lander model.
-    Args:
-        model (np.ndarray): The array of weights for the linear policy.
-        seed (int): The seed for the environment.
-        video_env (gym.Env): If passed in, this will be used instead of creating
-            a new env. This is used primarily for recording video during
-            evaluation.
-    Returns:
-        total_reward (float): The reward accrued by the lander throughout its
-            trajectory.
-        impact_x_pos (float): The x position of the lander when it touches the
-            ground for the first time.
-        impact_y_vel (float): The y velocity of the lander when it touches the
-            ground for the first time.
-    """
-    if video_env is None:
-        # Since we are using multiple processes, it is simpler if each worker
-        # just creates their own copy of the environment instead of trying to
-        # share the environment. This also makes the function "pure."
-        env = gym.make("LunarLander-v2")
-    else:
-        env = video_env
-
-    if seed is not None:
-        env.seed(seed)
-
-    action_dim = env.action_space.n
-    obs_dim = env.observation_space.shape[0]
-    model = model.reshape((action_dim, obs_dim))
-
-    total_reward = 0.0
-    impact_x_pos = None
-    impact_y_vel = None
-    all_y_vels = []
-    obs = env.reset()
-    done = False
-
-    while not done:
-        action = np.argmax(model @ obs)  # Linear policy.
-        obs, reward, done, _ = env.step(action)
-        total_reward += reward
-
-        # Refer to the definition of state here:
-        # https://github.com/openai/gym/blob/master/gym/envs/box2d/lunar_lander.py#L306
-        x_pos = obs[0]
-        y_vel = obs[3]
-        leg0_touch = bool(obs[6])
-        leg1_touch = bool(obs[7])
-        all_y_vels.append(y_vel)
-
-        # Check if the lunar lander is impacting for the first time.
-        if impact_x_pos is None and (leg0_touch or leg1_touch):
-            impact_x_pos = x_pos
-            impact_y_vel = y_vel
-
-    # If the lunar lander did not land, set the x-pos to the one from the final
-    # timestep, and set the y-vel to the max y-vel (we use min since the lander
-    # goes down).
-    if impact_x_pos is None:
-        impact_x_pos = x_pos
-        impact_y_vel = min(all_y_vels)
-
-    # Only close the env if it was not a video env.
-    if video_env is None:
-        env.close()
-
-    return total_reward, impact_x_pos, impact_y_vel
+from games import *
+from gen_env import GenEnv
+from rules import Rule, RuleSet
+from search_agent import solve
+from tiles import TileSet, TileType
 
 
-def create_optimizer(seed, n_emitters, sigma0, batch_size):
-    """Creates the Optimizer based on given configurations.
-    See lunar_lander_main() for description of args.
-    Returns:
-        A pyribs optimizer set up for CMA-ME (i.e. it has ImprovementEmitter's
-        and a GridArchive).
-    """
-    env = gym.make("LunarLander-v2")
-    action_dim = env.action_space.n
-    obs_dim = env.observation_space.shape[0]
-
-    archive = GridArchive(
-        [50, 50],  # 50 bins in each dimension.
-        [(-1.0, 1.0), (-3.0, 0.0)],  # (-1, 1) for x-pos and (-3, 0) for y-vel.
-        seed=seed,
-    )
-
-    # If we create the emitters with identical seeds, they will all output the
-    # same initial solutions. The algorithm should still work -- eventually, the
-    # emitters will produce different solutions because they get different
-    # responses when inserting into the archive. However, using different seeds
-    # avoids this problem altogether.
-    seeds = ([None] * n_emitters
-             if seed is None else [seed + i for i in range(n_emitters)])
-    initial_model = np.zeros((action_dim, obs_dim))
-    emitters = [
-        ImprovementEmitter(
-            archive,
-            initial_model.flatten(),
-            sigma0=sigma0,
-            batch_size=batch_size,
-            seed=s,
-        ) for s in seeds
-    ]
-
-    optimizer = Optimizer(archive, emitters)
-    return optimizer
+LOG_DIR = 'runs_evo'
 
 
-def run_search(client, optimizer, env_seed, iterations, log_freq):
-    """Runs the QD algorithm for the given number of iterations.
-    Args:
-        client (Client): A Dask client providing access to workers.
-        optimizer (Optimizer): pyribs optimizer.
-        env_seed (int): Seed for the environment.
-        iterations (int): Iterations to run.
-        log_freq (int): Number of iterations to wait before recording metrics.
-    Returns:
-        dict: A mapping from various metric names to a list of "x" and "y"
-        values where x is the iteration and y is the value of the metric. Think
-        of each entry as the x's and y's for a matplotlib plot.
-    """
-    print(
-        "> Starting search.\n"
-        "  - Open Dask's dashboard at http://localhost:8787 to monitor workers."
-    )
-
-    metrics = {
-        "Max Score": {
-            "x": [],
-            "y": [],
-        },
-        "Archive Size": {
-            "x": [0],
-            "y": [0],
-        },
-    }
-
-    start_time = time.time()
-    with alive_bar(iterations) as progress:
-        for itr in range(1, iterations + 1):
-            # Request models from the optimizer.
-            sols = optimizer.ask()
-
-            # Evaluate the models and record the objectives and BCs.
-            objs, bcs = [], []
-
-            # Ask the Dask client to distribute the simulations among the Dask
-            # workers, then gather the results of the simulations.
-            futures = client.map(lambda model: simulate(model, env_seed), sols)
-            results = client.gather(futures)
-
-            # Process the results.
-            for obj, impact_x_pos, impact_y_vel in results:
-                objs.append(obj)
-                bcs.append([impact_x_pos, impact_y_vel])
-
-            # Send the results back to the optimizer.
-            optimizer.tell(objs, bcs)
-
-            # Logging.
-            progress()
-            if itr % log_freq == 0 or itr == iterations:
-                elapsed_time = time.time() - start_time
-                metrics["Max Score"]["x"].append(itr)
-                metrics["Max Score"]["y"].append(
-                    optimizer.archive.stats.obj_max)
-                metrics["Archive Size"]["x"].append(itr)
-                metrics["Archive Size"]["y"].append(len(optimizer.archive))
-                print(f"> {itr} itrs completed after {elapsed_time:.2f} s")
-                print(f"  - Max Score: {metrics['Max Score']['y'][-1]}")
-                print(f"  - Archive Size: {metrics['Archive Size']['y'][-1]}")
-
-    return metrics
+def init_base_env():
+    # env = evo_base.make_env(10, 10)
+    env = maze_spike.make_env(10, 10)
+    # env.search_tiles = [t for t in env.tiles]
+    return env
 
 
-def save_heatmap(archive, filename):
-    """Saves a heatmap of the optimizer's archive to the filename.
-    Args:
-        archive (GridArchive): Archive with results from an experiment.
-        filename (str): Path to an image file.
-    """
-    fig, ax = plt.subplots(figsize=(8, 6))
-    grid_archive_heatmap(archive, vmin=-300, vmax=300, ax=ax)
-    ax.invert_yaxis()  # Makes more sense if larger velocities are on top.
-    ax.set_ylabel("Impact y-velocity")
-    ax.set_xlabel("Impact x-position")
-    fig.savefig(filename)
+class Individual():
+    def __init__(self, tiles: Iterable[TileType], rules: Iterable[Rule]):
+        self.tiles = tiles
+        self.rules = rules
+        self.fitness = None
+
+    def mutate(self):
+        i_arr = np.random.randint(0, len(self.rules) - 1, random.randint(1, 3))
+        for i in i_arr:
+            rule: Rule = self.rules[i]
+            rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
+            self.rules[i] = rule
+        j_arr = np.random.randint(0, len(self.tiles) - 1, random.randint(0, 3))
+        for j in j_arr:
+            tile: TileType = self.tiles[j]
+            tile.mutate(self.tiles[:j] + self.tiles[j+1:])
+
+    def save(self, filename):
+        # Save dictionary to yaml
+        with open(filename, 'w') as f:
+            d = {'tiles': [t.to_dict() for t in self.tiles], 'rules': [r.to_dict() for r in self.rules]}
+            yaml.safe_dump(d, f, indent=4, allow_unicode=False)
+
+    def load(filename):
+        # Load dictionary from yaml
+        with open(filename, 'r') as f:
+            d = yaml.safe_load(f)
+            tiles = []
+            for t_dict in d['tiles']:
+                assert len(t_dict) == 1
+                name = list(t_dict.keys())[0]
+                t_dict = t_dict[name]
+                t_dict.update({'name': name})
+                tiles.append(TileType.from_dict(t_dict))
+            tiles = TileSet(tiles)
+            names_to_tiles = {t.name: t for t in tiles}
+            rules = [Rule.from_dict(r, names_to_tiles=names_to_tiles) for r in d['rules']]
+            for t in tiles:
+                t.cooccurs = [names_to_tiles[c] for c in t.cooccurs]
+                t.inhibits = [names_to_tiles[i] for i in t.inhibits]
+            names_to_rules = {r.name: r for r in rules}
+            for r in rules:
+                r.children = [names_to_rules[c] for c in r.children]
+                r.inhibits = [names_to_rules[i] for i in r.inhibits]
+            rules = RuleSet(rules)
+        return Individual(tiles=tiles, rules=rules)
 
 
-def save_metrics(outdir, metrics):
-    """Saves metrics to png plots and a JSON file.
-    Args:
-        outdir (Path): output directory for saving files.
-        metrics (dict): Metrics as output by run_search.
-    """
-    # Plots.
-    for metric in metrics:
-        fig, ax = plt.subplots()
-        ax.plot(metrics[metric]["x"], metrics[metric]["y"])
-        ax.set_title(metric)
-        ax.set_xlabel("Iteration")
-        fig.savefig(str(outdir / f"{metric.lower().replace(' ', '_')}.png"))
-
-    # JSON file.
-    with (outdir / "metrics.json").open("w") as file:
-        json.dump(metrics, file, indent=2)
+def load_game_to_env(env: GenEnv, individual: Individual):
+    env.tiles = individual.tiles
+    env.rules = individual.rules
+    return env
 
 
-def save_ccdf(archive, filename):
-    """Saves a CCDF showing the distribution of the archive's objective values.
-    CCDF = Complementary Cumulative Distribution Function (see
-    https://en.wikipedia.org/wiki/Cumulative_distribution_function#Complementary_cumulative_distribution_function_(tail_distribution)).
-    The CCDF plotted here is not normalized to the range (0,1). This may help
-    when comparing CCDF's among archives with different amounts of coverage
-    (i.e. when one archive has more bins filled).
-    Args:
-        archive (GridArchive): Archive with results from an experiment.
-        filename (str): Path to an image file.
-    """
-    fig, ax = plt.subplots()
-    ax.hist(
-        archive.as_pandas(include_solutions=False)["objective"],
-        50,  # Number of bins.
-        histtype="step",
-        density=False,
-        cumulative=-1)  # CCDF rather than CDF.
-    ax.set_xlabel("Objective Value")
-    ax.set_ylabel("Num. Entries")
-    ax.set_title("Distribution of Archive Objective Values")
-    fig.savefig(filename)
+def evaluate_multi(args):
+    return evaluate(*args)
 
 
-def run_evaluation(outdir, env_seed):
-    """Simulates 10 random archive solutions and saves videos of them.
-    Videos are saved to outdir / videos.
-    Args:
-        outdir (Path): Path object for the output directory from which to
-            retrieve the archive and save videos.
-        env_seed (int): Seed for the environment.
-    """
-    df = pd.read_csv(outdir / "archive.csv")
-    indices = np.random.permutation(len(df))[:10]
-
-    # Use a single env so that all the videos go to the same directory.
-    video_env = gym.wrappers.Monitor(
-        gym.make("LunarLander-v2"),
-        str(outdir / "videos"),
-        force=True,
-        # Default is to write the video for "cubic" episodes -- 0,1,8,etc (see
-        # https://github.com/openai/gym/blob/master/gym/wrappers/monitor.py#L54).
-        # This will ensure all the videos are written.
-        video_callable=lambda idx: True,
-    )
-
-    for idx in indices:
-        model = np.array(df.loc[idx, "solution_0":])
-        reward, impact_x_pos, impact_y_vel = simulate(model, env_seed,
-                                                      video_env)
-        print(f"=== Index {idx} ===\n"
-              "Model:\n"
-              f"{model}\n"
-              f"Reward: {reward}\n"
-              f"Impact x-pos: {impact_x_pos}\n"
-              f"Impact y-vel: {impact_y_vel}\n")
-
-    video_env.close()
+def evaluate(env: GenEnv, individual: Individual, render: bool, trg_n_iter: bool):
+    load_game_to_env(env, individual)
+    env.reset()
+    init_state = env.get_state()
+    best_state_actions, best_reward, n_iter_best, n_iter = solve(env, max_steps=trg_n_iter)
+    if best_state_actions is not None:
+        (final_state, action_seq) = best_state_actions
+        if render:
+            env.set_state(init_state)
+            env.render()
+            for action in action_seq:
+                env.step(action)
+                env.render()
+    # TODO: dummy
+    # fitness = best_reward
+    fitness = n_iter_best
+    if fitness == 1:
+        fitness += n_iter / (trg_n_iter + 2)
+    print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
+    return fitness
 
 
-def lunar_lander_main(workers=4,
-                      env_seed=1339,
-                      iterations=500,
-                      log_freq=25,
-                      n_emitters=5,
-                      batch_size=30,
-                      sigma0=1.0,
-                      seed=None,
-                      outdir="lunar_lander_output",
-                      run_eval=False):
-    """Uses CMA-ME to train linear agents in Lunar Lander.
-    Args:
-        workers (int): Number of workers to use for simulations.
-        env_seed (int): Environment seed. The default gives the flat terrain
-            from the tutorial.
-        iterations (int): Number of iterations to run the algorithm.
-        log_freq (int): Number of iterations to wait before recording metrics
-            and saving heatmap.
-        n_emitters (int): Number of emitters.
-        batch_size (int): Batch size of each emitter.
-        sigma0 (float): Initial step size of each emitter.
-        seed (seed): Random seed for the pyribs components.
-        outdir (str): Directory for Lunar Lander output.
-        run_eval (bool): Pass this flag to run an evaluation of 10 random
-            solutions selected from the archive in the `outdir`.
-    """
-    outdir = Path(outdir)
-    outdir.mkdir(exist_ok=True)
+def main(exp_name='0', overwrite=False, load=False, multi_proc=False, render=False):
+    log_dir = os.path.join(LOG_DIR, exp_name)
+    loaded = False
+    if os.path.isdir(log_dir):
+        if load:
+            save_dict = np.load(os.path.join(log_dir, 'elites.npz'), allow_pickle=True)['arr_0'].item()
+            n_gen = save_dict['n_gen']
+            elites = save_dict['elites']
+            trg_n_iter = save_dict['trg_n_iter']
+            pop_size = len(elites)
+            loaded = True
+        elif not overwrite:
+            print(f"Directory {log_dir} already exists. Use `--overwrite=True` to overwrite.")
+            return
+        else:
+            shutil.rmtree(log_dir)
+    if not loaded:
+        pop_size = 10
+        trg_n_iter = 10
+        os.makedirs(log_dir)
 
-    if run_eval:
-        run_evaluation(outdir, env_seed)
-        return
+    batch_size = 10
+    env = init_base_env()
+    if multi_proc:
+        envs = [init_base_env() for _ in range(batch_size)]
 
-    # Setup Dask. The client connects to a "cluster" running on this machine.
-    # The cluster simply manages several concurrent worker processes. If using
-    # Dask across many workers, we would set up a more complicated cluster and
-    # connect the client to it.
-    cluster = LocalCluster(
-        processes=True,  # Each worker is a process.
-        n_workers=workers,  # Create this many worker processes.
-        threads_per_worker=1,  # Each worker process is single-threaded.
-    )
-    client = Client(cluster)
+    if not loaded:
+        n_gen = 0
+        tiles = env.tiles
+        rules = env.rules
+        ind = Individual(tiles, rules)
+        # ind.fitness = evaluate(env, ind)
+        elites = []
+        for _ in range(pop_size):
+            o = copy.deepcopy(ind)
+            o.mutate()
+            elites.append(o)
+        if not multi_proc:
+            for e in elites:
+                e.fitness = evaluate(env, e, render, trg_n_iter)
+        else:
+            with Pool(processes=10) as pool:
+                # fits = pool.map(evaluate_multi, [(env, elite, render) for env, elite in zip(envs, elites)])
+                fits = pool.map(evaluate_multi, [(env, elite, render, trg_n_iter) for elite in elites])
+                for elite, fit in zip(elites, fits):
+                    elite.fitness = fit
 
-    # CMA-ME.
-    optimizer = create_optimizer(seed, n_emitters, sigma0, batch_size)
-    metrics = run_search(client, optimizer, env_seed, iterations, log_freq)
+    for n_gen in range(n_gen, 10000):
+        parents = np.random.choice(elites, size=batch_size, replace=True)
+        offspring = []
+        for p in parents:
+            o: Individual = copy.deepcopy(p)
+            o.mutate()
+            offspring.append(o)
+        if not multi_proc:
+            for o in offspring:
+                o.fitness = evaluate(env, o, render, trg_n_iter)
+        else:
+            with Pool(processes=10) as pool:
+                fits = pool.map(evaluate_multi, [(env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
+                for o, fit in zip(offspring, fits):
+                    o.fitness = fit
+        elites = np.concatenate((elites, offspring))
+        # Discard the weakest.
+        elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), batch_size)[:batch_size]
+        elites = np.delete(elites, elite_idxs)
+        fits = [e.fitness for e in elites]
+        # Print stats about elites.
+        max_fit = max(fits)
+        print(f"Generation {n_gen}")
+        print(f"Best fitness: {max_fit}")
+        print(f"Average fitness: {np.mean(fits)}")
+        print(f"Median fitness: {np.median(fits)}")
+        print(f"Worst fitness: {min(fits)}")
+        print(f"Standard deviation: {np.std(fits)}")
+        print()
+        # Increment trg_n_iter if the best fitness is within 10 of it.
+        if max_fit > trg_n_iter - 10:
+            trg_n_iter *= 2
+        # Save the elites.
+        np.savez(os.path.join(log_dir, "elites"), 
+            {
+                'n_gen': n_gen,
+                'elites': elites,
+                'trg_n_iter': trg_n_iter
+            })
+        # Save the elite's game mechanics to a yaml
+        elite_games_dir = os.path.join(log_dir, "elite_games")
+        if not os.path.isdir(elite_games_dir):
+            os.mkdir(os.path.join(log_dir, "elite_games"))
+        for i, e in enumerate(elites):
+            e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
 
-    # Outputs.
-    optimizer.archive.as_pandas().to_csv(outdir / "archive.csv")
-    save_ccdf(optimizer.archive, str(outdir / "archive_ccdf.png"))
-    save_heatmap(optimizer.archive, str(outdir / "heatmap.png"))
-    save_metrics(outdir, metrics)
-
-
-if __name__ == "__main__":
-    fire.Fire(lunar_lander_main)
+if __name__ == '__main__':
+    Fire(main)

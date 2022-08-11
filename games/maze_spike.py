@@ -14,8 +14,8 @@ def make_env(height, width):
     floor = TileType('floor', prob=0.9, color='grey')
     player = TileType('player', prob=0, color='blue', num=1, cooccurs=[floor])
     goal = TileType('goal', num=1, color='green', cooccurs=[floor])
-    tiles = TileSet([floor, goal, player, wall, force])
-    search_tiles = [floor, goal, player, wall]
+    spike = TileType('spike', num=1, color='red', cooccurs=[floor])
+    tiles = TileSet([floor, goal, player, wall, force, spike])
 
     player_move = Rule(
         'player_move', 
@@ -35,19 +35,52 @@ def make_env(height, width):
         'player_consume_goal',
         in_out=np.array([
             [
-                [[player, force]],  # Player and goal tile overlap.
+                [[player, force]],  # Player moving toward goal.
                 [[None, goal]],
             ],
             [
-                [[None, player]],  # Player remains.
+                [[None, player]],  # Player moves.
                 [[None, None]],  # Goal is removed.
             ]
         ]),
+        inhibits=[player_move],
         rotate=True,
         reward=1,
+        done=True,
+    )
+    wall_kill_force = Rule(
+        'wall_kill_force',
+        in_out=np.array([
+            [
+                [[force]],
+                [[wall]],
+            ],
+            [
+                [[None]],
+                [[wall]],
+            ]
+        ]),
+        rotate=False,
+        reward=0,
         done=False,
     )
-    rules = RuleSet([player_move, player_consume_goal])
-    env = GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
-        search_tiles=search_tiles)
+    spike_kill_player = Rule(
+        'spike_kill_player',
+        in_out=np.array([
+            [
+                [[player, force]],
+                [[None, spike]],
+            ],
+            [
+                [[None, None]],  
+                [[None, spike]], 
+            ]
+        ]),
+        inhibits=[player_move],
+        rotate=True,
+        reward=-1,
+        done=True,
+    )
+    rules = RuleSet([wall_kill_force, player_consume_goal, spike_kill_player, player_move])
+    env = GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
     return env

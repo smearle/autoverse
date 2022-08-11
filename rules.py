@@ -35,11 +35,22 @@ to remain fixed.
 - [A, -] -> [B, -]: weight of 2 from A center to B center
                     nothing else since empty tile in output does not replace anything
 """
-from typing import Iterable
+from functools import partial
+import math
+from pdb import set_trace as TT
+import random
+from typing import Dict, Iterable
 
 import numpy as np
 
 from tiles import TileType
+
+
+def tile_to_str(tile: TileType) -> str:
+    return tile.name if tile is not None else tile
+
+def tile_from_str(name: str, names_to_tiles: Dict[str, TileType]) -> TileType:
+    return names_to_tiles[name] if not (name is None or name == 'None') else None
 
 
 class Rule():
@@ -66,20 +77,100 @@ class Rule():
         self.children = children
         self.done = done
         self.inhibits = inhibits
-        self.max_applications = 1
+        self.max_applications = max_applications
         self.random = random
         self.reward = reward
+
+    def from_dict(d, names_to_tiles):
+        assert len(d) == 1
+        name, d = list(d.items())[0]
+        d['name'] = name
+        in_out = np.stack((d['in_out']['in'], d['in_out']['out']), axis=0)
+        _tile_from_str = partial(tile_from_str, names_to_tiles=names_to_tiles)
+        in_out = np.vectorize(_tile_from_str)(in_out)
+        d['in_out'] = in_out
+        return Rule(**d)
+
+    def to_dict(self):
+        in_out = np.vectorize(tile_to_str)(self._in_out)
+        inp, outp = in_out.tolist()
+        # TODO: record application_funcs?
+        return {
+            self.name: {
+                'in_out': {
+                    'in': inp,
+                    'out': outp,
+                },
+                'max_applications': self.max_applications,
+                'rotate': self._rotate,
+                'random': self.random,
+                'reward': self.reward,
+                'done': self.done,
+                'inhibits': [t.name for t in self.inhibits],
+                'children': [t.name for t in self.children],
+            }
+        }
 
     def compile(self):
         # List of subrules resulting from rule (i.e. if applying rotation).
         # in_out = np.vectorize(TileType.get_idx)(self._in_out)
         # subrules = [in_out]
+        # (in_out, subpatterns, height, width)
         in_out = self._in_out
         subrules = [in_out]
-        if self._rotate:
+        # Only rotate if necessary.
+        if self._rotate and self._in_out[0].shape != (1, 1):
             subrules += [np.rot90(in_out, k=1, axes=(2, 3)), np.rot90(in_out, k=2, axes=(2,3)), 
                 np.rot90(in_out, k=3, axes=(2,3))]
         self.subrules = subrules
+
+    def mutate(self, tiles, other_rules):
+        x = random.random()
+        if x < 0.1:
+            return
+        elif x < 0.2:
+            self.random = not self.random
+        elif x < 0.3:
+            self.done = not self.done
+        elif x < 0.4:
+            self.reward = random.randint(0, 100)
+        elif x < 0.5:
+            self.max_applications = random.randint(0, 11)
+            self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
+        elif x < 0.6:
+            self._rotate = not self._rotate
+        elif x < 0.7:
+            self.inhibits = random.sample(other_rules, random.randint(0, len(other_rules)))
+        elif x < 0.8:
+            self.children = random.sample(other_rules, random.randint(0, len(other_rules)))
+        elif x < 0.9:
+            # Flip something in the in-out pattern.
+            io_idx = random.randint(0, 1)
+            subp_idx = random.randint(0, self._in_out.shape[1] - 1)
+            if self._in_out.shape[2] == 0:
+                TT()
+            i = random.randint(0, self._in_out.shape[2] - 1)
+            j = random.randint(0, self._in_out.shape[3] - 1)
+            tile = self._in_out[io_idx, subp_idx, i, j]
+            tile_idx = tile.get_idx() if tile is not None else len(tiles)
+            tiles_none = tiles + [None]
+            self._in_out[io_idx, subp_idx, i, j] = tiles_none[(tile_idx + random.randint(1, len(tiles) - 1)) % (len(tiles) + 1)]
+        else:
+            # Add something to the in-out pattern. Either a new subpattern, new rows, or new columns
+            axis = random.randint(1, 3)
+            diff = random.randint(0, 1)
+            if diff == 0 and self._in_out.shape[axis] > 1 or self._in_out.shape[axis] == 3:
+                # Index of subpattern/row/column to be removed
+                i = random.randint(0, self._in_out.shape[axis] - 1)
+                self._in_out = np.delete(self._in_out, i, axis=axis)
+            else:
+                new_shape = list(self._in_out.shape)
+                new_shape[axis] = 1
+                new = np.random.randint(0, len(tiles) + 1, new_shape)
+                # new = np.vectorize(lambda x: tiles[x] if x < len(tiles) else None)(new)
+                new = np.array(tiles + [None])[new]
+                self._in_out = np.concatenate((self._in_out, new), axis=axis)
+        self.compile()
 
 
 class RuleSet(list):

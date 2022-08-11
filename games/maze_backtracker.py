@@ -5,24 +5,23 @@ from turtle import back
 import numpy as np
 from events import Event, activate_rules, on_start
 
-from games.common import colors
 from gen_env import GenEnv
 from rules import Rule, RuleSet
 from tiles import TileNot, TilePlacement, TileSet, TileType
 from variables import Variable
 
 
-def make_env(env_cfg={}):
-    force = TileType(name='force', prob=0, color=colors['grey'])
-    wall = TileType('wall', prob=1.0, color=colors['black'])
-    floor = TileType('floor', prob=0.0, color=colors['white'])
-    player = TileType('player', prob=0, color=colors['blue'], num=0, cooccurs=[floor])
-    goal = TileType('goal', num=0, color=colors['green'], cooccurs=[floor])
+def make_env(height, width):
+    force = TileType(name='force', prob=0, color='grey')
+    wall = TileType('wall', prob=1.0, color='black')
+    floor = TileType('floor', prob=0.0, color='white')
+    player = TileType('player', prob=0, color='blue', num=0, cooccurs=[floor])
+    goal = TileType('goal', num=0, color='green', cooccurs=[floor])
 
     # Tiles for maze-generation along.
     # TODO: Exclude these from the observation / onehot-encoded map after maze generation?
-    fresh_floor = TileType('fresh_floor', prob=0, color=colors['purple'])
-    builder = TileType('builder', prob=0, color=colors['yellow'], cooccurs=[fresh_floor], num=1)
+    fresh_floor = TileType('fresh_floor', prob=0, color='purple')
+    builder = TileType('builder', prob=0, color='yellow', cooccurs=[fresh_floor], num=1)
 
     # Maybe we want separate tilesets for maze generation and gameplay?
     tiles = TileSet([force, floor, goal, player, wall, fresh_floor, builder])
@@ -147,6 +146,6 @@ def make_env(env_cfg={}):
         done_cond=lambda: maze_is_generated.value > 0,
         children=[maze_gameplay]
     )
-    env = GenEnv(10, 10, tiles=tiles, rules=gamepley_rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+    env = GenEnv(height, width, tiles=tiles, rules=gamepley_rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
                  events=[generate_maze], variables=[maze_is_generated])
     return env

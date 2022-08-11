@@ -1,17 +1,16 @@
 import numpy as np
 
-from games.common import colors
 from gen_env import GenEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 
 
-def make_env():
+def make_env(height, width):
     force = TileType(name='force', prob=0, color=None)
-    floor = TileType('floor', prob=0.8, color=colors['white'])
-    player = TileType('player', prob=0, color=colors['blue'], num=1, cooccurs=[floor])
-    lava = TileType('lava', prob=0.2, color=colors['black'])
-    slime = TileType('slime', color=colors['purple'], cooccurs=[lava])
+    floor = TileType('floor', prob=0.8, color='white')
+    player = TileType('player', prob=0, color='blue', num=1, cooccurs=[floor])
+    lava = TileType('lava', prob=0.2, color='black')
+    slime = TileType('slime', color='purple', cooccurs=[lava])
     tiles = TileSet([force, floor, lava, slime, player])
 
     player_move = Rule(
@@ -62,4 +61,4 @@ def make_env():
     )
     rules = RuleSet([player_move, lava_kill_player, reward_slime])
 
-    return GenEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
+    return GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])

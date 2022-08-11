@@ -10,9 +10,8 @@ import gym
 from gym import spaces
 import numpy as np
 import pygame
-from events import Event, EventGraph
 
-from games.common import colors
+from events import Event, EventGraph
 from rules import Rule
 from tiles import TileNot, TilePlacement, TileType
 from variables import Variable
@@ -24,6 +23,7 @@ class GenEnv(gym.Env):
     
     def __init__(self, width: int, height: int, tiles: Iterable[TileType], rules: List[Rule], 
             player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
+            search_tiles: List[TileType] = None,
             events: Iterable[Event] = [],
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
@@ -39,6 +39,11 @@ class GenEnv(gym.Env):
             done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
         self._done = False
+        if search_tiles is None:
+            self._search_tiles = tiles
+        else:
+            self._search_tiles = search_tiles
+        self._search_tile_idxs = np.array([tile.idx for tile in self._search_tiles])
         self.event_graph = EventGraph(events)
         self.n_step = 0
         self.max_episode_steps = max_episode_steps
@@ -49,8 +54,10 @@ class GenEnv(gym.Env):
         # Assuming here that we always have player and floor...
         self.player_idx = tiles_by_name['player'].idx
         self.tile_probs = [tile.prob for tile in tiles]
-        self.tile_colors = np.array([tile.color if tile.color is not None else colors['error'] for tile in tiles], dtype=np.uint8)
-        self.rules = rules
+        # Add white for background when rendering individual tile-channel images.
+        self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.uint8)
+        self._init_rules = rules
+        self.rules = copy.copy(rules)
         self.map: np.ndarray = None
         self.static_builds: np.ndarray = None
         self.player_pos: Tuple[int] = None
@@ -62,15 +69,6 @@ class GenEnv(gym.Env):
         self.window = None
         self.rend_im: np.ndarray = None
 
-        # Map human-input keys to action indices. Here we assume the first 4 actions correspond to player navigation 
-        # (i.e. placement of `force` at adjacent tiles).
-        self.keys_to_acts = {
-            pygame.K_LEFT: 0,
-            pygame.K_RIGHT: 1,
-            pygame.K_UP: 2,
-            pygame.K_DOWN: 3,
-            pygame.K_q: 4,
-        }
         self.screen = None
         self._actions = []
         for tile, placement in player_placeable_tiles:
@@ -93,7 +91,7 @@ class GenEnv(gym.Env):
             self.player_pos = None
             return
             # TT()
-        assert self.player_pos.shape[0] == 1
+        # assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
         
     def _update_cooccurs(self, map_arr: np.ndarray):
@@ -134,6 +132,9 @@ class GenEnv(gym.Env):
         return map_arr
 
     def reset(self):
+        # Reset rules.
+        self.rules = copy.copy(self._init_rules)
+        # Reset variables.
         [v.reset() for v in self.variables]
         self.event_graph.reset()
         self.n_step = 0
@@ -154,7 +155,8 @@ class GenEnv(gym.Env):
         reward = self.tick()
         self.n_step += 1
         if self._done:
-            print('done at step')
+            pass
+            # print('done at step')
         return self.get_obs(), reward, self._done, {}
 
     def act(self, action):
@@ -173,18 +175,21 @@ class GenEnv(gym.Env):
         obs = rearrange(self.map, 'b h w -> h w b')
         return obs.astype(np.float32)
     
-    def render(self, mode='pygame'):
+    def render(self, mode='human'):
         tile_size = self.tile_size
-        if mode == 'human':
-            if self.window is None:
-                self.window = cv2.namedWindow('Generated Environment', cv2.WINDOW_NORMAL)
-            # self.rend_im = np.zeros_like(self.int_map)
+        # self.rend_im = np.zeros_like(self.int_map)
         # Create an int map where the last tiles in `self.tiles` take priority.
         int_map = np.zeros(self.map[0].shape, dtype=np.uint8)
+        tile_ims = []
         for tile in self.tiles:
-            if tile.color is not None:
-                int_map[self.map[tile.idx] == 1] = tile.idx
+            # if tile.color is not None:
+            int_map[self.map[tile.idx] == 1] = tile.idx
+            tile_map = np.where(self.map[tile.idx] == 1, tile.idx, -1)
+            tile_im = self.tile_colors[tile_map]
+            tile_ims.append(tile_im)
         self.rend_im = self.tile_colors[int_map]
+        tiles_rend_im = np.concatenate(tile_ims, axis=0)
+        self.rend_im = np.concatenate([self.rend_im, tiles_rend_im], axis=0)
         # self.rend_im = repeat(self.rend_im, 'h w -> h w 3')
         self.rend_im = repeat(self.rend_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
         # b0 = self.build_hist[0]
@@ -197,15 +202,29 @@ class GenEnv(gym.Env):
             # b0 = b1
         # self.rend_im *= 255
         if mode == "human":
-            # pass
-            cv2.imshow('Generated Environment', self.rend_im)
+            rend_im = self.rend_im.copy()
+            rend_im[:, :, (0, 2)] = self.rend_im[:, :, (2, 0)]
+            if self.window is None:
+                self.window = cv2.namedWindow('Generated Environment', cv2.WINDOW_NORMAL)
+            cv2.imshow('Generated Environment', rend_im)
             cv2.waitKey(1)
+            return
         if mode == "pygame":
+            # Map human-input keys to action indices. Here we assume the first 4 actions correspond to player navigation 
+            # (i.e. placement of `force` at adjacent tiles).
+            self.keys_to_acts = {
+                pygame.K_LEFT: 0,
+                pygame.K_RIGHT: 1,
+                pygame.K_UP: 2,
+                pygame.K_DOWN: 3,
+                pygame.K_q: 4,
+            }
             if self.screen is None:
                 pygame.init()
                 # Set up the drawing window
-                self.screen = pygame.display.set_mode([self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
+                self.screen = pygame.display.set_mode([(len(self.tiles)+1)*self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
             pygame_render_im(self.screen, self.rend_im)
+            return
         else:
             cv2.imshow('Generated Environment', self.rend_im)
             cv2.waitKey(1)
@@ -216,7 +235,7 @@ class GenEnv(gym.Env):
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
-        self._done = self._done or self.n_step >= self.max_episode_steps
+        # self._done = self._done or self.n_step >= self.max_episode_steps
         if not self._done:
             self._compile_map()
         return self._reward
@@ -227,6 +246,7 @@ class GenEnv(gym.Env):
         self._update_inhibits(self.map)
 
     def tick_human(self):
+        import pygame
         done = False
         # Did the user click the window close button?
         for event in pygame.event.get():
@@ -239,7 +259,7 @@ class GenEnv(gym.Env):
 
                     self.render(mode='pygame')
                     if self._last_reward != self._reward:
-                        print(f"Cumulative reward: {self._reward}")
+                        print(f"Reward: {self._reward}")
                 elif event.key == pygame.K_x:
                     done = True
             if done:
@@ -260,9 +280,11 @@ class GenEnv(gym.Env):
         self._set_map(map_arr)
         # TODO: setting variables and event graph.
 
-    def hashable(state):
+    def hashable(self, state):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
-        return hash(state['map_arr'].data.tobytes('C'))
+        search_state = state['map_arr'][self._search_tile_idxs]
+        # search_state = state['map_arr']
+        return hash(search_state.data.tobytes())
 
 
     def _set_map(self, map_arr):
@@ -279,6 +301,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
     """
     # print(map)
     rules = copy.copy(rules)
+    rules_set = set(rules)
     # print([r.name for r in rules])
     next_map = map.copy()
     done = False
@@ -290,6 +313,9 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
         if rule in blocked_rules:
             continue
         n_rule_applications = 0
+        if not hasattr(rule, 'subrules'):
+            print("Missing `rule.subrules`. Maybe you have not called `rule.compile`? You will need to do this manually" +
+                "if the rule is not included in a ruleset.")
         subrules = rule.subrules
         if rule.random:
             # Apply rotations of base rule in a random order.
@@ -325,7 +351,11 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
                     # print(f'rule has input \n{inp}\n and output \n{out}')
                     [f() for f in rule.application_funcs]
                     [blocked_rules.add(r) for r in rule.inhibits]
-                    [rules.append(r) for r in rule.children]
+                    for r in rule.children:
+                        if r in rules_set:
+                            continue
+                        rules_set.add(r)
+                        rules.append(r)
                     reward += rule.reward
                     done = done or rule.done
                     for k, subp in enumerate(out):
