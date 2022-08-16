@@ -8,5 +8,6 @@ from games import (
     maze_npc, 
     maze_spike, 
     power_line, 
-    sokoban
+    rush_hour,
+    sokoban,
     )

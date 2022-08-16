@@ -21,6 +21,8 @@ def main(game=maze, height: int = 10, width: int = 10):
         else:
             game = globals()[game]
             env: GenEnv = game.make_env(height, width)
+    else:
+        env: GenEnv = game.make_env(height, width)
 
     # Set numpy seed
     np.random.seed(0)

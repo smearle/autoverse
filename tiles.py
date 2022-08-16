@@ -14,6 +14,7 @@ class TilePlacement(Enum):
     ADJACENT = 1
 
 colors = {
+    'aqua': (0, 255, 255),
     'black': (0, 0, 0),
     'blue': (0, 0, 255),
     'brown': (165, 42, 42),
@@ -26,10 +27,12 @@ colors = {
     'light_grey': (211, 211, 211),
     'magenta': (255, 0, 255),
     'orange': (255, 165, 0),
+    'pink': (255, 192, 203),
     'purple': (128, 0, 128),
     'red': (255, 0, 0),
     'white': (255, 255, 255),
     'yellow': (255, 255, 0),
+    'yellow_green': (154, 205, 50),
 }
 colors = {k: np.array(v) for k, v in colors.items()}
 
@@ -56,6 +59,8 @@ class TileType():
         self.name = name
         self.prob = prob
         self.color_name = color
+        if color is None:
+            color = 'purple'
         self.color = colors[color]
         self.passable = passable
         self.num = num

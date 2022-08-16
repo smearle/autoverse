@@ -42,6 +42,7 @@ import random
 from typing import Dict, Iterable
 
 import numpy as np
+from objects import ObjectType
 
 from tiles import TileType
 
@@ -80,6 +81,7 @@ class Rule():
         self.max_applications = max_applications
         self.random = random
         self.reward = reward
+        self.compile()
 
     def from_dict(d, names_to_tiles):
         assert len(d) == 1
@@ -172,6 +174,15 @@ class Rule():
                 self._in_out = np.concatenate((self._in_out, new), axis=axis)
         self.compile()
 
+
+class ObjectRule(Rule):
+    def __init__(self, *args, offset=(0, 0), **kwargs):
+        super().__init__(*args, **kwargs)
+        # Expect an object in the first input subpattern at the offset coordinates.
+        assert isinstance(self._in_out[0, 0, offset[0], offset[0]], ObjectType.GameObject)
+
+    def compile(self):
+        super().compile()
 
 class RuleSet(list):
     def __init__(self, rules: Iterable[Rule]):

@@ -13,7 +13,7 @@ import pygame
 
 from events import Event, EventGraph
 from rules import Rule
-from tiles import TileNot, TilePlacement, TileType
+from tiles import ObjectType, TileNot, TilePlacement, TileType
 from variables import Variable
 
 
@@ -21,14 +21,17 @@ class GenEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 16
     
-    def __init__(self, width: int, height: int, tiles: Iterable[TileType], rules: List[Rule], 
+    def __init__(self, width: int, height: int, 
+            tiles: Iterable[TileType], 
+            rules: List[Rule], 
             player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
+            object_types: List[ObjectType] = [],
             search_tiles: List[TileType] = None,
             events: Iterable[Event] = [],
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
             max_episode_steps: int = 100
-            ):
+        ):
         """_summary_
 
         Args:
@@ -59,12 +62,13 @@ class GenEnv(gym.Env):
         self._init_rules = rules
         self.rules = copy.copy(rules)
         self.map: np.ndarray = None
-        self.static_builds: np.ndarray = None
+        self.objects: Iterable[ObjectType.GameObject] = []
+        self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         self.player_pos: Tuple[int] = None
         self.player_force_arr: np.ndarray = None
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         self.build_hist: list = []
+        # self.static_builds: np.ndarray = None
         self.variables = variables
         self.window = None
         self.rend_im: np.ndarray = None
@@ -141,10 +145,11 @@ class GenEnv(gym.Env):
         self._last_reward = 0
         self._reward = 0
         if len(self._map_queue) == 0:
-            self.map = self.gen_random_map()
+            map_arr = self.gen_random_map()
         else:
-            self.map = self._map_queue[self._map_id]
+            map_arr = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
+        self._set_map(map_arr)
         obs = self.get_obs()
         return obs
 
@@ -232,6 +237,8 @@ class GenEnv(gym.Env):
 
     def tick(self):
         self._last_reward = self._reward
+        for obj in self.objects:
+            obj.tick(self)
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
@@ -287,8 +294,11 @@ class GenEnv(gym.Env):
         return hash(search_state.data.tobytes())
 
 
-    def _set_map(self, map_arr):
+    def _set_map(self, map_objset):
+        map_arr, obj_set = map_objset
         self.map = map_arr
+        self.objects = obj_set
+        self.height, self.width = self.map.shape[1:]
         self._compile_map()
 
 
