@@ -5,6 +5,7 @@ class Variable():
         self.value = initial_value
 
     def increment(self):
+        print(f'{self.name} increment')
         self.value += 1
 
     def decrement(self):

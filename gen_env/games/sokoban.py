@@ -7,7 +7,7 @@ from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
 
 def make_env():
     n_crates = 3
-    force = TileType(name='force', prob=0, color=None)
+    force = TileType(name='force', prob=0, color='purple')
     # passable = TileType(name='passable', prob=0, color=None)
     # floor = TileType('floor', prob=0.8, color='white', parents=[passable])
     wall = TileType('wall', prob=0.2, color='black')

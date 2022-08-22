@@ -75,6 +75,7 @@ class PlayEnv(gym.Env):
             self._search_tiles = search_tiles
         self._search_tile_idxs = np.array([tile.idx for tile in self._search_tiles])
         self.event_graph = EventGraph(events)
+        self._has_applied_rule = False
         self.n_step = 0
         self.max_episode_steps = max_episode_steps
         self.w, self.h = width, height
@@ -82,7 +83,7 @@ class PlayEnv(gym.Env):
         # [setattr(tile, 'idx', i) for i, tile in enumerate(tiles)]
         tiles_by_name = {t.name: t for t in tiles}
         # Assuming here that we always have player and floor...
-        self.player_idx = tiles_by_name['player'].idx
+        self.player_idx = tiles_by_name['player'].idx if 'player' in tiles_by_name else 0
         self.tile_probs = [tile.prob for tile in tiles]
         # Add white for background when rendering individual tile-channel images.
         self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.uint8)
@@ -188,9 +189,8 @@ class PlayEnv(gym.Env):
                 for cotile in coactive_tiles:
                     # Activate parent channels of any child tiles wherever the latter are active.
                     map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
-        # obj_set = []
-        # return map_arr, obj_set
-        return map_arr
+        obj_set = []
+        return map_arr, obj_set
 
     def reset(self):
         self._done = False
@@ -203,7 +203,8 @@ class PlayEnv(gym.Env):
         max_rule_shape = max([r._in_out.shape for r in self.rules])
         self.map_padding = (max(max_rule_shape) + 1) // 2
 
-        self.ep_rew = 0
+        self._ep_rew = 0
+        self._has_applied_rule = False
         # Reset rules.
         # self.rules = copy.copy(self._init_rules)
         # Reset variables.
@@ -563,7 +564,7 @@ class PlayEnv(gym.Env):
         self._last_reward = self._reward
         for obj in self.objects:
             obj.tick(self)
-        self.map, self._reward, self._done, rule_time_ms = apply_rules(self.map, self.rules, self.map_padding)
+        self.map, self._reward, self._done, self._has_applied_rule, rule_time_ms = apply_rules(self.map, self.rules, self.map_padding)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
         self._done = self._done or self.n_step >= self.max_episode_steps or len(np.argwhere(self.map[self.player_idx] == 1)) == 0
@@ -598,6 +599,10 @@ class PlayEnv(gym.Env):
     def tick_human(self, state: EnvState):
         import pygame
         done = False
+        # If there is no player, take any action to tick the environment (e.g. during level-generation).
+        if self.player_pos is None:
+            obs, rew, done, info = self.step(0)
+            self.render(mode='pygame')
         # Did the user click the window close button?
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -684,8 +689,11 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     # Add a batch channel to the map
     map = rearrange(map, 'c h w -> () c h w')
 
-    for rule in rules:
+    # for rule in rules:
+    has_applied_rule = False
+    while len(rules) > 0:
         print(rule.name)
+        rule = rules.pop(0)
         if rule in blocked_rules:
             continue
         n_rule_applications = 0
@@ -719,6 +727,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
             sr_activs = (sr_activs == n_constraints).astype(np.int8)
 
             if sr_activs.sum() > 0:
+                has_applied_rule = True
                 print(f'asacasdf')
                 breakpoint()
             
@@ -801,7 +810,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
-    return next_map, reward, done, time_ms
+    return next_map, reward, done, has_applied_rule
 
 def hash_rules(rules):
     """Hash a list of rules to a unique value.

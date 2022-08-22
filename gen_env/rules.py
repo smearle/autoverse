@@ -45,7 +45,7 @@ from einops import rearrange, reduce
 import numpy as np
 
 from gen_env.objects import ObjectType
-from gen_env.tiles import TileType
+from gen_env.tiles import MJTile, TileSet, TileType
 
 
 def tile_to_str(tile: TileType) -> str:
@@ -63,7 +63,7 @@ class Rule():
     """
     def __init__(self, name: str, in_out: Iterable[TileType], rotate: bool = True, reward: int = 0, done: bool = False,
             random: bool = False, max_applications: int = np.inf, inhibits: Iterable = [], children: Iterable = [],
-            application_funcs: Iterable = []):
+            application_funcs: Iterable = [], else_apply: Iterable = []):
         """Process the main subrule `in_out`, potentially rotating it to produce a set of subrules. Also convert 
         subrules from containing TileType objects to their indices for fast matching during simulation.
 
@@ -71,6 +71,7 @@ class Rule():
             name (str): The rule's name. For human-readable purposes.
             in_out (Iterable[TileType]): A sub-rule with shape (2, n_subpatterns, h, w)
             rotate (bool): Whether subpatterns .
+            else_apply (Iterable[Rule]): Rules to apply if this when cannot be applied.
         """
         self.name = name
         self._in_out = in_out
@@ -82,6 +83,7 @@ class Rule():
         self.max_applications = max_applications
         self.random = random
         self.reward = reward
+        self.else_apply = else_apply
         self.n_tile_types = None
 
     def from_dict(d, names_to_tiles):
@@ -243,6 +245,14 @@ def is_valid(in_out):
     # return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() <= 1
     return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 0
 
+class MJRule(Rule):
+    def __init__(self, rule):
+        i, o = rule.split('=')
+        i, o = np.array(list(i)), np.array(list(o))
+        in_out = rearrange([i, o], "io x -> io () () x")
+        super().__init__(name=f"{i}_{o}", in_out=in_out,
+            rotate=True, random=True)
+
 class ObjectRule(Rule):
     def __init__(self, *args, offset=(0, 0), **kwargs):
         super().__init__(*args, **kwargs)
@@ -256,4 +266,24 @@ class RuleSet(list):
     def __init__(self, rules: Iterable[Rule]):
         super().__init__(rules)
         # [rule.compile() for rule in rules]
+
+
+class MJRuleNode(RuleSet):
+    def __init__(self, rules: Iterable[str]):
+        for i, r in enumerate(rules):
+            rules[i] = MJRule(r)
+        super().__init__(rules)
+        symbols = set([s for r in rules for s in r._in_out.flatten()])
+        tile_dict = {}
+        for s in symbols:
+            num, prob = 0, 0
+            if s == "B":
+                prob = 1.0
+            if s == "R":
+                num = 1
+            tile_dict[s] = MJTile(s, num=num, prob=prob)
+        self.tiles = TileSet(list(tile_dict.values()))
+        for r in rules:
+            r._in_out = np.vectorize(tile_dict.get)(r._in_out)
+            r.compile()
 

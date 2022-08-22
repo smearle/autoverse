@@ -4,6 +4,7 @@ from gen_env.games import (
     evo_base,
     hamilton, 
     lava_maze,
+    loop_erased_walk,
     maze, 
     maze_for_evo,
     maze_for_evo_2,

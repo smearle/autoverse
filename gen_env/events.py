@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Iterable
 import networkx as nx
 import numpy as np
@@ -23,6 +24,26 @@ class Event():
         self._tick_func(env)
 
 
+class RuleNode():
+    def __init__(self, name, rules, children):
+        super().__init__(name=name, init_cond=lambda: True, 
+            tick_func=lambda: partial(activate_rules, rules), 
+            done_cond=lambda env: not env._has_applied_rule, 
+            children=children)
+        self.name = name
+        self.rules = rules
+
+
+def get_rule_node_sequence(rule_sets):
+    rule_nodes = []
+    child_nodes = []
+    for rules in rule_sets[::-1]:
+        r_node = RuleNode(name=rules.name, rules=rules, children=child_nodes)
+        child_nodes = [r_node]
+        rule_nodes.append(r_node)
+    return rule_nodes
+
+
 class EventGraph():
     def __init__(self, events: Iterable[Event]):
         self.events = events
@@ -35,6 +56,7 @@ class EventGraph():
             if event.init_cond():
                 event.tick_func(env)
                 if event.done_cond():
+                    print(f'{event.name} done')
                     to_pop.append(event)
         for event in to_pop:
             self.frontier_events.remove(event)

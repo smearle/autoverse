@@ -1,4 +1,5 @@
 from functools import partial
+from math import inf
 from pdb import set_trace as TT
 # from turtle import back
 
@@ -61,6 +62,10 @@ def make_env():
         'maze_is_generated',
         initial_value=0,
     )
+    placed_floors = Variable(
+        'placed_floors',
+        initial_value=0,
+    )
 
     # We'll define these rules essentially in reverse order since they ``inhibit'' one another. Maybe the logic should
     # flow forward instead?
@@ -84,6 +89,38 @@ def make_env():
         ],
     )
     place_goal.compile()
+    place_goal_deadend = Rule(
+        name='place_goal_deadend',
+        in_out=np.array([
+            [
+                [
+                    [wall, wall, wall],
+                    [wall, floor, wall]
+                ],
+                [
+                    [None, None, None],
+                    [None, TileNot(player), None]
+                ]
+            ],
+            [
+                [
+                    [wall, wall, wall],
+                    [wall, goal, wall],
+                ],
+                [
+                    [None, None, None],
+                    [None, None, None],
+                ],
+            ]
+        ]),
+        rotate=True,
+        random=True,
+        max_applications=1,
+        application_funcs=[
+            maze_is_generated.increment
+        ],
+        else_apply=[place_goal],
+    )
     place_player = Rule(
         name='builder_to_player',
         in_out=np.array([
@@ -96,10 +133,11 @@ def make_env():
         ]),
         rotate=False,
         random=True,
-        children=[place_goal],
+        children=[place_goal_deadend],
     )
+    place_player.compile()
     place_floor = Rule(
-        name='build_floor',
+        name='place_floor',
         in_out=np.array([
             [
                 [[corridor]],
@@ -111,6 +149,8 @@ def make_env():
         rotate=False,
         random=True,
         inhibits=[place_player],
+        application_funcs=[placed_floors.increment],
+        max_applications=inf,
     )
     place_floor.compile()
     grow = Rule(
@@ -128,19 +168,22 @@ def make_env():
         random=True,
         inhibits=[place_floor, place_player],
     )
-    # The order of the list containing rules should determine their order of application.
-    maze_gen_rules = RuleSet([grow, place_floor, place_player])
-    place_goal.compile()
     maze_gameplay = Event(
         name='maze_gameplay',
         tick_func=partial(activate_rules, rules=gamepley_rules),
     )
-    generate_maze = Event(
-        name='generate_maze',
-        tick_func=partial(activate_rules, rules=maze_gen_rules),
+    place_floors = Event(
+        name='place_floors',
+        tick_func=partial(activate_rules, rules=[place_floor, place_player]),
         done_cond=lambda: maze_is_generated.value > 0,
         children=[maze_gameplay]
     )
+    grow_maze = Event(
+        name='grow_maze',
+        tick_func=partial(activate_rules, rules=[grow, place_floor]),
+        done_cond=lambda: placed_floors.value > 0,
+        children=[place_floors]
+    )
     env = PlayEnv(height, width, tiles=tiles, rules=gamepley_rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
-                 events=[generate_maze], variables=[maze_is_generated])
+                 events=[grow_maze], variables=[maze_is_generated, placed_floors])
     return env
