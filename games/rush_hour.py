@@ -5,8 +5,9 @@ import numpy as np
 from events import Event, activate_rules
 
 from gen_env import GenEnv, apply_rules
+from objects import ObjectType
 from rules import ObjectRule, Rule, RuleSet
-from tiles import ObjectType, TilePlacement, TileSet, TileType, tiles_to_multihot
+from tiles import TilePlacement, TileSet, TileType, tiles_to_multihot
 from variables import Variable
 
 

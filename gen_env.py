@@ -1,4 +1,5 @@
 import copy
+from dataclasses import dataclass
 from enum import Enum
 from pdb import set_trace as TT
 import time
@@ -12,9 +13,17 @@ import numpy as np
 import pygame
 
 from events import Event, EventGraph
+from objects import ObjectType
 from rules import Rule
-from tiles import ObjectType, TileNot, TilePlacement, TileType
+from tiles import TileNot, TilePlacement, TileType
 from variables import Variable
+
+
+@dataclass
+class GenEnvState:
+    n_step: int
+    map_arr: np.ndarray
+    obj_set: Iterable
 
 
 class GenEnv(gym.Env):
@@ -149,7 +158,7 @@ class GenEnv(gym.Env):
         else:
             map_arr = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
-        self._set_map(map_arr)
+        self._set_state(GenEnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}))
         obs = self.get_obs()
         return obs
 
@@ -275,27 +284,22 @@ class GenEnv(gym.Env):
                 self.render(mode='pygame')
 
     def get_state(self):
-        return {
-            'n_step': self.n_step,  # TODO: Make this a Variable? Maybe not.
-            'map_arr': self.map.copy(),
-        }
+        return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects)
 
-    def set_state(self, state: Dict):
+    def set_state(self, state: GenEnvState):
         state = copy.deepcopy(state)
-        self.n_step = state['n_step']
-        map_arr = state['map_arr']
-        self._set_map(map_arr)
+        self._set_state(state)
         # TODO: setting variables and event graph.
 
     def hashable(self, state):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
-        search_state = state['map_arr'][self._search_tile_idxs]
+        search_state = state.map_arr[self._search_tile_idxs]
         # search_state = state['map_arr']
         return hash(search_state.data.tobytes())
 
 
-    def _set_map(self, map_objset):
-        map_arr, obj_set = map_objset
+    def _set_state(self, state: GenEnvState):
+        map_arr, obj_set = state.map_arr, state.obj_set
         self.map = map_arr
         self.objects = obj_set
         self.height, self.width = self.map.shape[1:]

@@ -44,37 +44,3 @@ class ObjectType():
 
         self.GameObject = GameObject
 
-
-def tiles_to_multihot(tiles: Iterable[TileType], map_arr: np.ndarray) -> np.ndarray:
-    """
-    Convert a 2D array of tiles to a 3D multi-hot encoding of the map.
-
-    Args:
-        tiles (Iterable[TileType]): The tiles to encode.
-        map_arr (np.ndarray): The map to encode.
-
-    Returns:
-        np.ndarray: The multi-hot encoding of the map.
-    """
-    multihot = np.zeros((len(tiles), map_arr.shape[0], map_arr.shape[1]))
-    objects = []
-    for x in range(map_arr.shape[0]):
-        for y in range(map_arr.shape[1]):
-            tile = map_arr[x, y]
-            multihot[tile.get_idx(), x, y] = 1
-            # el = map_arr[x, y]
-            if isinstance(el, TileType):
-                el = [el]
-            elif isinstance(el, dict):
-                obj_type = el.pop('type')
-                obj = obj_type(x=x, y=y, **el)
-                objects.append(obj)
-            # for tile in el:
-                # multihot[tile.get_idx(), x, y] = 1
-    for obj in objects:
-        obj.add_to(obj.pos, multihot)
-
-    def tick(self, env):
-        pass
-
-    return multihot, objects

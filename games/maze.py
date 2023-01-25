@@ -45,7 +45,7 @@ def make_env(height, width):
         ]),
         rotate=True,
         reward=1,
-        done=False,
+        done=True,
     )
     rules = RuleSet([player_move, player_consume_goal])
     env = GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],

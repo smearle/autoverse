@@ -1,5 +1,6 @@
 import argparse
 from collections import namedtuple
+from functools import partial
 import os
 from pathlib import Path
 from pdb import set_trace as TT
@@ -22,11 +23,10 @@ from ray.tune.trial import Trial
 from ray.tune.utils import validate_save_restore
 
 # from env import HamiltonGrid 
-from games import maze
+from games import GAMES, maze, dungeon, make_env_rllib
 from model import CustomFeedForwardModel
 
-# Register custom environment with ray
-register_env("maze", maze.make_env)
+
 
 
 parser = argparse.ArgumentParser()
@@ -178,14 +178,22 @@ def trial_dirname_creator(trial):
 
 
 PROJ_DIR = Path(__file__).parent.parent
-DEBUG = False
 # EnvCls = HamiltonGrid
-EnvCls = maze.make_env()
+EnvCls = maze.make_env(width=16, height=16)
 
-def main(args, exp_cfg):
-    if DEBUG:
+def main(args, exp_cfg, debug):
+    # Register custom environment with ray
+    # register_env("maze", maze.make_env)
+    # register_env("dungeon", dungeon.make_env)
+    env_name = exp_cfg["env"]
+    make_env_func = GAMES[env_name].make_env
+    make_rllib_env = partial(make_env_rllib, make_env_func=make_env_func)
+    register_env("gen_env", make_rllib_env)
+
+
+    if debug:
         # env = EnvCls(dict(w=16, h=16))
-        env = maze.make_env()
+        env = maze.make_env(width=16, height=16)
         for i in range(50):
             env.reset()
             env.render()
@@ -208,10 +216,10 @@ def main(args, exp_cfg):
         # ]),
         "exp_id": 0,
         # "env": EnvCls,  # or "corridor" if registered above
-        "env": "maze",
+        "env": "gen_env",
         "env_config": {
-            # "h": 16,
-            # "w": 16,
+            "width": 16,
+            "height": 16,
             # "static_prob": 0.0,
         },
         # Use GPUs iff 'RLLIB_NUM_GPUS' env var set to > 0.
@@ -238,7 +246,6 @@ def main(args, exp_cfg):
     ray.init()
     # validate_save_restore(CustomPPOTrainer, config=config)
     # env_name = "Hamilton"
-    env_name = "maze"
     algo_name = "PPO"
     # For convenience, organizing log directories.
     trainer_name = f"{env_name}_{algo_name}"
@@ -295,10 +302,11 @@ if __name__ == "__main__":
             # 1e-2,
             1e-3,
         ],
+        "env": ["dungeon"],
     }
     exp_cfgs = [{k: batch_cfg[k][0] for k in batch_cfg}]
     for k, v in batch_cfg.items():
         for i in v[1:]:
             exp_cfgs += [{**exp_cfg, k: i} for exp_cfg in exp_cfgs]
     for exp_cfg in exp_cfgs:
-        main(args, exp_cfg)
+        main(args, exp_cfg, debug=False)
