@@ -10,7 +10,7 @@ from fire import Fire
 import numpy as np
 import ray
 from ray import tune
-from ray.rllib.agents.ppo import PPOTrainer
+from ray.rllib.agents.ppo import PPOTrainer, PPOConfig
 from ray.rllib.models import ModelCatalog
 from ray.tune import Callback, CLIReporter, ExperimentAnalysis, grid_search, Stopper
 from ray.tune.automl import ContinuousSpace, DiscreteSpace
@@ -25,6 +25,7 @@ from ray.tune.utils import validate_save_restore
 # from env import HamiltonGrid 
 from games import GAMES, maze, dungeon, make_env_rllib
 from model import CustomFeedForwardModel
+from utils import save_video
 
 
 
@@ -35,6 +36,7 @@ parser.add_argument("--resume", action="store_true")
 parser.add_argument("--resume_sequential", action="store_true", help="A bit of a hack. Resumes one experiment at a time "
     "if we need to run it for more iterations than specified in the initial config")
 parser.add_argument("--render", action="store_true")
+parser.add_argument("--record", action="store_true")
 # parser.add_argument("--algo", type=str, default="PPO")
 # parser.add_argument("--torch", action="store_true")
 # parser.add_argument("--as-test", action="store_true")
@@ -223,7 +225,7 @@ def main(args, exp_cfg, debug):
             # "static_prob": 0.0,
         },
         # Use GPUs iff 'RLLIB_NUM_GPUS' env var set to > 0.
-        "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "0")),
+        "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "1")),
         "model": {
             "custom_model": "my_model",
             "vf_share_layers": True,
@@ -233,6 +235,11 @@ def main(args, exp_cfg, debug):
         "train_batch_size": 16000,
         "render_env": args.render,
         "num_envs_per_worker": 20,
+        "monitor": True,
+        # "evaluation_config":
+        #     {
+        #         "render_env": True,
+        #     },
     }
 
     # FIXME: Can't reload multiple trials at once with different (longer) stop condition. So not including any stop
@@ -259,9 +266,9 @@ def main(args, exp_cfg, debug):
             name=exp_name,
             callbacks=[CustomCallbacks()],
             checkpoint_at_end = True,
-            checkpoint_freq=10,
+            checkpoint_freq=1,
             config=config, 
-            keep_checkpoints_num=1,
+            keep_checkpoints_num=2,
             local_dir=local_dir,
             progress_reporter=reporter,
             reuse_actors=True,
@@ -284,9 +291,28 @@ def main(args, exp_cfg, debug):
         for ckp_path in ckp_paths:
             if args.infer:
                 trainer.restore(ckp_path[0])
+                if args.record:
+                    # Manually step through an apisode and collect RGB frames from rendering
+                    env = trainer.workers.local_worker().env
+                    for ep_i in range(10):
+                        obs = env.reset()
+                        done = False
+                        frames = []
+                        while not done:
+                            # Get actions from the policy
+                            action_dict = trainer.compute_action(obs)
+                            # Take actions in the environment
+                            obs, reward, done, info = env.step(action_dict)
+                            # Render the environment
+                            frames.append(env.render(mode="rgb_array"))
+                        # Save the frames as a video
+                        video_path = os.path.join(local_dir, exp_name, f"{os.path.basename(ckp_path[0])}_ep-{ep_i}.mp4")
+                        save_video(frames, video_path, fps=10)
+
                 for i in range(10):
                     print(f'eval {i}')
                     trainer.evaluate()
+                    breakpoint()
             # elif args.resume_sequential:
                 # analysis = launch_analysis()
     else:

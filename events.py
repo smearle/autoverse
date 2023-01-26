@@ -19,7 +19,7 @@ class Event():
         self.done_cond = done_cond
 
     def tick_func(self, env):
-        print(f'{self.name} tick')
+        # print(f'{self.name} tick')
         self._tick_func(env)
 
 

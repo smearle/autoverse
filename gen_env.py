@@ -10,6 +10,7 @@ from einops import rearrange, repeat
 import gym
 from gym import spaces
 import numpy as np
+from PIL import ImageFont, ImageDraw, Image
 import pygame
 
 from events import Event, EventGraph
@@ -30,7 +31,7 @@ class GenEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 16
     
-    def __init__(self, width: int, height: int, 
+    def __init__(self, width: int, height: int,
             tiles: Iterable[TileType], 
             rules: List[Rule], 
             player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
@@ -200,12 +201,51 @@ class GenEnv(gym.Env):
             int_map[self.map[tile.idx] == 1] = tile.idx
             tile_map = np.where(self.map[tile.idx] == 1, tile.idx, -1)
             tile_im = self.tile_colors[tile_map]
+            # Pad the tile image and add text to the bottom
+            tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+            tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+            # Get text as rgb np array
+            text = tile.name
+            # Draw text on image
+            # font = ImageFont.truetype("arial.ttf", 20)
+            # Get font available on mac 
+            font = ImageFont.load_default()
+            img_pil = Image.fromarray(tile_im)
+            draw = ImageDraw.Draw(img_pil)
+            draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
+            tile_im = np.array(img_pil)
+
             tile_ims.append(tile_im)
-        self.rend_im = self.tile_colors[int_map]
-        tiles_rend_im = np.concatenate(tile_ims, axis=0)
-        self.rend_im = np.concatenate([self.rend_im, tiles_rend_im], axis=0)
+        # Flat render of all tiles
+        tile_im = self.tile_colors[int_map]
+        tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+        tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+        tile_ims = [tile_im] + tile_ims
+
+        map_h, map_w = tile_ims[0].shape[:-1]
+
+        # Add empty images to the end of the tile images to fill out the grid
+        n_tiles = len(tile_ims)
+        # Find the smallest square number greater than or equal to n_tiles
+        n_tiles_sqrt = int(np.ceil(np.sqrt(n_tiles)))
+        n_tiles_sqrt2 = n_tiles_sqrt ** 2
+        n_empty_tiles = n_tiles_sqrt2 - n_tiles
+        empty_tile_im = np.zeros((map_h, map_w, 3), dtype=np.uint8)
+        empty_tile_ims = [empty_tile_im] * n_empty_tiles
+        tile_ims += empty_tile_ims
+        # Reshape the tile images into a grid
+        tile_ims = np.array(tile_ims)
+        tile_ims = tile_ims.reshape(n_tiles_sqrt, n_tiles_sqrt, map_h, map_w, 3)
+        # Add padding between tiles
+        pw = 2
+        tile_ims = np.pad(tile_ims, ((0, 0), (0, 0), (pw, pw), (pw, pw), (0, 0)), mode='constant', constant_values=0)
+        # Concatenate the tile images into a single image
+        tile_ims = rearrange(tile_ims, 'n1 n2 h w c -> (n1 h) (n2 w) c')
+        self.rend_im = tile_ims
+
+        # self.rend_im = np.concatenate([self.rend_im, tiles_rend_im], axis=0)
         # self.rend_im = repeat(self.rend_im, 'h w -> h w 3')
-        self.rend_im = repeat(self.rend_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+        # self.rend_im = repeat(self.rend_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
         # b0 = self.build_hist[0]
         # for b1 in self.build_hist[1:]:
             # x0, x1 = sorted([b0[0], b1[0]])
@@ -223,6 +263,8 @@ class GenEnv(gym.Env):
             cv2.imshow('Generated Environment', rend_im)
             cv2.waitKey(1)
             return
+        elif mode == "rgb_array":
+            return self.rend_im
         if mode == "pygame":
             # Map human-input keys to action indices. Here we assume the first 4 actions correspond to player navigation 
             # (i.e. placement of `force` at adjacent tiles).
