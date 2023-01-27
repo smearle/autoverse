@@ -60,6 +60,7 @@ class Rule():
     consist of multiple subpatterns, which may all match in order for the subrule to be applied.
     Input and output are 2D patches of tiles.
     """
+    len_obs = 5
     def __init__(self, name: str, in_out: Iterable[TileType], rotate: bool = True, reward: int = 0, done: bool = False,
             random: bool = False, max_applications: int = 1, inhibits: Iterable = [], children: Iterable = [],
             application_funcs: Iterable = [],):
@@ -127,7 +128,7 @@ class Rule():
         self.subrules = subrules
 
     def observe(self):
-        return np.array([self.done, self.reward, self.max_applications, self.random, self._rotate,])
+        return np.array([self.done, (self.reward + 1) / 2, self.max_applications / 11, self.random, self._rotate,])
 
     def mutate(self, tiles, other_rules):
         n_muts = 7

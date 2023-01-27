@@ -3,10 +3,7 @@ from collections import namedtuple
 from functools import partial
 import os
 from pathlib import Path
-from pdb import set_trace as TT
 from typing import List, Optional, Tuple
-from venv import create
-from fire import Fire
 import hydra
 import numpy as np
 import ray
@@ -198,14 +195,28 @@ def main(cfg):
 
     if cfg.debug:
         # env = EnvCls(dict(w=16, h=16))
+
+        print("Debug: Creating env...")
         env = maze.make_env(width=16, height=16)
-        for i in range(50):
+        print("Debuging environment with random actions.")
+        for i in range(5):
             env.reset()
             # env.render()
             done = False
             while not done:
                 obs, reward, done, info = env.step(env.action_space.sample())
                 # env.render()
+        
+        # print("Debug: Creating model...")
+        # model = CustomFeedForwardModel(env.observation_space, env.action_space, cfg)
+        # print("Debugging environment with model actions.")
+        # for i in range(5):
+        #     env.reset()
+        #     # env.render()
+        #     done = False
+        #     while not done:
+        #         obs, reward, done, info = env.step(model.forward(obs))
+        #         # env.render()
 
     ModelCatalog.register_custom_model(
         "my_model", CustomFeedForwardModel
@@ -229,7 +240,8 @@ def main(cfg):
             # "static_prob": 0.0,
         },
         # Use GPUs iff 'RLLIB_NUM_GPUS' env var set to > 0.
-        "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "1")),
+        # "num_gpus": int(os.environ.get("RLLIB_NUM_GPUS", "1")),
+        "num_gpus": cfg.num_gpus,
         "model": {
             "custom_model": "my_model",
             "vf_share_layers": True,

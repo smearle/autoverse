@@ -73,7 +73,13 @@ class GenEnv(gym.Env):
         self.rules = copy.copy(rules)
         self.map: np.ndarray = None
         self.objects: Iterable[ObjectType.GameObject] = []
-        self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
+        # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
+        # Dictionary observation space containing box 2d map and flat list of rules
+        len_rule_obs = len(self.rules[0].observe())
+        self.observation_space = spaces.Dict({
+            'map': spaces.Box(0, 1, (self.w, self.h, len(self.tiles))),
+            'rules': spaces.Box(0, 1, (len_rule_obs * len(self.rules),))
+        })
         self.player_pos: Tuple[int] = None
         self.player_force_arr: np.ndarray = None
         self.action_space = spaces.Discrete(4)
@@ -187,11 +193,11 @@ class GenEnv(gym.Env):
         self.map[new_tile, pos[0], pos[1]] = 1
 
     def get_obs(self):
-        return self.observe_map()
-        # return {
-        #     'map': self.observe_map(),
-        #     'rules': self.observe_rules(),
-        # }
+        # return self.observe_map()
+        return {
+            'map': self.observe_map(),
+            'rules': self.observe_rules(),
+        }
 
     def observe_map(self):
         obs = rearrange(self.map, 'b h w -> h w b')
