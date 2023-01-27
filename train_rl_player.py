@@ -7,6 +7,7 @@ from pdb import set_trace as TT
 from typing import List, Optional, Tuple
 from venv import create
 from fire import Fire
+import hydra
 import numpy as np
 import ray
 from ray import tune
@@ -19,7 +20,7 @@ from ray.tune.automl.search_space import SearchSpace
 from ray.tune.registry import register_env
 from ray.tune.suggest import Repeater, SearchAlgorithm
 from ray.tune.suggest.basic_variant import BasicVariantGenerator
-from ray.tune.trial import Trial
+from ray.tune.experiment.trial import Trial
 from ray.tune.utils import validate_save_restore
 
 # from env import HamiltonGrid 
@@ -183,39 +184,42 @@ PROJ_DIR = Path(__file__).parent.parent
 # EnvCls = HamiltonGrid
 EnvCls = maze.make_env(width=16, height=16)
 
-def main(args, exp_cfg, debug):
+
+@hydra.main(config_path="configs", config_name="config")
+def main(cfg):
     # Register custom environment with ray
     # register_env("maze", maze.make_env)
     # register_env("dungeon", dungeon.make_env)
-    env_name = exp_cfg["env"]
+    env_name = cfg.env
+    # env_name = exp_cfg["env"]
     make_env_func = GAMES[env_name].make_env
     make_rllib_env = partial(make_env_rllib, make_env_func=make_env_func)
     register_env("gen_env", make_rllib_env)
 
-
-    if debug:
+    if cfg.debug:
         # env = EnvCls(dict(w=16, h=16))
         env = maze.make_env(width=16, height=16)
         for i in range(50):
             env.reset()
-            env.render()
+            # env.render()
             done = False
             while not done:
                 obs, reward, done, info = env.step(env.action_space.sample())
-                env.render()
+                # env.render()
 
     ModelCatalog.register_custom_model(
         "my_model", CustomFeedForwardModel
     )
 
     config = {
-        **exp_cfg,
+        # **exp_cfg,
         # "lr": grid_search([
         #     1e-2, 
         #     1e-3, 
         #     # 1e-4,
         #     # 1e-5,
         # ]),
+        "lr": cfg.lr,
         "exp_id": 0,
         # "env": EnvCls,  # or "corridor" if registered above
         "env": "gen_env",
@@ -230,10 +234,10 @@ def main(args, exp_cfg, debug):
             "custom_model": "my_model",
             "vf_share_layers": True,
         },
-        "num_workers": 6 if not args.infer else 0,  # parallelism
+        "num_workers": cfg.num_workers if not cfg.infer else 0,  # parallelism
         "framework": "torch",
         "train_batch_size": 16000,
-        "render_env": args.render,
+        "render_env": cfg.render,
         "num_envs_per_worker": 20,
         "monitor": True,
         # "evaluation_config":
@@ -258,7 +262,7 @@ def main(args, exp_cfg, debug):
     trainer_name = f"{env_name}_{algo_name}"
     tune.register_trainable(trainer_name, CustomPPOTrainer)
     local_dir = "./runs"
-    exp_name =f"{trainer_name}_{create_trial_name(exp_cfg)}"
+    exp_name =f"{trainer_name}_{create_trial_name(cfg)}"
 
     def launch_analysis():
         return tune.run(
@@ -266,13 +270,13 @@ def main(args, exp_cfg, debug):
             name=exp_name,
             callbacks=[CustomCallbacks()],
             checkpoint_at_end = True,
-            checkpoint_freq=1,
+            checkpoint_freq=10,
             config=config, 
             keep_checkpoints_num=2,
             local_dir=local_dir,
             progress_reporter=reporter,
             reuse_actors=True,
-            resume="AUTO" if args.resume else False,
+            resume="AUTO" if cfg.resume else False,
             # resume=False,
             # search_alg=search_alg if args.resume else None,
             stop=stop,
@@ -281,7 +285,7 @@ def main(args, exp_cfg, debug):
             verbose=1,
         )
 
-    if args.infer:
+    if cfg.infer:
         config['lr'] = 0.0  # dummy to allow us to initialize the trainer without issue
         trainer = CustomPPOTrainer(config=config)
         analysis = ExperimentAnalysis(os.path.join(local_dir, exp_name))
@@ -289,30 +293,29 @@ def main(args, exp_cfg, debug):
         assert np.all([len(paths) == 1 for paths in ckp_paths]), f"Expected 1 checkpoint per trial, got {[len(paths) for paths in ckp_paths]}."
         ckp_paths = [p for paths in ckp_paths for p in paths]
         for ckp_path in ckp_paths:
-            if args.infer:
-                trainer.restore(ckp_path[0])
-                if args.record:
-                    # Manually step through an apisode and collect RGB frames from rendering
-                    env = trainer.workers.local_worker().env
-                    for ep_i in range(10):
-                        obs = env.reset()
-                        done = False
-                        frames = []
-                        while not done:
-                            # Get actions from the policy
-                            action_dict = trainer.compute_action(obs)
-                            # Take actions in the environment
-                            obs, reward, done, info = env.step(action_dict)
-                            # Render the environment
-                            frames.append(env.render(mode="rgb_array"))
-                        # Save the frames as a video
-                        video_path = os.path.join(local_dir, exp_name, f"{os.path.basename(ckp_path[0])}_ep-{ep_i}.mp4")
-                        save_video(frames, video_path, fps=10)
+            trainer.restore(ckp_path[0])
+            if cfg.record:
+                # Manually step through an apisode and collect RGB frames from rendering
+                env = trainer.workers.local_worker().env
+                for ep_i in range(10):
+                    obs = env.reset()
+                    done = False
+                    frames = []
+                    while not done:
+                        # Get actions from the policy
+                        action_dict = trainer.compute_action(obs)
+                        # Take actions in the environment
+                        obs, reward, done, info = env.step(action_dict)
+                        # Render the environment
+                        frames.append(env.render(mode="rgb_array"))
+                    # Save the frames as a video
+                    video_path = os.path.join(local_dir, exp_name, f"{os.path.basename(ckp_path[0])}_ep-{ep_i}.mp4")
+                    save_video(frames, video_path, fps=10)
 
-                for i in range(10):
-                    print(f'eval {i}')
-                    trainer.evaluate()
-                    breakpoint()
+            for i in range(10):
+                print(f'eval {i}')
+                trainer.evaluate()
+                breakpoint()
             # elif args.resume_sequential:
                 # analysis = launch_analysis()
     else:
@@ -320,19 +323,19 @@ def main(args, exp_cfg, debug):
         ray.shutdown()
 
 
-
 if __name__ == "__main__":
-    args = parser.parse_args()
-    batch_cfg = {
-        "lr": [
-            # 1e-2,
-            1e-3,
-        ],
-        "env": ["dungeon"],
-    }
-    exp_cfgs = [{k: batch_cfg[k][0] for k in batch_cfg}]
-    for k, v in batch_cfg.items():
-        for i in v[1:]:
-            exp_cfgs += [{**exp_cfg, k: i} for exp_cfg in exp_cfgs]
-    for exp_cfg in exp_cfgs:
-        main(args, exp_cfg, debug=False)
+    main()
+
+    # args = parser.parse_args()
+    # batch_cfg = {
+    #     "lr": [
+    #         # 1e-2,
+    #         1e-3,
+    #     ],
+    #     "env": ["dungeon"],
+    # }
+    # exp_cfgs = [{k: batch_cfg[k][0] for k in batch_cfg}]
+    # for k, v in batch_cfg.items():
+    #     for i in v[1:]:
+    #         exp_cfgs += [{**exp_cfg, k: i} for exp_cfg in exp_cfgs]
+    # for exp_cfg in exp_cfgs:

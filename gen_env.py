@@ -187,8 +187,18 @@ class GenEnv(gym.Env):
         self.map[new_tile, pos[0], pos[1]] = 1
 
     def get_obs(self):
+        return self.observe_map()
+        # return {
+        #     'map': self.observe_map(),
+        #     'rules': self.observe_rules(),
+        # }
+
+    def observe_map(self):
         obs = rearrange(self.map, 'b h w -> h w b')
         return obs.astype(np.float32)
+
+    def observe_rules(self):
+        return np.concatenate([r.observe() for r in self.rules])
     
     def render(self, mode='human'):
         tile_size = self.tile_size

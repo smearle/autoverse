@@ -35,7 +35,10 @@ def shortest_path(multihot, traversable_tiles, src_tile, trg_tile, out_tile):
             edges.append((u, v))
         edges.append((u, u))
 
-    path = nx.shortest_path(graph, src, trg)
+    try:
+        path = nx.shortest_path(graph, src, trg)
+    except nx.NetworkXNoPath:
+        return multihot
     path = np.array([id_to_xy(idx, width) for idx in path])
     multihot[out_tile.idx, path[1:, 0], path[1:, 1]] = 1
 

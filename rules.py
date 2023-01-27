@@ -126,31 +126,35 @@ class Rule():
                 np.rot90(in_out, k=3, axes=(2,3))]
         self.subrules = subrules
 
+    def observe(self):
+        return np.array([self.done, self.reward, self.max_applications, self.random, self._rotate,])
+
     def mutate(self, tiles, other_rules):
+        n_muts = 7
         x = random.random()
-        if x < 0.1:
+        if x < 1 / n_muts:
             return
-        elif x < 0.2:
+        elif x < 2 / n_muts:
             self.random = not self.random
-        elif x < 0.3:
+        elif x < 3 / n_muts:
             self.done = not self.done
-        elif x < 0.4:
-            self.reward = random.randint(0, 100)
-        elif x < 0.5:
+        elif x < 4 / n_muts:
+            self.reward = random.randint(-1, 1)
+        elif x < 5 / n_muts:
             self.max_applications = random.randint(0, 11)
             self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
-        elif x < 0.6:
+        elif x < 6 / n_muts:
             self._rotate = not self._rotate
-        elif x < 0.7:
-            self.inhibits = random.sample(other_rules, random.randint(0, len(other_rules)))
-        elif x < 0.8:
-            self.children = random.sample(other_rules, random.randint(0, len(other_rules)))
-        elif x < 0.9:
+        # elif x < 0.7:
+        #     self.inhibits = random.sample(other_rules, random.randint(0, len(other_rules)))
+        # elif x < 0.8:
+        #     self.children = random.sample(other_rules, random.randint(0, len(other_rules)))
+        elif x < 7 / n_muts:
             # Flip something in the in-out pattern.
             io_idx = random.randint(0, 1)
             subp_idx = random.randint(0, self._in_out.shape[1] - 1)
             if self._in_out.shape[2] == 0:
-                TT()
+                raise Exception('Cannot mutate rule with no subpatterns')
             i = random.randint(0, self._in_out.shape[2] - 1)
             j = random.randint(0, self._in_out.shape[3] - 1)
             tile = self._in_out[io_idx, subp_idx, i, j]

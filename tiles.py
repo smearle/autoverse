@@ -52,8 +52,8 @@ class TileType():
             parents (List[TileType]): A list of tile types from which this tile can be considered a sub-type. Useful 
                 for rules that consider parent types. (Deprecated)
             cooccurs (List[TileType]): A list of tile types that co-occur with this tile. At each tick, these tiles will
-                spawn/overlap with any instances of this tile.
-            inhibits (List[TileType]): A list of tile types that inhibit this tile. At each tick, these tiles will be
+                spawn to overlap with any instances of this tile.
+            inhibits (List[TileType]): A list of tile types that are inhibited by this tile. At each tick, these tiles will be
                 removed wherever this tile is present.
         """
         self.name = name
@@ -70,6 +70,9 @@ class TileType():
         self.inhibits = inhibits
         # When this tile is ``active'' in the multihot encoding. Overwritten by TileNot wrapper for pattern matching.
         self.trg_val = 1  
+
+    def observe(self):
+        return np.array([self.prob, self.num])
 
     def mutate(self, other_tiles):
         x = random.random()
