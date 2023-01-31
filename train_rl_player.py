@@ -182,7 +182,7 @@ PROJ_DIR = Path(__file__).parent.parent
 EnvCls = maze.make_env(width=16, height=16)
 
 
-@hydra.main(config_path="configs", config_name="config")
+@hydra.main(config_path="configs", config_name="rl")
 def main(cfg):
     # Register custom environment with ray
     # register_env("maze", maze.make_env)

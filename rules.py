@@ -128,55 +128,64 @@ class Rule():
         self.subrules = subrules
 
     def observe(self):
-        return np.array([self.done, (self.reward + 1) / 2, self.max_applications / 11, self.random, self._rotate,])
+        return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
 
     def mutate(self, tiles, other_rules):
-        n_muts = 7
+        n_muts = 1
         x = random.random()
-        if x < 1 / n_muts:
-            return
-        elif x < 2 / n_muts:
-            self.random = not self.random
-        elif x < 3 / n_muts:
-            self.done = not self.done
-        elif x < 4 / n_muts:
-            self.reward = random.randint(-1, 1)
-        elif x < 5 / n_muts:
-            self.max_applications = random.randint(0, 11)
-            self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
-        elif x < 6 / n_muts:
-            self._rotate = not self._rotate
-        # elif x < 0.7:
+        if False:
+            pass
+        # if x < 1 / n_muts:
+        #     return
+        # elif x < 2 / n_muts:
+        #     self.random = not self.random
+        # elif x < 3 / n_muts:
+        #     self.done = not self.done
+        # elif x < 4 / n_muts:
+        #     self.reward = random.randint(0, 3)
+        # elif x < 5 / n_muts:
+        #     self.max_applications = random.randint(0, 11)
+        #     self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
+        # elif x < 6 / n_muts:
+        #     self._rotate = not self._rotate
+        # elif x < 7 / n_muts:
         #     self.inhibits = random.sample(other_rules, random.randint(0, len(other_rules)))
-        # elif x < 0.8:
+        # elif x < 8 / n_muts:
         #     self.children = random.sample(other_rules, random.randint(0, len(other_rules)))
-        elif x < 7 / n_muts:
-            # Flip something in the in-out pattern.
-            io_idx = random.randint(0, 1)
-            subp_idx = random.randint(0, self._in_out.shape[1] - 1)
-            if self._in_out.shape[2] == 0:
-                raise Exception('Cannot mutate rule with no subpatterns')
-            i = random.randint(0, self._in_out.shape[2] - 1)
-            j = random.randint(0, self._in_out.shape[3] - 1)
-            tile = self._in_out[io_idx, subp_idx, i, j]
-            tile_idx = tile.get_idx() if tile is not None else len(tiles)
-            tiles_none = tiles + [None]
-            self._in_out[io_idx, subp_idx, i, j] = tiles_none[(tile_idx + random.randint(1, len(tiles) - 1)) % (len(tiles) + 1)]
         else:
-            # Add something to the in-out pattern. Either a new subpattern, new rows, or new columns
-            axis = random.randint(1, 3)
-            diff = random.randint(0, 1)
-            if diff == 0 and self._in_out.shape[axis] > 1 or self._in_out.shape[axis] == 3:
-                # Index of subpattern/row/column to be removed
-                i = random.randint(0, self._in_out.shape[axis] - 1)
-                self._in_out = np.delete(self._in_out, i, axis=axis)
+            if 1 < 7 / n_muts:
+                # Flip something in the in-out pattern.
+                io_idx = random.randint(0, 1)
+                subp_idx = random.randint(0, self._in_out.shape[1] - 1)
+                if self._in_out.shape[2] == 0:
+                    raise Exception('Cannot mutate rule with no subpatterns')
+                i = random.randint(0, self._in_out.shape[2] - 1)
+                j = random.randint(0, self._in_out.shape[3] - 1)
+                tile = self._in_out[io_idx, subp_idx, i, j]
+                tile_idx = tile.get_idx() if tile is not None else len(tiles)
+                tiles_none = tiles + [None]
+                new_in_out = self._in_out.copy()
+                new_in_out[io_idx, subp_idx, i, j] = tiles_none[(tile_idx + random.randint(1, len(tiles) - 1)) % (len(tiles) + 1)]
             else:
-                new_shape = list(self._in_out.shape)
-                new_shape[axis] = 1
-                new = np.random.randint(0, len(tiles) + 1, new_shape)
-                # new = np.vectorize(lambda x: tiles[x] if x < len(tiles) else None)(new)
-                new = np.array(tiles + [None])[new]
-                self._in_out = np.concatenate((self._in_out, new), axis=axis)
+                # Add something to the in-out pattern. Either a new subpattern, new rows, or new columns
+                axis = random.randint(1, 3)
+                diff = random.randint(0, 1)
+                if diff == 0 and self._in_out.shape[axis] > 1 or self._in_out.shape[axis] == 3:
+                    # Index of subpattern/row/column to be removed
+                    i = random.randint(0, self._in_out.shape[axis] - 1)
+                    new_in_out = np.delete(self._in_out, i, axis=axis)
+                else:
+                    new_shape = list(self._in_out.shape)
+                    new_shape[axis] = 1
+                    new = np.random.randint(0, len(tiles) + 1, new_shape)
+                    # new = np.vectorize(lambda x: tiles[x] if x < len(tiles) else None)(new)
+                    new = np.array(tiles + [None])[new]
+                    new_in_out = np.concatenate((self._in_out, new), axis=axis)
+
+            # Accept new in-out rule only if it does not result in invalid player transformation. 
+            in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(new_in_out)
+            if in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 1:
+                self._in_out = new_in_out
         self.compile()
 
 

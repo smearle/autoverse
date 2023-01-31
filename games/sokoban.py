@@ -32,6 +32,7 @@ def make_env(height, width):
             ],
         ]),
         rotate=True,
+        max_applications=inf,
     )
     crate_on_target = Rule(
         'crate_on_target',
@@ -47,9 +48,10 @@ def make_env(height, width):
                 [[None]],
             ]
         ]),
-        max_applications=inf,
+        # max_applications=inf,
         rotate=False,
-        reward=1
+        reward=1,
+        max_applications=inf,
     )
     # This prevents player from passing through crates when they are on targets (and against a wall).
     crate_kill_force = Rule(
@@ -78,7 +80,8 @@ def make_env(height, width):
                 [[None, None, None]],  # No effect.
             ]
         ]),
-        max_applications=1,
+        max_applications=inf,
+        # max_applications=1,
         rotate=True,
         reward=0,
         inhibits=[player_move, crate_kill_force],

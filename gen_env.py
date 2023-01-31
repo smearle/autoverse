@@ -1,7 +1,7 @@
 import copy
 from dataclasses import dataclass
 from enum import Enum
-from pdb import set_trace as TT
+import random
 import time
 from typing import Dict, Iterable, List, Tuple
 
@@ -17,6 +17,7 @@ from events import Event, EventGraph
 from objects import ObjectType
 from rules import Rule
 from tiles import TileNot, TilePlacement, TileType
+from utils import draw_triangle
 from variables import Variable
 
 
@@ -30,6 +31,7 @@ class GenEnvState:
 class GenEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 16
+    view_size = 3
     
     def __init__(self, width: int, height: int,
             tiles: Iterable[TileType], 
@@ -51,6 +53,7 @@ class GenEnv(gym.Env):
             rules (list): A list of Rule objects, between TileTypes.
             done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
+        self._ep_rew = 0
         self._done = False
         if search_tiles is None:
             self._search_tiles = tiles
@@ -82,7 +85,10 @@ class GenEnv(gym.Env):
         })
         self.player_pos: Tuple[int] = None
         self.player_force_arr: np.ndarray = None
-        self.action_space = spaces.Discrete(4)
+        # No rotation
+        # self.action_space = spaces.Discrete(4)
+        # Rotation
+        self.action_space = spaces.Discrete(3)
         self.build_hist: list = []
         # self.static_builds: np.ndarray = None
         self.variables = variables
@@ -95,7 +101,10 @@ class GenEnv(gym.Env):
             if placement == TilePlacement.CURRENT:
                 self._actions += [(tile.idx, 0)]
             elif placement == TilePlacement.ADJACENT:
-                self._actions += [(tile.idx, i) for i in range(1, 5)]
+                # No rotation
+                # self._actions += [(tile.idx, i) for i in range(1, 5)]
+                # Rotation
+                self._actions += [tile.idx]
             else:
                 raise Exception
         self._done_at_reward = done_at_reward
@@ -111,6 +120,8 @@ class GenEnv(gym.Env):
             self.player_pos = None
             return
             # TT()
+        if self.player_pos.shape[0] > 1:
+            raise Exception("More than one player on map.")
         # assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
         
@@ -152,6 +163,7 @@ class GenEnv(gym.Env):
         return map_arr
 
     def reset(self):
+        self._ep_rew = 0
         # Reset rules.
         self.rules = copy.copy(self._init_rules)
         # Reset variables.
@@ -166,6 +178,9 @@ class GenEnv(gym.Env):
             map_arr = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
         self._set_state(GenEnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}))
+        self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
+        self.player_rot = 0
+        self._rot_dirs = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         obs = self.get_obs()
         return obs
 
@@ -178,16 +193,27 @@ class GenEnv(gym.Env):
         if self._done:
             pass
             # print('done at step')
+        self._ep_rew += reward
         return self.get_obs(), reward, self._done, {}
 
     def act(self, action):
         if self.player_pos is None:
             return
-        if action >= len(self._actions):
+        # if action >= len(self._actions):
+        #     return
+        if action < 2:
+            rot = self.player_rot + (1 if action == 0 else -1)
+            self.player_rot = rot % 4
             return
-        new_tile, placement_id = self._actions[action]
+        # No rotation
+        # new_tile, placement_id = self._actions[action]
+        # pos = self.player_pos + self.placement_positions[placement_id]
+
+        # Rotation
+        new_tile = self._actions[action - 2]
+        pos = self.player_pos + self._rot_dirs[self.player_rot]
+
         # Do not place anything over the edge of the map. Should we wrap by default instead?
-        pos = self.player_pos + self.placement_positions[placement_id]
         if np.any(pos < 0) or pos[0] >= self.w or pos[1] >= self.h:
             return
         self.map[new_tile, pos[0], pos[1]] = 1
@@ -197,16 +223,23 @@ class GenEnv(gym.Env):
         return {
             'map': self.observe_map(),
             'rules': self.observe_rules(),
+            'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
         }
 
     def observe_map(self):
         obs = rearrange(self.map, 'b h w -> h w b')
+        # Crop map to player's view.
+        if self.player_pos is not None:
+            x, y = self.player_pos
+            obs = obs[x - self.view_size: x + self.view_size + 1,
+                      y - self.view_size: y + self.view_size + 1]
         return obs.astype(np.float32)
 
     def observe_rules(self):
         return np.concatenate([r.observe() for r in self.rules])
     
     def render(self, mode='human'):
+        font = ImageFont.load_default()
         tile_size = self.tile_size
         # self.rend_im = np.zeros_like(self.int_map)
         # Create an int map where the last tiles in `self.tiles` take priority.
@@ -216,16 +249,22 @@ class GenEnv(gym.Env):
             # if tile.color is not None:
             int_map[self.map[tile.idx] == 1] = tile.idx
             tile_map = np.where(self.map[tile.idx] == 1, tile.idx, -1)
-            tile_im = self.tile_colors[tile_map]
-            # Pad the tile image and add text to the bottom
-            tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-            tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+            # If this is the player, render as a triangle according to its rotation
+            if tile.name == 'player':
+                tile_im = np.zeros_like(self.tile_colors[tile_map]) + 255
+                tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+                tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+                tile_im = draw_triangle(tile_im, self.player_pos, self.player_rot, tile.color, tile_size)
+            else: 
+                tile_im = self.tile_colors[tile_map]
+                # Pad the tile image and add text to the bottom
+                tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+                tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
             # Get text as rgb np array
             text = tile.name
             # Draw text on image
             # font = ImageFont.truetype("arial.ttf", 20)
             # Get font available on mac 
-            font = ImageFont.load_default()
             img_pil = Image.fromarray(tile_im)
             draw = ImageDraw.Draw(img_pil)
             draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
@@ -257,6 +296,15 @@ class GenEnv(gym.Env):
         tile_ims = np.pad(tile_ims, ((0, 0), (0, 0), (pw, pw), (pw, pw), (0, 0)), mode='constant', constant_values=0)
         # Concatenate the tile images into a single image
         tile_ims = rearrange(tile_ims, 'n1 n2 h w c -> (n1 h) (n2 w) c')
+        # Below the image, add a row of text showing episode/cumulative reward
+        # Add padding below the image
+        tile_ims = np.pad(tile_ims, ((0, 30), (0, 0), (0, 0)), mode='constant', constant_values=0)
+        text = f'Reward: {self._ep_rew}'
+        # Paste text
+        img_pil = Image.fromarray(tile_ims)
+        draw = ImageDraw.Draw(img_pil)
+        draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
+        tile_ims = np.array(img_pil)
         self.rend_im = tile_ims
 
         # self.rend_im = np.concatenate([self.rend_im, tiles_rend_im], axis=0)
@@ -273,7 +321,7 @@ class GenEnv(gym.Env):
         # self.rend_im *= 255
         if mode == "human":
             rend_im = self.rend_im.copy()
-            rend_im[:, :, (0, 2)] = self.rend_im[:, :, (2, 0)]
+            # rend_im[:, :, (0, 2)] = self.rend_im[:, :, (2, 0)]
             if self.window is None:
                 self.window = cv2.namedWindow('Generated Environment', cv2.WINDOW_NORMAL)
             cv2.imshow('Generated Environment', rend_im)
@@ -288,13 +336,18 @@ class GenEnv(gym.Env):
                 pygame.K_LEFT: 0,
                 pygame.K_RIGHT: 1,
                 pygame.K_UP: 2,
-                pygame.K_DOWN: 3,
-                pygame.K_q: 4,
+                # pygame.K_DOWN: 3,
+                # pygame.K_q: 4,
             }
+            self.rend_im = np.flip(self.rend_im, axis=0)
+            # Rotate to match pygame
+            self.rend_im = np.rot90(self.rend_im, k=-1)
             if self.screen is None:
                 pygame.init()
-                # Set up the drawing window
-                self.screen = pygame.display.set_mode([(len(self.tiles)+1)*self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
+                # Flip image to match pygame coordinate system
+                # Set up the drawing window to match size of rend_im
+                self.screen = pygame.display.set_mode([self.rend_im.shape[0], self.rend_im.shape[1]])
+                # self.screen = pygame.display.set_mode([(len(self.tiles)+1)*self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
             pygame_render_im(self.screen, self.rend_im)
             return
         else:
@@ -314,7 +367,24 @@ class GenEnv(gym.Env):
             self._compile_map()
         return self._reward
 
+    def _remove_additional_players(self):
+        # Remove additional players
+        player_pos = np.argwhere(self.map[self.player_idx] == 1)
+        if player_pos.shape[0] > 1:
+            for i in range(1, player_pos.shape[0]):
+                # Set to random other tile
+                self.map[self.player_idx, player_pos[i][0], player_pos[i][1]] = 0
+                rand_tile_type = random.randint(0, len(self.tiles) - 2)
+                rand_tile_type = rand_tile_type if rand_tile_type < self.player_idx else rand_tile_type + 1
+                self.map[rand_tile_type, player_pos[i][0], player_pos[i][1]] = 1
+        elif player_pos.shape[0] == 0:
+            # Get random x y position
+            x, y = np.random.randint(0, self.map.shape[1]), np.random.randint(0, self.map.shape[2])
+            # Set random tile to be player
+            self.map[self.player_idx, x, y] = 1
+
     def _compile_map(self):
+        self._remove_additional_players()
         self._update_player_pos(self.map)
         self._update_cooccurs(self.map)
         self._update_inhibits(self.map)
@@ -332,8 +402,8 @@ class GenEnv(gym.Env):
                     obs, rew, done, info = self.step(action)
 
                     self.render(mode='pygame')
-                    if self._last_reward != self._reward:
-                        print(f"Reward: {self._reward}")
+                    # if self._last_reward != self._reward:
+                    print(f"Step: {self.n_step}, Reward: {self._reward}")
                 elif event.key == pygame.K_x:
                     done = True
             if done:

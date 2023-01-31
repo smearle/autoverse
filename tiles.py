@@ -57,6 +57,7 @@ class TileType():
                 removed wherever this tile is present.
         """
         self.name = name
+        self.is_player = name == 'player'
         self.prob = prob
         self.color_name = color
         if color is None:
@@ -127,6 +128,7 @@ class TileSet(list):
 
 class TileNot():
     def __init__(self, tile: TileType):
+        self.name = f"not_{tile.name}"
         self.tile = tile
         self.get_idx = tile.get_idx
         self.trg_val = 0
