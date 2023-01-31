@@ -1,0 +1,25 @@
+exp_name: 0
+overwrite: false
+num_proc: 10
+batch_size: 64
+evaluate: false
+render: false
+record: false
+log_dir: runs_evo
+
+hydra:
+  # sweeper:
+  #   params:
+  #     env: maze, dungeon, hamilton, maze_backtracker, maze_growth, maze_npc, maze_spike, power_line, sokoban
+  #     lr: 1e-3
+
+  # launcher:
+  #   tasks_per_node: 1
+  #   cpus_per_task: 10
+  #   gpus_per_node: 1
+  #   timeout_min: 300
+  #   mem_gb: 30
+
+  job:
+    # Prevent hydra from automatically changing the working directory of each experiment.
+    chdir: False
