@@ -129,7 +129,7 @@ def evaluate(env: GenEnv, individual: Individual, render: bool, trg_n_iter: bool
     fitness = len(action_seq) if action_seq is not None else 0
     individual.fitness = fitness
     individual.action_seq = action_seq
-    print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
+    # print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
     return individual
 
 
@@ -200,33 +200,38 @@ def main(cfg):
             e.rew_seq = rew_seq
             env.queue_maps([e.map])
             obs = env.reset()
-            env.render(mode='pygame')
-            while True:
-                env.tick_human()
+            # Debug: interact after episode completes (investigate why episode ends early)
+            # env.render(mode='pygame')
+            # while True:
+            #     env.tick_human()
         return
 
+    def multiproc_eval_offspring(offspring):
+        eval_offspring = []
+        while len(offspring) > 0:
+            eval_offspring += pool.map(evaluate_multi, [(env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
+            offspring = offspring[cfg.num_proc:]
+        return eval_offspring
+
+    # Initial population
     if not loaded:
         n_gen = 0
         tiles = env.tiles
         rules = env.rules
         map = env.map
         ind = Individual(tiles, rules, map)
-        # ind.fitness = evaluate(env, ind)
-        elites = []
+        offspring = []
         for _ in range(pop_size):
             o = copy.deepcopy(ind)
             o.mutate()
-            elites.append(o)
+            offspring.append(o)
         if num_proc == 1:
-            for e in elites:
-                e = evaluate(env, e, render, trg_n_iter)
+            for o in offspring:
+                o = evaluate(env, o, render, trg_n_iter)
         else:
             with Pool(processes=num_proc) as pool:
-
-                # FIXME: Envs or individuals are read-only?
-
-                # fits = pool.map(evaluate_multi, [(env, elite, render) for env, elite in zip(envs, elites)])
-                elites = pool.map(evaluate_multi, [(env, elite, render, trg_n_iter) for elite in elites])
+                offspring = multiproc_eval_offspring(offspring)
+        elites = offspring
 
     # Training loop
     # Initialize tensorboard writer
@@ -243,13 +248,13 @@ def main(cfg):
                 o = evaluate(env, o, render, trg_n_iter)
         else:
             with Pool(processes=num_proc) as pool:
-                # Might end up using bigger batches
-                offspring = []
-                while len(offspring) < cfg.batch_size:
-                    offspring += pool.map(evaluate_multi, [(env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
+                offspring = multiproc_eval_offspring(offspring)
 
         elites = np.concatenate((elites, offspring))
         # Discard the weakest.
+        for e in elites:
+            if o.fitness is None:
+                breakpoint()
         elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.batch_size)[:cfg.batch_size]
         elites = np.delete(elites, elite_idxs)
         fits = [e.fitness for e in elites]

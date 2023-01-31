@@ -4,5 +4,7 @@ runs_evo
 outputs
 # Ignore files ending in .pyc
 *.pyc
-
+multirun
+__pycache__
+games/__pycache__
 

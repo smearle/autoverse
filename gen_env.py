@@ -20,6 +20,8 @@ from tiles import TileNot, TilePlacement, TileType
 from utils import draw_triangle
 from variables import Variable
 
+from os import environ
+environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
 @dataclass
 class GenEnvState:
