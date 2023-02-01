@@ -37,7 +37,7 @@ def solve(env: GenEnv, max_steps: int = inf, render: bool = RENDER):
         n_iter += 1
         if n_iter > max_steps:
             break
-        parent_state, action_seq = frontier.pop(0)
+        parent_state, parent_action_seq = frontier.pop(0)
         env.set_state(parent_state)
         # visited[env.player_pos] = env.get_state()
         # if type(env).hashable(parent_state) in visited:
@@ -53,7 +53,7 @@ def solve(env: GenEnv, max_steps: int = inf, render: bool = RENDER):
             # print(f'action: {action}')
             state = env.get_state()
             # map_arr = state['map_arr']
-            action_seq = action_seq + [action]
+            action_seq = parent_action_seq + [action]
             # if env.player_pos in visited:
             hashed_state = hash(env, state)
             if hashed_state in visited:

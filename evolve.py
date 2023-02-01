@@ -77,8 +77,9 @@ class Individual():
                 # print(f'Removed {len(idxs) - tile.num} tiles')
                 # assert len(np.where(disc_map == tile.idx)[0]) == tile.num
             elif len(idxs) < tile.num:
-                # print(f'Found too few {tile.name} tiles, adding some')
-                for idx in idxs[:tile.num - len(idxs)]:
+                # Replace only 1 type of tile (weird)
+                idxs = np.where(disc_map.flat == np.random.choice(free_num_tile_idxs))[0]
+                for idx in idxs[:tile.num]:
                     disc_map.flat[idx] = tile.idx
                 assert len(np.where(disc_map == tile.idx)[0]) == tile.num
         # for tile in fixed_num_tiles:
