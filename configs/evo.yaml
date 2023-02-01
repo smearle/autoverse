@@ -1,7 +1,9 @@
-exp_name: 0
+exp_id: 0
 overwrite: false
 num_proc: 10
 batch_size: 64
+base_env: maze
+mutate_rules: false
 evaluate: false
 render: false
 record: false

@@ -17,7 +17,7 @@ from multiprocessing import Pool
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 
-from games import *
+from games import GAMES
 from gen_env import GenEnv
 from individual import Individual
 from rules import Rule, RuleSet
@@ -25,9 +25,11 @@ from search_agent import solve
 from tiles import TileSet, TileType
 
 
-def init_base_env():
+def init_base_env(cfg):
+    env = GAMES[cfg.base_env].make_env(10, 10)
     # env = evo_base.make_env(10, 10)
-    env = maze.make_env(10, 10)
+    # env = maze.make_env(10, 10)
+    # env = maze_for_evo.make_env(10, 10)
     # env = maze_spike.make_env(10, 10)
     # env = sokoban.make_env(10, 10)
     # env.search_tiles = [t for t in env.tiles]
@@ -53,7 +55,8 @@ def evaluate(env: GenEnv, individual: Individual, render: bool, trg_n_iter: bool
     env.reset()
     init_state = env.get_state()
     # Save the map after it having been cleaned up by the environment
-    individual.map = env.map
+    individual.map = env.map.copy()
+    # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     best_state_actions, best_reward, n_iter_best, n_iter = solve(env, max_steps=trg_n_iter)
     action_seq = None
     if best_state_actions is not None:
@@ -97,6 +100,7 @@ def aggregate_playtraces(cfg):
         # Replay episodes, recording obs and rewards and attaching to individuals
         env = init_base_env()
         for elite in elites:
+            # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
             frames = replay_episode(cfg, env, elite)
         # Save unique elites to npz file
         np.savez(os.path.join(cfg.log_dir, 'unique_elites.npz'), elites)
@@ -109,12 +113,13 @@ def aggregate_playtraces(cfg):
 def replay_episode(cfg, env, elite):
     # Re-play the episode, recording observations and rewards (for imitation learning)
 
-    print(f"Fitness: {elite.fitness}")
-    print(f"Action sequence: {elite.action_seq}")
+    # print(f"Fitness: {elite.fitness}")
+    # print(f"Action sequence: {elite.action_seq}")
     obs_seq = []
     rew_seq = []
-    env.queue_maps([elite.map])
+    env.queue_maps([elite.map.copy()])
     obs = env.reset()
+    # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
     # env.render(mode='pygame')
     # while True:
@@ -128,7 +133,8 @@ def replay_episode(cfg, env, elite):
     i = 0
     while not done:
         if i >= len(elite.action_seq):
-            print('Warning: action sequence too short. Ending episode before env is done.')
+            print('Warning: action sequence too short. Ending episode before env is done. This must mean no solution was found.')
+            # breakpoint()
             break
         obs, reward, done, info = env.step(elite.action_seq[i])
         obs_seq.append(obs)
@@ -143,12 +149,18 @@ def replay_episode(cfg, env, elite):
     if cfg.record:
         return frames
 
-# def main(exp_name='0', overwrite=False, load=False, multi_proc=False, render=False):
+def get_log_dir(cfg):
+    return os.path.join(cfg.workspace, cfg.base_env, f"{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}")
+
+
+# def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(config_path="configs", config_name="evo")
 def main(cfg):
-    exp_name, overwrite, num_proc, render = cfg.exp_name, cfg.overwrite, cfg.num_proc, cfg.render
+    overwrite, num_proc, render = cfg.overwrite, cfg.num_proc, cfg.render
+    if cfg.record:
+        cfg.evaluate=True
+    cfg.log_dir = get_log_dir(cfg)
     load = not overwrite
-    cfg.log_dir = os.path.join(cfg.workspace, str(exp_name))
     if cfg.aggregate_playtraces:
         aggregate_playtraces(cfg)
         return
@@ -173,14 +185,14 @@ def main(cfg):
         else:
             shutil.rmtree(cfg.log_dir)
     if not loaded:
-        pop_size = 10
-        trg_n_iter = 100_000
+        pop_size = cfg.batch_size
+        trg_n_iter = 100_000 # Max number of iterations while searching for solution
         os.makedirs(cfg.log_dir)
 
-    env = init_base_env()
+    env = init_base_env(cfg)
     env.reset()
     if num_proc > 1:
-        envs = [init_base_env() for _ in range(num_proc)]
+        envs = [init_base_env(cfg) for _ in range(num_proc)]
 
     if cfg.evaluate:
         print(f"Elites at generation {n_gen}:")
@@ -205,7 +217,7 @@ def main(cfg):
         tiles = env.tiles
         rules = env.rules
         map = env.map
-        ind = Individual(tiles, rules, map)
+        ind = Individual(cfg, tiles, rules, map)
         offspring = []
         for _ in range(pop_size):
             o = copy.deepcopy(ind)
@@ -221,7 +233,7 @@ def main(cfg):
 
     # Training loop
     # Initialize tensorboard writer
-    writer = SummaryWriter(log_dir=log_dir)
+    writer = SummaryWriter(log_dir=cfg.log_dir)
     for n_gen in range(n_gen, 10000):
         parents = np.random.choice(elites, size=cfg.batch_size, replace=True)
         offspring = []

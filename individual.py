@@ -10,7 +10,8 @@ from tiles import TileType, TileSet
 
 
 class Individual():
-    def __init__(self, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
+    def __init__(self, cfg, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
+        self.cfg = cfg
         self.tiles = tiles
         self.rules = rules
         self.map = map
@@ -18,12 +19,13 @@ class Individual():
         self.action_seq = None
 
     def mutate(self):
-        # Mutate between 1 and 3 random rules
-        # i_arr = np.random.randint(0, len(self.rules) - 1, random.randint(1, 3))
-        # for i in i_arr:
-        #     rule: Rule = self.rules[i]
-        #     rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
-        #     self.rules[i] = rule
+        if self.cfg.mutate_rules:
+            # Mutate between 1 and 3 random rules
+            i_arr = np.random.randint(0, len(self.rules) - 1, random.randint(1, 3))
+            for i in i_arr:
+                rule: Rule = self.rules[i]
+                rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
+                self.rules[i] = rule
         # Mutate between 0 and 3 random tiles
         # j_arr = np.random.randint(0, len(self.tiles) - 1, random.randint(0, 3))
         # for j in j_arr:
@@ -35,7 +37,7 @@ class Individual():
 
         # Mutate onehot map by randomly changing some tile types
         disc_map = self.map.argmax(axis=0)
-        k_arr = np.random.randint(0, disc_map.size - 1, random.randint(0, self.map.size // 2))
+        k_arr = np.random.randint(0, disc_map.size - 1, random.randint(0, disc_map.size // 2))
         for k in k_arr:
             disc_map.flat[k] = np.random.randint(0, len(self.tiles))
 
@@ -52,21 +54,26 @@ class Individual():
                 for idx in idxs[tile.num:]:
                     disc_map.flat[idx] = np.random.choice(free_num_tile_idxs)
                 # print(f'Removed {len(idxs) - tile.num} tiles')
-                # assert len(np.where(disc_map == tile.idx)[0]) == tile.num
+                assert len(np.where(disc_map == tile.idx)[0]) == tile.num
             elif len(idxs) < tile.num:
                 # FIXME: Not sure if this is working
                 net_idxs = []
+                chs_i = 0
+                np.random.shuffle(free_num_tile_idxs)
                 while len(net_idxs) < tile.num:
                     # Replace only 1 type of tile (weird)
-                    idxs = np.where(disc_map.flat == np.random.choice(free_num_tile_idxs))[0]
+                    idxs = np.where(disc_map.flat == free_num_tile_idxs[chs_i])[0]
                     net_idxs += idxs.tolist()
-                idxs = np.array(net_idxs)
-                # If not enough in
-                for idx in idxs[:tile.num]:
+                    chs_i += 1
+                    if chs_i >= len(free_num_tile_idxs):
+                        print(f"Warning: Not enough tiles to mutate into {tile.name} tiles")
+                        break
+                idxs = np.array(net_idxs[:tile.num])
+                for idx in idxs:
                     disc_map.flat[idx] = tile.idx
                 assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        # for tile in fixed_num_tiles:
-            # assert len(np.where(disc_map == tile.idx)[0]) == tile.num
+        for tile in fixed_num_tiles:
+            assert len(np.where(disc_map == tile.idx)[0]) == tile.num
         self.map = rearrange(np.eye(len(self.tiles))[disc_map], 'h w c -> c h w')
 
     def save(self, filename):
