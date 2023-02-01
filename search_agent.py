@@ -80,7 +80,7 @@ def solve(env: GenEnv, max_steps: int = inf, render: bool = RENDER):
 
 
 def hash(env: GenEnv, state):
-    return env.hashable(state)
+    return env.hash_state(state)
 
 
 def main(game=maze, height=10, width=10, render=False):

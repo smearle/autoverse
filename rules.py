@@ -188,6 +188,9 @@ class Rule():
                 self._in_out = new_in_out
         self.compile()
 
+    def hashable(self):
+        int_in_out = np.vectorize(lambda x: x.get_idx() if x is not None else -1)(self._in_out)
+        return hash(int_in_out.tobytes())
 
 class ObjectRule(Rule):
     def __init__(self, *args, offset=(0, 0), **kwargs):

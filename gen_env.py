@@ -45,7 +45,7 @@ class GenEnv(gym.Env):
             events: Iterable[Event] = [],
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
-            max_episode_steps: int = 100
+            max_episode_steps: int = 300
         ):
         """_summary_
 
@@ -82,10 +82,14 @@ class GenEnv(gym.Env):
         # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         # Dictionary observation space containing box 2d map and flat list of rules
         len_rule_obs = len(self.rules[0].observe())
-        self.observation_space = spaces.Dict({
-            'map': spaces.Box(0, 1, (self.w, self.h, len(self.tiles))),
-            'rules': spaces.Box(0, 1, (len_rule_obs * len(self.rules),))
-        })
+        # Lazily flattening observations for now. It is a binary array
+        # Only observe player patch and rotation for now
+        self.observation_space = spaces.MultiBinary((self.view_size * 2 + 1) * (self.view_size * 2 + 1) * len(self.tiles) + 4)
+        # self.observation_space = spaces.Dict({
+        #     'map': spaces.Box(0, 1, (self.view_size * 2 + 1, self.view_size * 2 + 1, len(self.tiles))),
+        #     'player_rot': spaces.Discrete(4),
+        #     'rules': spaces.Box(0, 1, (len_rule_obs * len(self.rules),))
+        # })
         self.player_pos: Tuple[int] = None
         self.player_force_arr: np.ndarray = None
         # No rotation
@@ -234,11 +238,14 @@ class GenEnv(gym.Env):
 
     def observe_map(self):
         obs = rearrange(self.map, 'b h w -> h w b')
+        # Pad map to view size.
+        obs = np.pad(obs, ((self.view_size, self.view_size), (self.view_size, self.view_size), (0, 0)), 'constant')
         # Crop map to player's view.
         if self.player_pos is not None:
             x, y = self.player_pos
-            obs = obs[x - self.view_size: x + self.view_size + 1,
-                      y - self.view_size: y + self.view_size + 1]
+            obs = obs[x: x + 2 * self.view_size + 1,
+                      y: y + 2 * self.view_size + 1]
+        assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles))
         return obs.astype(np.float32)
 
     def observe_rules(self):
@@ -368,7 +375,7 @@ class GenEnv(gym.Env):
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
-        # self._done = self._done or self.n_step >= self.max_episode_steps
+        self._done = self._done or self.n_step >= self.max_episode_steps
         if not self._done:
             self._compile_map()
         return self._reward
@@ -426,7 +433,7 @@ class GenEnv(gym.Env):
         self._set_state(state)
         # TODO: setting variables and event graph.
 
-    def hashable(self, state):
+    def hash_state(self, state):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
         search_state = state.map_arr[self._search_tile_idxs]
         player_rot = state.player_rot
@@ -535,6 +542,17 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
                     
     return next_map, reward, done
 
+def hash_rules(rules):
+    """Hash a list of rules to a unique value.
+
+    Args:
+        rules (List[Rule]): A list of rules to hash.
+
+    Returns:
+        int: A unique hash value for the rules.
+    """
+    rule_hashes = [r.hashable() for r in rules]
+    return hash(tuple(rule_hashes))
 
 def pygame_render_im(screen, img):
     surf = pygame.surfarray.make_surface(img)

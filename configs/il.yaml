@@ -1,0 +1,11 @@
+exp_id: 0
+overwrite: false
+record: true
+workspace: runs_il
+log_dir: null # Set later, automatically
+n_epochs: 10
+save_freq: 5
+
+hydra:
+  job:
+    chdir: false
