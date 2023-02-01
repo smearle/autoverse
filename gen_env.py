@@ -28,6 +28,7 @@ class GenEnvState:
     n_step: int
     map_arr: np.ndarray
     obj_set: Iterable
+    player_rot: int
 
 
 class GenEnv(gym.Env):
@@ -135,8 +136,11 @@ class GenEnv(gym.Env):
 
     def _update_inhibits(self, map_arr: np.ndarray):
         for tile_type in self.tiles:
+            # print(f"tile_type: {tile_type.name}")
             if tile_type.inhibits:
+                # print(f"tile_type.inhibits: {tile_type.inhibits}")
                 for inhibit in tile_type.inhibits:
+                    # print(f"inhibit: {inhibit.name}")
                     map_arr[inhibit.idx, map_arr[tile_type.idx] == 1] = 0
 
     def gen_random_map(self):
@@ -179,9 +183,9 @@ class GenEnv(gym.Env):
         else:
             map_arr = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
-        self._set_state(GenEnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}))
-        self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
         self.player_rot = 0
+        self._set_state(GenEnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}, player_rot=self.player_rot))
+        self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
         self._rot_dirs = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         obs = self.get_obs()
         return obs
@@ -414,7 +418,8 @@ class GenEnv(gym.Env):
                 self.render(mode='pygame')
 
     def get_state(self):
-        return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects)
+        return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects,
+            player_rot=self.player_rot)
 
     def set_state(self, state: GenEnvState):
         state = copy.deepcopy(state)
@@ -424,8 +429,9 @@ class GenEnv(gym.Env):
     def hashable(self, state):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
         search_state = state.map_arr[self._search_tile_idxs]
-        # search_state = state['map_arr']
-        return hash(search_state.data.tobytes())
+        player_rot = state.player_rot
+        # Uniquely hash based on player rotation and search tile states
+        return hash((player_rot, search_state.tobytes()))
 
 
     def _set_state(self, state: GenEnvState):
@@ -433,6 +439,7 @@ class GenEnv(gym.Env):
         self.map = map_arr
         self.objects = obj_set
         self.height, self.width = self.map.shape[1:]
+        self.player_rot = state.player_rot
         self._compile_map()
 
 

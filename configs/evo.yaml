@@ -6,6 +6,7 @@ evaluate: false
 render: false
 record: false
 log_dir: runs_evo
+load_gen: null
 
 hydra:
   # sweeper:

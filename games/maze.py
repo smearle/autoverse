@@ -9,10 +9,10 @@ from tiles import TilePlacement, TileSet, TileType
 
 
 def make_env(height, width):
-    force = TileType(name='force', prob=0, color='purple')
+    force = TileType(name='force', num=0, color='purple')
     wall = TileType('wall', prob=0.1, color='black')
     floor = TileType('floor', prob=0.9, color='grey')
-    player = TileType('player', prob=0, color='blue', num=1, cooccurs=[floor])
+    player = TileType('player', num=1, color='blue', cooccurs=[floor])
     goal = TileType('goal', num=1, color='green', cooccurs=[floor])
     tiles = TileSet([floor, goal, player, wall, force])
     search_tiles = [floor, goal, player, wall]

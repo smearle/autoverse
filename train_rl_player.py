@@ -327,7 +327,8 @@ def main(cfg):
             for i in range(10):
                 print(f'eval {i}')
                 trainer.evaluate()
-                breakpoint()
+                print(f'eval {i} done')
+                return
             # elif args.resume_sequential:
                 # analysis = launch_analysis()
     else:

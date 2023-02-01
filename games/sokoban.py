@@ -11,7 +11,7 @@ def make_env(height, width):
     # passable = TileType(name='passable', prob=0, color=None)
     # floor = TileType('floor', prob=0.8, color='white', parents=[passable])
     wall = TileType('wall', prob=0.2, color='black')
-    floor = TileType('floor', prob=0.8, color='white')
+    floor = TileType('floor', prob=0.8, color='grey')
     player = TileType('player', prob=0, color='blue', num=1, cooccurs=[floor])
     crate = TileType('crate', num=n_crates, color='brown')  # Not passable.
     target = TileType('target', num=n_crates, color='green', cooccurs=[floor])
@@ -42,9 +42,9 @@ def make_env(height, width):
                 [[target]],
                 [[TileNot(force)]]  # Otherwise we can puch a clone-crate off a target.
             ],
-            [  # No change.
+            [  # Kill target.
                 [[crate]],
-                [[target]],
+                [[None]],
                 [[None]],
             ]
         ]),

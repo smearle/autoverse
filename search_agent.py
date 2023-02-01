@@ -57,9 +57,8 @@ def solve(env: GenEnv, max_steps: int = inf, render: bool = RENDER):
             # if env.player_pos in visited:
             hashed_state = hash(env, state)
             if hashed_state in visited:
-                # print('already visited', hash(type(env).hashable(state)))
+                # print(f'already visited {hashed_state}')
                 continue
-            # env.render()
             # visited[env.player_pos] = state
             # visited[tuple(action_seq)] = state
             visited[hashed_state] = state

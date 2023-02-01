@@ -153,7 +153,7 @@ class Rule():
         # elif x < 8 / n_muts:
         #     self.children = random.sample(other_rules, random.randint(0, len(other_rules)))
         else:
-            if 1 < 7 / n_muts:
+            if 1 < 1 / n_muts:
                 # Flip something in the in-out pattern.
                 io_idx = random.randint(0, 1)
                 subp_idx = random.randint(0, self._in_out.shape[1] - 1)

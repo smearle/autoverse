@@ -1,4 +1,5 @@
 import copy
+import glob
 import os
 from pdb import set_trace as TT
 import random
@@ -6,6 +7,7 @@ import shutil
 from typing import Iterable
 
 from fire import Fire
+from einops import rearrange
 import hydra
 import imageio
 import numpy as np
@@ -23,8 +25,9 @@ from tiles import TileSet, TileType
 
 def init_base_env():
     # env = evo_base.make_env(10, 10)
+    env = maze.make_env(10, 10)
     # env = maze_spike.make_env(10, 10)
-    env = sokoban.make_env(10, 10)
+    # env = sokoban.make_env(10, 10)
     # env.search_tiles = [t for t in env.tiles]
     return env
 
@@ -52,10 +55,36 @@ class Individual():
         #         continue
         #     other_tiles = [t for t in self.tiles[:j] + self.tiles[j+1:] if not t.is_player]
         #     tile.mutate(other_tiles)
-        # Mutate onehot map by randomly flipping some bits
-        k_arr = np.random.randint(0, self.map.size - 1, random.randint(0, self.map.size // 2))
+
+        # Mutate onehot map by randomly changing some tile types
+        disc_map = self.map.argmax(axis=0)
+        k_arr = np.random.randint(0, disc_map.size - 1, random.randint(0, self.map.size // 2))
         for k in k_arr:
-            self.map.flat[k] = 1 - self.map.flat[k]
+            disc_map.flat[k] = np.random.randint(0, len(self.tiles))
+
+        fixed_num_tiles = [t for t in self.tiles if t.num is not None]
+        free_num_tile_idxs = [t.idx for t in self.tiles if t.num is None]
+        # For tile types with fixed numbers, make sure this many occur
+        for tile in fixed_num_tiles:
+            # If there are too many, remove some
+            # print(f"Checking {tile.name} tiles")
+            idxs = np.where(disc_map.flat == tile.idx)[0]
+            # print(f"Found {len(idxs)} {tile.name} tiles")
+            if len(idxs) > tile.num:
+                # print(f'Found too many {tile.name} tiles, removing some')
+                for idx in idxs[tile.num:]:
+                    disc_map.flat[idx] = np.random.choice(free_num_tile_idxs)
+                # print(f'Removed {len(idxs) - tile.num} tiles')
+                # assert len(np.where(disc_map == tile.idx)[0]) == tile.num
+            elif len(idxs) < tile.num:
+                # print(f'Found too few {tile.name} tiles, adding some')
+                for idx in idxs[:tile.num - len(idxs)]:
+                    disc_map.flat[idx] = tile.idx
+                assert len(np.where(disc_map == tile.idx)[0]) == tile.num
+        # for tile in fixed_num_tiles:
+            # assert len(np.where(disc_map == tile.idx)[0]) == tile.num
+        self.map = rearrange(np.eye(len(self.tiles))[disc_map], 'h w c -> c h w')
+
 
 
     def save(self, filename):
@@ -129,7 +158,7 @@ def evaluate(env: GenEnv, individual: Individual, render: bool, trg_n_iter: bool
     fitness = len(action_seq) if action_seq is not None else 0
     individual.fitness = fitness
     individual.action_seq = action_seq
-    # print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
+    print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
     return individual
 
 
@@ -142,7 +171,13 @@ def main(cfg):
     loaded = False
     if os.path.isdir(log_dir):
         if load:
-            save_dict = np.load(os.path.join(log_dir, 'elites.npz'), allow_pickle=True)['arr_0'].item()
+            if cfg.load_gen is not None:
+                save_file = os.path.join(log_dir, f'gen-{int(cfg.load_gen)}.npz')
+            else:
+                # Get `gen-xxx.npz` with largest `xxx`
+                save_files = glob.glob(os.path.join(log_dir, 'gen-*.npz'))
+                save_file = max(save_files, key=lambda x: int(x.split('-')[-1].split('.')[0]))
+            save_dict = np.load(save_file, allow_pickle=True)['arr_0'].item()
             n_gen = save_dict['n_gen']
             elites = save_dict['elites']
             trg_n_iter = save_dict['trg_n_iter']
@@ -155,7 +190,7 @@ def main(cfg):
             shutil.rmtree(log_dir)
     if not loaded:
         pop_size = 10
-        trg_n_iter = 10
+        trg_n_iter = 100_000
         os.makedirs(log_dir)
 
     env = init_base_env()
@@ -173,6 +208,10 @@ def main(cfg):
             rew_seq = []
             env.queue_maps([e.map])
             obs = env.reset()
+            # Debug: interact after episode completes (investigate why episode ends early)
+            # env.render(mode='pygame')
+            # while True:
+            #     env.tick_human()
             obs_seq.append(obs)
             if cfg.record:
                 frames = [env.render(mode='rgb_array')]
@@ -200,10 +239,6 @@ def main(cfg):
             e.rew_seq = rew_seq
             env.queue_maps([e.map])
             obs = env.reset()
-            # Debug: interact after episode completes (investigate why episode ends early)
-            # env.render(mode='pygame')
-            # while True:
-            #     env.tick_human()
         return
 
     def multiproc_eval_offspring(offspring):
@@ -254,7 +289,7 @@ def main(cfg):
         # Discard the weakest.
         for e in elites:
             if o.fitness is None:
-                breakpoint()
+                raise ValueError("Fitness is None.")
         elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.batch_size)[:cfg.batch_size]
         elites = np.delete(elites, elite_idxs)
         fits = [e.fitness for e in elites]
@@ -276,19 +311,21 @@ def main(cfg):
         # Increment trg_n_iter if the best fitness is within 10 of it.
         if max_fit > trg_n_iter - 10:
             trg_n_iter *= 2
-        # Save the elites.
-        np.savez(os.path.join(log_dir, "elites"), 
-            {
-                'n_gen': n_gen,
-                'elites': elites,
-                'trg_n_iter': trg_n_iter
-            })
-        # Save the elite's game mechanics to a yaml
-        elite_games_dir = os.path.join(log_dir, "elite_games")
-        if not os.path.isdir(elite_games_dir):
-            os.mkdir(os.path.join(log_dir, "elite_games"))
-        for i, e in enumerate(elites):
-            e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
+        if n_gen % 10 == 0: 
+            # Save the elites.
+            np.savez(os.path.join(log_dir, f"gen-{n_gen}"),
+            # np.savez(os.path.join(log_dir, "elites"), 
+                {
+                    'n_gen': n_gen,
+                    'elites': elites,
+                    'trg_n_iter': trg_n_iter
+                })
+            # Save the elite's game mechanics to a yaml
+            elite_games_dir = os.path.join(log_dir, "elite_games")
+            if not os.path.isdir(elite_games_dir):
+                os.mkdir(os.path.join(log_dir, "elite_games"))
+            for i, e in enumerate(elites):
+                e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
 
 if __name__ == '__main__':
     main()
