@@ -60,10 +60,9 @@ class Rule():
     consist of multiple subpatterns, which may all match in order for the subrule to be applied.
     Input and output are 2D patches of tiles.
     """
-    len_obs = 5
     def __init__(self, name: str, in_out: Iterable[TileType], rotate: bool = True, reward: int = 0, done: bool = False,
-            random: bool = False, max_applications: int = 1, inhibits: Iterable = [], children: Iterable = [],
-            application_funcs: Iterable = [],):
+            random: bool = False, max_applications: int = np.inf, inhibits: Iterable = [], children: Iterable = [],
+            application_funcs: Iterable = []):
         """Process the main subrule `in_out`, potentially rotating it to produce a set of subrules. Also convert 
         subrules from containing TileType objects to their indices for fast matching during simulation.
 
@@ -127,8 +126,11 @@ class Rule():
                 np.rot90(in_out, k=3, axes=(2,3))]
         self.subrules = subrules
 
-    def observe(self):
-        return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
+    def observe(self, n_tiles):
+        # return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
+        in_out_disc = np.vectorize(TileType.get_idx)(self._in_out)
+        in_out_onehot = np.eye(n_tiles + 1)[in_out_disc]
+        return in_out_onehot.flatten()
 
     def mutate(self, tiles, other_rules):
         n_muts = 1
@@ -141,7 +143,7 @@ class Rule():
         #     self.random = not self.random
         # elif x < 3 / n_muts:
         #     self.done = not self.done
-        # elif x < 4 / n_muts:
+        # elif x < 1 / n_muts:
         #     self.reward = random.randint(0, 3)
         # elif x < 5 / n_muts:
         #     self.max_applications = random.randint(0, 11)

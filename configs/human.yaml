@@ -1,0 +1,8 @@
+height: 10
+width: 10
+game: maze
+base_env: null
+
+hydra:
+  job:
+    chdir: false

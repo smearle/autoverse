@@ -19,14 +19,15 @@ import yaml
 
 from games import GAMES
 from gen_env import GenEnv
-from individual import Individual
+from evo.eval import load_game_to_env, evaluate_multi, evaluate
+from evo.individual import Individual
 from rules import Rule, RuleSet
 from search_agent import solve
 from tiles import TileSet, TileType
 
 
 def init_base_env(cfg):
-    env = GAMES[cfg.base_env].make_env(10, 10)
+    env = GAMES[cfg.game].make_env(10, 10)
     # env = evo_base.make_env(10, 10)
     # env = maze.make_env(10, 10)
     # env = maze_for_evo.make_env(10, 10)
@@ -41,51 +42,14 @@ def init_base_env(cfg):
 #     action_seq: List[int]
 #     reward_seq: List[float]
 
-def load_game_to_env(env: GenEnv, individual: Individual):
-    env.tiles = individual.tiles
-    env.rules = individual.rules
-    return env
-
-def evaluate_multi(args):
-    return evaluate(*args)
-
-def evaluate(env: GenEnv, individual: Individual, render: bool, trg_n_iter: bool):
-    load_game_to_env(env, individual)
-    env.queue_maps([individual.map.copy()])
-    env.reset()
-    init_state = env.get_state()
-    # Save the map after it having been cleaned up by the environment
-    individual.map = env.map.copy()
-    # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-    best_state_actions, best_reward, n_iter_best, n_iter = solve(env, max_steps=trg_n_iter)
-    action_seq = None
-    if best_state_actions is not None:
-        (final_state, action_seq) = best_state_actions
-        if render:
-            env.set_state(init_state)
-            env.render()
-            for action in action_seq:
-                env.step(action)
-                env.render()
-    # TODO: dummy
-    # fitness = best_reward
-    # fitness = n_iter_best
-    # if fitness == 1:
-    #     fitness += n_iter / (trg_n_iter + 2)
-    fitness = len(action_seq) if action_seq is not None else 0
-    individual.fitness = fitness
-    individual.action_seq = action_seq
-    print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
-    return individual
-
 def aggregate_playtraces(cfg):
     # If not overwriting, load existing elites
     if cfg.overwrite:
         # Aggregate all playtraces into one file
         elite_files = glob.glob(os.path.join(cfg.log_dir, 'gen-*.npz'))
         # An elite is a set of game rules, a game map, and a solution/playtrace
-        elite_hashes = set()
-        elites = []
+        # elite_hashes = set()
+        elites = {}
         n_evaluated = 0
         for f in elite_files:
             save_dict = np.load(f, allow_pickle=True)['arr_0'].item()
@@ -93,12 +57,12 @@ def aggregate_playtraces(cfg):
             for elite in elites_i:
                 n_evaluated += 1
                 e_hash = elite.hashable()
-                if e_hash not in elite_hashes:
-                    elite_hashes.add(e_hash)
-                    elites.append(elite)
+                if e_hash not in elites or elites[e_hash].fitness < elite.fitness:
+                    elites[e_hash] = elite
         print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
         # Replay episodes, recording obs and rewards and attaching to individuals
-        env = init_base_env()
+        env = init_base_env(cfg)
+        elites = list(elites.values())
         for elite in elites:
             # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
             frames = replay_episode(cfg, env, elite)
@@ -112,9 +76,9 @@ def aggregate_playtraces(cfg):
 
 def replay_episode(cfg, env, elite):
     # Re-play the episode, recording observations and rewards (for imitation learning)
-
     # print(f"Fitness: {elite.fitness}")
     # print(f"Action sequence: {elite.action_seq}")
+    load_game_to_env(env, elite)
     obs_seq = []
     rew_seq = []
     env.queue_maps([elite.map.copy()])
@@ -133,7 +97,7 @@ def replay_episode(cfg, env, elite):
     i = 0
     while not done:
         if i >= len(elite.action_seq):
-            print('Warning: action sequence too short. Ending episode before env is done. This must mean no solution was found.')
+            # print('Warning: action sequence too short. Ending episode before env is done. This must mean no solution was found.')
             # breakpoint()
             break
         obs, reward, done, info = env.step(elite.action_seq[i])
@@ -144,13 +108,16 @@ def replay_episode(cfg, env, elite):
         if cfg.render:
             env.render(mode='human')
         i += 1
+    if i < len(elite.action_seq):
+        print('Warning: action sequence too long.')
+        # breakpoint()
     elite.obs_seq = obs_seq
     elite.rew_seq = rew_seq
     if cfg.record:
         return frames
 
 def get_log_dir(cfg):
-    return os.path.join(cfg.workspace, cfg.base_env, f"{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}")
+    return os.path.join(cfg.workspace, cfg.game, f"{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}")
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
@@ -173,20 +140,29 @@ def main(cfg):
                 # Get `gen-xxx.npz` with largest `xxx`
                 save_files = glob.glob(os.path.join(cfg.log_dir, 'gen-*.npz'))
                 save_file = max(save_files, key=lambda x: int(x.split('-')[-1].split('.')[0]))
+
+            # HACK to load trained run after refactor
+            import evo
+            import sys
+            individual = evo.individual
+            sys.modules['individual'] = individual
+            # end HACK
+
             save_dict = np.load(save_file, allow_pickle=True)['arr_0'].item()
             n_gen = save_dict['n_gen']
             elites = save_dict['elites']
             trg_n_iter = save_dict['trg_n_iter']
             pop_size = len(elites)
             loaded = True
+            print(f"Loaded {len(elites)} elites from {save_file} at generation {n_gen}.")
         elif not overwrite:
             print(f"Directory {cfg.log_dir} already exists. Use `--overwrite=True` to overwrite.")
             return
         else:
-            shutil.rmtree(cfg.log_dir)
+            shutil.rmtree(cfg.log_dir, ignore_errors=True)
     if not loaded:
         pop_size = cfg.batch_size
-        trg_n_iter = 100_000 # Max number of iterations while searching for solution
+        trg_n_iter = 1000 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg.log_dir)
 
     env = init_base_env(cfg)
@@ -196,12 +172,14 @@ def main(cfg):
 
     if cfg.evaluate:
         print(f"Elites at generation {n_gen}:")
-        for e_idx, e in enumerate(elites):
+        for e_idx, e in enumerate(elites[:10]):
             frames = replay_episode(cfg, env, e)
             if cfg.record:
                 # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
                 # Save as mp4
                 imageio.mimsave(os.path.join(cfg.log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
+                # Save elite as yaml
+                e.save(os.path.join(cfg.log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
         return
 
     def multiproc_eval_offspring(offspring):
@@ -273,8 +251,9 @@ def main(cfg):
         print()
         # Increment trg_n_iter if the best fitness is within 10 of it.
         if max_fit > trg_n_iter - 10:
-            trg_n_iter *= 2
-        if n_gen % 10 == 0: 
+            # trg_n_iter *= 2
+            trg_n_iter += 1000
+        if n_gen % cfg.save_freq == 0: 
             # Save the elites.
             np.savez(os.path.join(cfg.log_dir, f"gen-{n_gen}"),
             # np.savez(os.path.join(log_dir, "elites"), 

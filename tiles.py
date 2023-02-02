@@ -117,7 +117,8 @@ class TileType():
         return self.name
     
     def __repr__(self):
-        return f"TileType: {self.name}"
+        # return f"TileType: {self.name}"
+        return self.name
 
 
 class TileSet(list):

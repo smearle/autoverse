@@ -21,7 +21,8 @@ class Individual():
     def mutate(self):
         if self.cfg.mutate_rules:
             # Mutate between 1 and 3 random rules
-            i_arr = np.random.randint(0, len(self.rules) - 1, random.randint(1, 3))
+            # Assume we're evolving rules, leave 2 base rules intact
+            i_arr = np.random.randint(2, len(self.rules), random.randint(1, 3))
             for i in i_arr:
                 rule: Rule = self.rules[i]
                 rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
@@ -36,8 +37,10 @@ class Individual():
         #     tile.mutate(other_tiles)
 
         # Mutate onehot map by randomly changing some tile types
+        # Pick number of tiles to sample from gaussian
+        n_mut_tiles = abs(int(np.random.normal(0, 10)))
         disc_map = self.map.argmax(axis=0)
-        k_arr = np.random.randint(0, disc_map.size - 1, random.randint(0, disc_map.size // 2))
+        k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
         for k in k_arr:
             disc_map.flat[k] = np.random.randint(0, len(self.tiles))
 

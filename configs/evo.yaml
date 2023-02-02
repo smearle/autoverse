@@ -1,10 +1,15 @@
+defaults:
+  # - override hydra/launcher: submitit_local
+  - override hydra/launcher: submitit_slurm
+
 exp_id: 0
 overwrite: false
-num_proc: 10
-batch_size: 64
-base_env: maze
-mutate_rules: false
+num_proc: 40
+batch_size: 40
+game: maze_for_evo
+mutate_rules: true
 evaluate: false
+save_freq: 1
 render: false
 record: false
 workspace: runs_evo
@@ -13,17 +18,17 @@ load_gen: null
 aggregate_playtraces: false
 
 hydra:
-  # sweeper:
-  #   params:
-  #     env: maze, dungeon, hamilton, maze_backtracker, maze_growth, maze_npc, maze_spike, power_line, sokoban
-  #     lr: 1e-3
+  sweeper:
+    params:
+      exp_id: 0, 1, 2
+  
 
-  # launcher:
-  #   tasks_per_node: 1
-  #   cpus_per_task: 10
-  #   gpus_per_node: 1
-  #   timeout_min: 300
-  #   mem_gb: 30
+  launcher:
+    tasks_per_node: 1
+    cpus_per_task: 40
+    gpus_per_node: 0
+    timeout_min: 2880
+    mem_gb: 30
 
   job:
     # Prevent hydra from automatically changing the working directory of each experiment.

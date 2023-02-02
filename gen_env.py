@@ -56,6 +56,8 @@ class GenEnv(gym.Env):
             rules (list): A list of Rule objects, between TileTypes.
             done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
+        # FIXME: too hardcoded (for maze_for_evo) rn
+        self._n_fixed_rules = 2
         self._ep_rew = 0
         self._done = False
         if search_tiles is None:
@@ -75,21 +77,11 @@ class GenEnv(gym.Env):
         self.tile_probs = [tile.prob for tile in tiles]
         # Add white for background when rendering individual tile-channel images.
         self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.uint8)
-        self._init_rules = rules
+        # Rules as they should be at the beginning of the episode (in case later events should change them)
+        self._init_rules = rules 
         self.rules = copy.copy(rules)
         self.map: np.ndarray = None
         self.objects: Iterable[ObjectType.GameObject] = []
-        # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
-        # Dictionary observation space containing box 2d map and flat list of rules
-        len_rule_obs = len(self.rules[0].observe())
-        # Lazily flattening observations for now. It is a binary array
-        # Only observe player patch and rotation for now
-        self.observation_space = spaces.MultiBinary((self.view_size * 2 + 1) * (self.view_size * 2 + 1) * len(self.tiles) + 4)
-        # self.observation_space = spaces.Dict({
-        #     'map': spaces.Box(0, 1, (self.view_size * 2 + 1, self.view_size * 2 + 1, len(self.tiles))),
-        #     'player_rot': spaces.Discrete(4),
-        #     'rules': spaces.Box(0, 1, (len_rule_obs * len(self.rules),))
-        # })
         self.player_pos: Tuple[int] = None
         self.player_force_arr: np.ndarray = None
         # No rotation
@@ -117,6 +109,21 @@ class GenEnv(gym.Env):
         self._done_at_reward = done_at_reward
         self._map_queue = []
         self._map_id = 0
+        self.init_obs_space()
+
+    def init_obs_space(self):
+        # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
+        # Dictionary observation space containing box 2d map and flat list of rules
+        # Note that we assume rule in/outs are fixed in size
+        len_rule_obs = sum([len(rule.observe(len(self.tiles))) for rule in self.rules[self._n_fixed_rules:]])
+        # Lazily flattening observations for now. It is a binary array
+        # Only observe player patch and rotation for now
+        # self.observation_space = spaces.Dict({
+        #     'map': spaces.Box(0, 1, (self.view_size * 2 + 1, self.view_size * 2 + 1, len(self.tiles))),
+        #     'player_rot': spaces.Discrete(4),
+        #     'rules': spaces.Box(0, 1, (len_rule_obs * len(self.rules),))
+        # })
+        self.observation_space = spaces.MultiBinary((self.view_size * 2 + 1) * (self.view_size * 2 + 1) * len(self.tiles) + 4 + len_rule_obs)
 
     def queue_maps(self, maps: Iterable[np.ndarray]):
         self._map_queue = maps
@@ -230,11 +237,18 @@ class GenEnv(gym.Env):
 
     def get_obs(self):
         # return self.observe_map()
-        return {
-            'map': self.observe_map(),
-            'rules': self.observe_rules(),
-            'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
-        }
+        # return {
+        #     'map': self.observe_map(),
+        #     'rules': self.observe_rules(),
+        #     'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
+        # }
+        return np.concatenate((self.observe_map().flatten(), np.eye(4)[self.player_rot].astype(np.float32),
+                self.observe_rules().flatten()))
+
+    # # TODO: move this inside env??
+    # def flatten_obs(obs):
+    #     return np.concatenate((obs['map'].flatten(), obs['player_rot'].flatten(), obs['rules'].flatten()))
+
 
     def observe_map(self):
         obs = rearrange(self.map, 'b h w -> h w b')
@@ -249,7 +263,8 @@ class GenEnv(gym.Env):
         return obs.astype(np.float32)
 
     def observe_rules(self):
-        return np.concatenate([r.observe() for r in self.rules])
+        # Hardcoded for maze_for_evo to ignore first 2 (unchanging) rules
+        return np.concatenate([r.observe(n_tiles=len(self.tiles)) for r in self.rules[self._n_fixed_rules:]])
     
     def render(self, mode='human'):
         font = ImageFont.load_default()
@@ -433,7 +448,7 @@ class GenEnv(gym.Env):
         self._set_state(state)
         # TODO: setting variables and event graph.
 
-    def hash_state(self, state):
+    def hashable(self, state):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
         search_state = state.map_arr[self._search_tile_idxs]
         player_rot = state.player_rot
@@ -443,6 +458,7 @@ class GenEnv(gym.Env):
 
     def _set_state(self, state: GenEnvState):
         map_arr, obj_set = state.map_arr, state.obj_set
+        self.n_step = state.n_step
         self.map = map_arr
         self.objects = obj_set
         self.height, self.width = self.map.shape[1:]

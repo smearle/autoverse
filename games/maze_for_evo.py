@@ -13,10 +13,13 @@ def make_env(height, width):
     wall = TileType('wall', prob=0.1, color='black')
     floor = TileType('floor', prob=0.9, color='grey')
     player = TileType('player', num=1, color='blue', cooccurs=[floor])
-    goal = TileType('goal', num=1, color='green', cooccurs=[floor])
+    goal = TileType('goal', prob=0, color='green', cooccurs=[floor])
     tile_a = TileType('tile_a', prob=0, color='red')
+    # tile_b = TileType('tile_b', prob=0, color='yellow')
     tiles = TileSet([floor, goal, player, wall, force, tile_a])
-    search_tiles = [floor, goal, player, wall, tile_a]
+    # tiles = TileSet([floor, goal, player, wall, force, tile_a, tile_b])
+    search_tiles = [floor, goal, player, wall, tile_a, tile_a]
+    # search_tiles = [floor, goal, player, wall, tile_a, tile_b]
 
     player_move = Rule(
         'player_move', 
@@ -30,7 +33,9 @@ def make_env(height, width):
             [[None, None]],  # Force is removed from target tile.
             ],
         ]),
-        rotate=True,)
+        rotate=True,
+        max_applications=1,
+        )
 
     player_consume_goal = Rule(
         'player_consume_goal',
@@ -46,9 +51,10 @@ def make_env(height, width):
         ]),
         rotate=True,
         reward=1,
-        done=True,
+        done=False,
+        max_applications=1,
     )
-    player_consume_goal = Rule(
+    rule_a = Rule(
         'A',
         in_out=np.array([
             [
@@ -63,8 +69,26 @@ def make_env(height, width):
         rotate=True,
         reward=0,
         done=False,
+        max_applications=1,
     )
-    rules = RuleSet([player_move, player_consume_goal])
+    # rule_b = Rule(
+    #     'A',
+    #     in_out=np.array([
+    #         [
+    #             [[None, None, None]],
+    #             [[None, None, None]],
+    #         ],
+    #         [
+    #             [[None, None, None]],
+    #             [[None, None, None]],
+    #         ]
+    #     ]),
+    #     rotate=True,
+    #     reward=0,
+    #     done=False,
+    # )
+    rules = RuleSet([player_move, player_consume_goal, rule_a])
+    # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
     env = GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
         search_tiles=search_tiles)
     return env
