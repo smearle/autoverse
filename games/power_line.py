@@ -3,7 +3,7 @@ from pdb import set_trace as TT
 
 import numpy as np
 
-from gen_env import GenEnv
+from play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 
@@ -61,7 +61,7 @@ def make_env(height, width):
         reward=1,
     )
     rules = RuleSet([player_move, wire_conduct_power, reward_powered_target])
-    env = GenEnv(height, width, tiles=tiles, rules=rules, 
+    env = PlayEnv(height, width, tiles=tiles, rules=rules, 
         player_placeable_tiles=[(force, TilePlacement.ADJACENT), (wire, TilePlacement.CURRENT)])
     # env = partial(GenEnv, h=10, w=10, tiles=tiles, rules=rules, player_placeable_tiles=[force])
 

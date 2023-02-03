@@ -4,7 +4,7 @@ from pdb import set_trace as TT
 import numpy as np
 from events import Event, activate_rules
 
-from gen_env import GenEnv, apply_rules
+from play_env import PlayEnv, apply_rules
 from objects import ObjectType
 from rules import ObjectRule, Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType, tiles_to_multihot
@@ -143,7 +143,7 @@ def make_env(height, width):
         children=[gameplay]
     )
 
-    env = GenEnv(height, width, tiles=tiles, rules=gameplay_rules, 
+    env = PlayEnv(height, width, tiles=tiles, rules=gameplay_rules, 
         player_placeable_tiles=[(force, TilePlacement.ADJACENT), (anchor, TilePlacement.CURRENT)],
         # events=[generate_board]
        )

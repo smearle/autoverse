@@ -1,7 +1,7 @@
 from math import inf
 import numpy as np
 
-from gen_env import GenEnv
+from play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TileNot, TilePlacement, TileSet, TileType
 
@@ -89,5 +89,5 @@ def make_env(height, width):
     # Order is important for movement/physics.
     rules = RuleSet([player_push_crate, crate_kill_force, player_move, crate_on_target])
 
-    return GenEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
+    return PlayEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
         done_at_reward=n_crates, search_tiles=search_tiles)

@@ -1,9 +1,9 @@
 
-from gen_env import GenEnv
+from play_env import PlayEnv
 from evo.individual import Individual
 from search_agent import solve
 
-def load_game_to_env(env: GenEnv, individual: Individual):
+def load_game_to_env(env: PlayEnv, individual: Individual):
     env.tiles = individual.tiles
     env._init_rules = individual.rules
     env.init_obs_space()
@@ -12,7 +12,7 @@ def load_game_to_env(env: GenEnv, individual: Individual):
 def evaluate_multi(args):
     return evaluate(*args)
 
-def evaluate(env: GenEnv, individual: Individual, render: bool, trg_n_iter: bool):
+def evaluate(env: PlayEnv, individual: Individual, render: bool, trg_n_iter: bool):
     load_game_to_env(env, individual)
     env.queue_maps([individual.map.copy()])
     env.reset()

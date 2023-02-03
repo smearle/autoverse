@@ -5,7 +5,7 @@ from turtle import back
 import numpy as np
 from events import Event, activate_rules, on_start
 
-from gen_env import GenEnv
+from play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TileNot, TilePlacement, TileSet, TileType
 from variables import Variable
@@ -146,6 +146,6 @@ def make_env(height, width):
         done_cond=lambda: maze_is_generated.value > 0,
         children=[maze_gameplay]
     )
-    env = GenEnv(height, width, tiles=tiles, rules=gamepley_rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+    env = PlayEnv(height, width, tiles=tiles, rules=gamepley_rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
                  events=[generate_maze], variables=[maze_is_generated])
     return env

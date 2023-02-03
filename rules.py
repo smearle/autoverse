@@ -132,6 +132,10 @@ class Rule():
         in_out_onehot = np.eye(n_tiles + 1)[in_out_disc]
         return in_out_onehot.flatten()
 
+    def mutate_new(self, tiles, other_rules):
+        # TODO: User GenEnv actions to modify map and rules (need to factor this out of GenEnv to be a static method)
+        pass
+
     def mutate(self, tiles, other_rules):
         n_muts = 1
         x = random.random()
@@ -185,11 +189,14 @@ class Rule():
                     new = np.array(tiles + [None])[new]
                     new_in_out = np.concatenate((self._in_out, new), axis=axis)
 
-            # Accept new in-out rule only if it does not result in invalid player transformation. 
-            in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(new_in_out)
-            if in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 1:
+            if is_valid(new_in_out):
                 self._in_out = new_in_out
         self.compile()
+
+    def is_valid(in_out):
+        # Accept new in-out rule only if it does not result in invalid player transformation. 
+        in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(in_out)
+        return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 1
 
     def hashable(self):
         int_in_out = np.vectorize(lambda x: x.get_idx() if x is not None else -1)(self._in_out)

@@ -8,13 +8,13 @@ import gym
 import numpy as np
 
 from games import (hamilton, maze, maze_backtracker, maze_npc, power_line, sokoban)
-from gen_env import GenEnv, Rule, TileType
+from play_env import PlayEnv, Rule, TileType
 
 
 RENDER = False
 
 
-def solve(env: GenEnv, max_steps: int = inf, render: bool = RENDER):
+def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
     """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
     # height, width = env.height, env.width
     state = env.get_state()
@@ -83,7 +83,7 @@ def solve(env: GenEnv, max_steps: int = inf, render: bool = RENDER):
     return best_state_actions, best_reward, n_iter_best, n_iter
 
 
-def hash(env: GenEnv, state):
+def hash(env: PlayEnv, state):
     return env.hashable(state)
 
 
@@ -91,7 +91,7 @@ def main(game=maze, height=10, width=10, render=False):
     if isinstance(game, str):
         game = globals()[game]
 
-    env: GenEnv = game.make_env(height=height, width=width)
+    env: PlayEnv = game.make_env(height=height, width=width)
     while True:
         env.reset()
         env.render()

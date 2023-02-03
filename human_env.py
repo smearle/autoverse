@@ -7,7 +7,7 @@ import numpy as np
 import pygame
 
 from evolve import Individual, init_base_env, load_game_to_env
-from gen_env import GenEnv, Rule, TileType
+from play_env import PlayEnv, Rule, TileType
 from games import *
 
 
@@ -24,9 +24,9 @@ def main(cfg):
             load_game_to_env(env, individual)
         else:
             game = globals()[game]
-            env: GenEnv = game.make_env(height, width)
+            env: PlayEnv = game.make_env(height, width)
     else:
-        env: GenEnv = game.make_env(height, width)
+        env: PlayEnv = game.make_env(height, width)
 
     # Set numpy seed
     np.random.seed(0)

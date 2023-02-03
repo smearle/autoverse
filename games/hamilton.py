@@ -1,6 +1,6 @@
 import numpy as np
 
-from gen_env import GenEnv
+from play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 
@@ -61,4 +61,4 @@ def make_env(height, width):
     )
     rules = RuleSet([player_move, lava_kill_player, reward_slime])
 
-    return GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
+    return PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])

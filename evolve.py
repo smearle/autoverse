@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 import yaml
 
 from games import GAMES
-from gen_env import GenEnv
+from play_env import PlayEnv
 from evo.eval import load_game_to_env, evaluate_multi, evaluate
 from evo.individual import Individual
 from rules import Rule, RuleSet

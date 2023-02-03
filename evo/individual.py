@@ -43,41 +43,9 @@ class Individual():
         k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
         for k in k_arr:
             disc_map.flat[k] = np.random.randint(0, len(self.tiles))
+        
+        self.map = PlayEnv.repair_map(self.map, self.tiles)
 
-        fixed_num_tiles = [t for t in self.tiles if t.num is not None]
-        free_num_tile_idxs = [t.idx for t in self.tiles if t.num is None]
-        # For tile types with fixed numbers, make sure this many occur
-        for tile in fixed_num_tiles:
-            # If there are too many, remove some
-            # print(f"Checking {tile.name} tiles")
-            idxs = np.where(disc_map.flat == tile.idx)[0]
-            # print(f"Found {len(idxs)} {tile.name} tiles")
-            if len(idxs) > tile.num:
-                # print(f'Found too many {tile.name} tiles, removing some')
-                for idx in idxs[tile.num:]:
-                    disc_map.flat[idx] = np.random.choice(free_num_tile_idxs)
-                # print(f'Removed {len(idxs) - tile.num} tiles')
-                assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-            elif len(idxs) < tile.num:
-                # FIXME: Not sure if this is working
-                net_idxs = []
-                chs_i = 0
-                np.random.shuffle(free_num_tile_idxs)
-                while len(net_idxs) < tile.num:
-                    # Replace only 1 type of tile (weird)
-                    idxs = np.where(disc_map.flat == free_num_tile_idxs[chs_i])[0]
-                    net_idxs += idxs.tolist()
-                    chs_i += 1
-                    if chs_i >= len(free_num_tile_idxs):
-                        print(f"Warning: Not enough tiles to mutate into {tile.name} tiles")
-                        break
-                idxs = np.array(net_idxs[:tile.num])
-                for idx in idxs:
-                    disc_map.flat[idx] = tile.idx
-                assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        for tile in fixed_num_tiles:
-            assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        self.map = rearrange(np.eye(len(self.tiles))[disc_map], 'h w c -> c h w')
 
     def save(self, filename):
         # Save dictionary to yaml

@@ -4,7 +4,7 @@ from pdb import set_trace as TT
 import numpy as np
 from events import Event, activate_rules
 
-from gen_env import GenEnv
+from play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 from variables import Variable
@@ -148,6 +148,6 @@ def make_env(height, width):
         init_cond=lambda: player_keys.value >= 1,
     )
 
-    env = GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
+    env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
         events=[player_has_key], variables=[player_keys])
     return env
