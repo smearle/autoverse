@@ -34,7 +34,7 @@ class GenEnv(gym.Env):
     # TODO: mutate map and rules (and tiles, objects, events)
     def step(self, action):
         """
-        FOR NOT: We'll assume a multidiscrete action space / MultiBinary
+        FOR NOW: We'll assume a multidiscrete action space / MultiBinary
         LATER: We'll assume action is flattened box between 0 and 1. (?)
 
         One edit to map:
@@ -58,8 +58,10 @@ class GenEnv(gym.Env):
         rule = self.rules[-1]  # HARDCODE edit last rule of maze_for_evo
     
         idx_tile = action[1]
+        print(idx_tile)
         io_idx = idx_tile // len(tiles_none)
-        new_tile_idx = io_idx % len(tiles_none)
+        print(io_idx)
+        new_tile_idx = idx_tile % len(tiles_none)
 
         new_rew = action[2]
 
@@ -67,12 +69,16 @@ class GenEnv(gym.Env):
         old_tile = rule._in_out.flat[io_idx]
         old_tile_idx = old_tile.get_idx() if old_tile is not None else len(self.tiles) # None <--> -1
         new_in_out = rule._in_out.copy()
+        # new_tile_idx = random.randint(0, len(tiles_none) - 1)
         new_in_out.flat[io_idx] = tiles_none[new_tile_idx]
-        if Rule.is_valid(new_in_out):
-            rule._in_out = new_in_out
+        # if Rule.is_valid(new_in_out):
+        rule._in_out = new_in_out
+
+
+        print(f'old tile: {old_tile_idx}, new tile: {new_tile_idx}, new rew: {new_rew}, timestep: {self.play_env.n_step}')
+        print(f'tiles are same: {old_tile_idx == new_tile_idx}')
 
         rule.reward = new_rew
-
 
         obs = None
         rew = 0 

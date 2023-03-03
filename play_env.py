@@ -44,7 +44,7 @@ class PlayEnv(gym.Env):
             events: Iterable[Event] = [],
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
-            max_episode_steps: int = 300
+            max_episode_steps: int = 700
         ):
         """_summary_
 
