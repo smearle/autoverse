@@ -4,6 +4,7 @@ import yaml
 
 from einops import rearrange
 import numpy as np
+from play_env import PlayEnv
 
 from rules import Rule, RuleSet
 from tiles import TileType, TileSet
@@ -44,7 +45,7 @@ class Individual():
         for k in k_arr:
             disc_map.flat[k] = np.random.randint(0, len(self.tiles))
         
-        self.map = PlayEnv.repair_map(self.map, self.tiles)
+        self.map = PlayEnv.repair_map(disc_map, self.tiles)
 
 
     def save(self, filename):

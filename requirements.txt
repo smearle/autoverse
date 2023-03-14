@@ -1,5 +1,8 @@
 einops
+fire
 gym
+hydra-core
+hydra-submitit-launcher
 opencv-python
 pandas
 pygame

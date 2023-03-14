@@ -133,6 +133,7 @@ class TileNot():
         self.tile = tile
         self.get_idx = tile.get_idx
         self.trg_val = 0
+        self.idx = - tile.get_idx()
 
     def __str__(self):
         return f"TileNot {self.tile}"

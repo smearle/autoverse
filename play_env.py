@@ -298,6 +298,8 @@ class PlayEnv(gym.Env):
 
     def observe_rules(self):
         # Hardcoded for maze_for_evo to ignore first 2 (unchanging) rules
+        if self._n_fixed_rules == len(self.rules):
+            return np.zeros((0,), dtype=np.float32)
         return np.concatenate([r.observe(n_tiles=len(self.tiles)) for r in self.rules[self._n_fixed_rules:]])
     
     def render(self, mode='human'):
@@ -421,7 +423,8 @@ class PlayEnv(gym.Env):
             rule_ims.append(p_ims)
 
         # Get the shape of the largest rule, pad other rules to match
-        max_h, max_w = max([im.shape[:2] for im in rule_ims])
+        max_h = max([im.shape[0] for im in rule_ims])
+        max_w = max([im.shape[1] for im in rule_ims])
         for i, im in enumerate(rule_ims):
             h, w = im.shape[:2]
             pad_h = max_h - h
@@ -433,10 +436,16 @@ class PlayEnv(gym.Env):
 
         rule_ims = np.array(rule_ims)
         rule_ims = np.concatenate(rule_ims, axis=0)
+
         # Pad rules below to match the height of the tile images
         h, w = tile_ims.shape[:2]
-        pad_h = h - rule_ims.shape[0]
+        pad_h = max(0, h - rule_ims.shape[0])
         rule_ims = np.pad(rule_ims, ((0, pad_h), (0, 0), (0, 0)), mode='constant', constant_values=0)
+
+        # Or pad tile images below to match the height of the rule images
+        pad_h2 = max(0, rule_ims.shape[0] - h)
+        tile_ims = np.pad(tile_ims, ((0, pad_h2), (0, 0), (0, 0)), mode='constant', constant_values=0)
+
         # Add the rules im to the right of the tile im, with padding between
         tile_ims = np.concatenate([tile_ims, rule_ims], axis=1)
 
@@ -477,6 +486,10 @@ class PlayEnv(gym.Env):
             self.rend_im = np.flip(self.rend_im, axis=0)
             # Rotate to match pygame
             self.rend_im = np.rot90(self.rend_im, k=-1)
+
+            # Scale up the image by 2
+            self.rend_im = cv2.resize(self.rend_im, (2048, 2048))
+
             if self.screen is None:
                 pygame.init()
                 # Flip image to match pygame coordinate system

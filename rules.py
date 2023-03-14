@@ -129,6 +129,11 @@ class Rule():
     def observe(self, n_tiles):
         # return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
         in_out_disc = np.vectorize(TileType.get_idx)(self._in_out)
+
+        if in_out_disc.min() < 0:
+            print('WARNING: negative tile index in rule observation. `TileNot` observations not supported. Hope you\'re not training on this!')
+        in_out_disc = np.clip(in_out_disc, 0, n_tiles) 
+
         in_out_onehot = np.eye(n_tiles + 1)[in_out_disc]
         return in_out_onehot.flatten()
 
@@ -193,14 +198,15 @@ class Rule():
                 self._in_out = new_in_out
         self.compile()
 
-    def is_valid(in_out):
-        # Accept new in-out rule only if it does not result in invalid player transformation. 
-        in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(in_out)
-        return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 1
-
     def hashable(self):
         int_in_out = np.vectorize(lambda x: x.get_idx() if x is not None else -1)(self._in_out)
         return hash(int_in_out.tobytes())
+
+
+def is_valid(in_out):
+    # Accept new in-out rule only if it does not result in invalid player transformation. 
+    in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(in_out)
+    return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 1
 
 class ObjectRule(Rule):
     def __init__(self, *args, offset=(0, 0), **kwargs):

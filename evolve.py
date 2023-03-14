@@ -1,4 +1,5 @@
 import copy
+from enum import unique
 import glob
 import os
 from pdb import set_trace as TT
@@ -6,7 +7,7 @@ import random
 import shutil
 from typing import Iterable
 
-from fire import Fire
+# from fire import Fire
 from einops import rearrange
 import hydra
 import imageio
@@ -43,8 +44,10 @@ def init_base_env(cfg):
 #     reward_seq: List[float]
 
 def aggregate_playtraces(cfg):
-    # If not overwriting, load existing elites
-    if cfg.overwrite:
+    unique_elites_path = os.path.join(cfg.log_dir, 'unique_elites.npz')
+
+    # If overwriting, or elites have not previously been aggregated, then collect all unique games.
+    if cfg.overwrite or not os.path.isfile(unique_elites_path):
         # Aggregate all playtraces into one file
         elite_files = glob.glob(os.path.join(cfg.log_dir, 'gen-*.npz'))
         # An elite is a set of game rules, a game map, and a solution/playtrace
@@ -67,10 +70,11 @@ def aggregate_playtraces(cfg):
             # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
             frames = replay_episode(cfg, env, elite)
         # Save unique elites to npz file
-        np.savez(os.path.join(cfg.log_dir, 'unique_elites.npz'), elites)
+        np.savez(unique_elites_path, elites)
+    # If not overwriting, load existing elites
     else:
         # Load elites from file
-        elites = np.load(os.path.join(cfg.log_dir, 'unique_elites.npz'), allow_pickle=True)['arr_0']
+        elites = np.load(unique_elites_path, allow_pickle=True)['arr_0']
     # Additionally save elites to workspace directory for easy access for imitation learning
     np.savez(os.path.join(cfg.workspace, 'unique_elites.npz'), elites)
 
@@ -121,7 +125,7 @@ def get_log_dir(cfg):
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
-@hydra.main(config_path="configs", config_name="evo")
+@hydra.main(version_base='1.3', config_path="configs", config_name="evo")
 def main(cfg):
     overwrite, num_proc, render = cfg.overwrite, cfg.num_proc, cfg.render
     if cfg.record:

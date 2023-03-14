@@ -79,7 +79,7 @@ def load(cfg):
     return policy, curr_epoch
     # return bc_trainer, curr_epoch
 
-@hydra.main(config_path="configs", config_name="il")
+@hydra.main(version_base="1.3", config_path="configs", config_name="il")
 def main(cfg):
     cfg.log_dir = os.path.join(cfg.workspace, f"exp-{cfg.exp_id}")
     # Environment class doesn't matter and will be overwritten when we load in an individual.
