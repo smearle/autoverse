@@ -96,7 +96,7 @@ def main(cfg):
     sys.modules['individual'] = individual
     # end HACK
 
-    elites = np.load("runs_evo/unique_elites.npz", allow_pickle=True)['arr_0']
+    elites = np.load(os.path.join(cfg.workspace, "runs_evo", "unique_elites.npz"), allow_pickle=True)['arr_0']
     policy_kwargs = dict(net_arch=[64, 64], observation_space=env.observation_space, action_space=env.action_space,
                 # Set lr_schedule to max value to force error if policy.optimizer
                 # is used by mistake (should use self.optimizer instead).
@@ -166,13 +166,14 @@ def main(cfg):
 
     if cfg.overwrite:
         save(cfg, bc_trainer, curr_epoch)
-        reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, elites[-10:], name=f"epoch-{curr_epoch}")
-        print(f"Reward before imitation learning: {reward}")
-        with open(os.path.join(cfg.log_dir, f"epoch-{curr_epoch}_reward.txt"), "w") as f:
-            f.write(str(reward))
     
     else:
         bc_trainer._bc_logger._tensorboard_step = curr_epoch
+
+    reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, elites[-10:], name=f"epoch-{curr_epoch}")
+    print(f"Reloaded epoch {curr_epoch}.\nReward before imitation learning: {reward}")
+    with open(os.path.join(cfg.log_dir, f"epoch-{curr_epoch}_reward.txt"), "w") as f:
+        f.write(str(reward))
 
     print("Training a policy using Behavior Cloning")
     n_train_epochs = cfg.n_epochs - curr_epoch
@@ -201,17 +202,11 @@ def main(cfg):
         # Save dataframe
         # progress_df.to_csv(os.path.join(cfg.log_dir, "progress.csv"))
 
-    # Now take the imitation-learned policy and do RL with it using sb3 PPO
-    from stable_baselines3.common.env_util import make_vec_env
     policy = bc_trainer.policy
-    make_env = partial(init_base_env, cfg)
-    env = make_vec_env(make_env, n_envs=100, vec_env_cls=SubprocVecEnv)
-    # model = PPO.load(os.path.join(cfg.log_dir, 'policy'))
-    policy_kwargs = dict(net_arch=[64, 64])
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=cfg.log_dir, policy_kwargs=policy_kwargs)
-    model.set_parameters({'policy': policy.state_dict(), 'policy.optimizer': policy.optimizer.state_dict()})
-    model.learn(total_timesteps=1000000, tb_log_name="ppo")
-    model.save(os.path.join(cfg.log_dir, "ppo"))
+
+    # Save the state dict
+    th.save(policy.state_dict(), os.path.join(cfg.log_dir, "policy.pt"))
+
 
 
 if __name__ == "__main__":

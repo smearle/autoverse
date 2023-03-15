@@ -1,7 +1,10 @@
+defaults:
+  - evo
+
 exp_id: 0
 overwrite: false
 record: true
-workspace: runs_il
+runs_dir: runs_il
 game: maze_for_evo
 log_dir: null # Set later, automatically
 n_epochs: 10

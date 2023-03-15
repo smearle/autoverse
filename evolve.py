@@ -76,7 +76,7 @@ def aggregate_playtraces(cfg):
         # Load elites from file
         elites = np.load(unique_elites_path, allow_pickle=True)['arr_0']
     # Additionally save elites to workspace directory for easy access for imitation learning
-    np.savez(os.path.join(cfg.workspace, 'unique_elites.npz'), elites)
+    np.savez(os.path.join(cfg.workspace, cfg.runs_dir, 'unique_elites.npz'), elites)
 
 def replay_episode(cfg, env, elite):
     # Re-play the episode, recording observations and rewards (for imitation learning)
@@ -121,7 +121,7 @@ def replay_episode(cfg, env, elite):
         return frames
 
 def get_log_dir(cfg):
-    return os.path.join(cfg.workspace, cfg.game, f"{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}")
+    return os.path.join(cfg.workspace, cfg.runs_dir, cfg.game, f"{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}")
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):

@@ -12,7 +12,8 @@ evaluate: false
 save_freq: 1
 render: false
 record: false
-workspace: ../gen-game-runs/runs_evo
+workspace: ../gen-game-runs
+runs_dir: runs_evo
 log_dir: null  # Set later, automatically
 load_gen: null
 aggregate_playtraces: false

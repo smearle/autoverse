@@ -130,8 +130,8 @@ class Rule():
         # return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
         in_out_disc = np.vectorize(TileType.get_idx)(self._in_out)
 
-        if in_out_disc.min() < 0:
-            print('WARNING: negative tile index in rule observation. `TileNot` observations not supported. Hope you\'re not training on this!')
+        # if in_out_disc.min() < 0:
+        #     print('WARNING: negative tile index in rule observation. `TileNot` observations not supported. Hope you\'re not training on this!')
         in_out_disc = np.clip(in_out_disc, 0, n_tiles) 
 
         in_out_onehot = np.eye(n_tiles + 1)[in_out_disc]
