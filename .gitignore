@@ -6,6 +6,5 @@ outputs
 # Ignore files ending in .pyc
 *.pyc
 multirun
-__pycache__
-games/__pycache__
+*__pycache__
 

@@ -44,7 +44,7 @@ class PlayEnv(gym.Env):
             events: Iterable[Event] = [],
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
-            max_episode_steps: int = 700
+            max_episode_steps: int = 100
         ):
         """_summary_
 
@@ -55,8 +55,12 @@ class PlayEnv(gym.Env):
             rules (list): A list of Rule objects, between TileTypes.
             done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
+        # Which game in the game_archive are we loading next?
+        self._game_idx = 0
+
         # FIXME: too hardcoded (for maze_for_evo) rn
         self._n_fixed_rules = 2
+
         self._ep_rew = 0
         self._done = False
         if search_tiles is None:
@@ -107,6 +111,7 @@ class PlayEnv(gym.Env):
                 raise Exception
         self._done_at_reward = done_at_reward
         self._map_queue = []
+        self._rule_queue = []
         self._map_id = 0
         self.init_obs_space()
 
@@ -124,8 +129,9 @@ class PlayEnv(gym.Env):
         # })
         self.observation_space = spaces.MultiBinary((self.view_size * 2 + 1) * (self.view_size * 2 + 1) * len(self.tiles) + 4 + len_rule_obs)
 
-    def queue_maps(self, maps: Iterable[np.ndarray]):
+    def queue_games(self, maps: Iterable[np.ndarray], rules: Iterable[np.ndarray]):
         self._map_queue = maps
+        self._rule_queue = rules
 
     def _update_player_pos(self, map_arr):
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)
@@ -179,9 +185,15 @@ class PlayEnv(gym.Env):
         return map_arr
 
     def reset(self):
+        if len(self._rule_queue) > 0:
+            self._game_idx = self._game_idx % len(self._rule_queue)
+            self.rules = copy.copy(self._rule_queue[self._game_idx])
+            self.map = copy.copy(self._map_queue[self._game_idx])
+            self._game_idx += 1
+
         self._ep_rew = 0
         # Reset rules.
-        self.rules = copy.copy(self._init_rules)
+        # self.rules = copy.copy(self._init_rules)
         # Reset variables.
         [v.reset() for v in self.variables]
         self.event_graph.reset()

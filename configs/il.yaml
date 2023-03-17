@@ -4,10 +4,9 @@ defaults:
 exp_id: 0
 overwrite: false
 record: true
-runs_dir: runs_il
 game: maze_for_evo
-log_dir: null # Set later, automatically
-n_epochs: 10
+# n_epochs: null
+n_il_batches: 1000
 save_freq: 5
 
 hydra:

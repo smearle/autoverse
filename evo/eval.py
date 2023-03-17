@@ -14,7 +14,7 @@ def evaluate_multi(args):
 
 def evaluate(env: PlayEnv, individual: Individual, render: bool, trg_n_iter: bool):
     load_game_to_env(env, individual)
-    env.queue_maps([individual.map.copy()])
+    env.queue_games([individual.map.copy()], [individual.rules.copy()])
     env.reset()
     init_state = env.get_state()
     # Save the map after it having been cleaned up by the environment

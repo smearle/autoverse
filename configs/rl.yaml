@@ -1,2 +1,6 @@
 defaults:
   - il
+
+load_il: False
+load_rl: False
+n_iters: 1000000

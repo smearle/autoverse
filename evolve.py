@@ -18,6 +18,7 @@ from multiprocessing import Pool
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 
+from configs.config import Config
 from games import GAMES
 from play_env import PlayEnv
 from evo.eval import load_game_to_env, evaluate_multi, evaluate
@@ -25,6 +26,7 @@ from evo.individual import Individual
 from rules import Rule, RuleSet
 from search_agent import solve
 from tiles import TileSet, TileType
+from utils import validate_config
 
 
 def init_base_env(cfg):
@@ -43,13 +45,13 @@ def init_base_env(cfg):
 #     action_seq: List[int]
 #     reward_seq: List[float]
 
-def aggregate_playtraces(cfg):
-    unique_elites_path = os.path.join(cfg.log_dir, 'unique_elites.npz')
+def aggregate_playtraces(cfg: Config):
+    unique_elites_path = os.path.join(cfg.log_dir_evo, 'unique_elites.npz')
 
     # If overwriting, or elites have not previously been aggregated, then collect all unique games.
     if cfg.overwrite or not os.path.isfile(unique_elites_path):
         # Aggregate all playtraces into one file
-        elite_files = glob.glob(os.path.join(cfg.log_dir, 'gen-*.npz'))
+        elite_files = glob.glob(os.path.join(cfg.log_dir_evo, 'gen-*.npz'))
         # An elite is a set of game rules, a game map, and a solution/playtrace
         # elite_hashes = set()
         elites = {}
@@ -75,8 +77,12 @@ def aggregate_playtraces(cfg):
     else:
         # Load elites from file
         elites = np.load(unique_elites_path, allow_pickle=True)['arr_0']
+
+    if not os.path.isdir(cfg.log_dir_common):
+        os.mkdir(cfg.log_dir_common)
+
     # Additionally save elites to workspace directory for easy access for imitation learning
-    np.savez(os.path.join(cfg.workspace, cfg.runs_dir, 'unique_elites.npz'), elites)
+    np.savez(os.path.join(cfg.log_dir_common, 'unique_elites.npz'), elites)
 
 def replay_episode(cfg, env, elite):
     # Re-play the episode, recording observations and rewards (for imitation learning)
@@ -85,7 +91,7 @@ def replay_episode(cfg, env, elite):
     load_game_to_env(env, elite)
     obs_seq = []
     rew_seq = []
-    env.queue_maps([elite.map.copy()])
+    env.queue_games([elite.map.copy()], [elite.rules.copy()])
     obs = env.reset()
     # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
@@ -120,29 +126,26 @@ def replay_episode(cfg, env, elite):
     if cfg.record:
         return frames
 
-def get_log_dir(cfg):
-    return os.path.join(cfg.workspace, cfg.runs_dir, cfg.game, f"{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}")
-
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="configs", config_name="evo")
-def main(cfg):
-    overwrite, num_proc, render = cfg.overwrite, cfg.num_proc, cfg.render
+def main(cfg: Config):
+    overwrite, num_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
     if cfg.record:
         cfg.evaluate=True
-    cfg.log_dir = get_log_dir(cfg)
+    validate_config(cfg)
     load = not overwrite
     if cfg.aggregate_playtraces:
         aggregate_playtraces(cfg)
         return
     loaded = False
-    if os.path.isdir(cfg.log_dir):
+    if os.path.isdir(cfg.log_dir_evo):
         if load:
             if cfg.load_gen is not None:
-                save_file = os.path.join(cfg.log_dir, f'gen-{int(cfg.load_gen)}.npz')
+                save_file = os.path.join(cfg.log_dir_evo, f'gen-{int(cfg.load_gen)}.npz')
             else:
                 # Get `gen-xxx.npz` with largest `xxx`
-                save_files = glob.glob(os.path.join(cfg.log_dir, 'gen-*.npz'))
+                save_files = glob.glob(os.path.join(cfg.log_dir_evo, 'gen-*.npz'))
                 save_file = max(save_files, key=lambda x: int(x.split('-')[-1].split('.')[0]))
 
             # HACK to load trained run after refactor
@@ -160,14 +163,14 @@ def main(cfg):
             loaded = True
             print(f"Loaded {len(elites)} elites from {save_file} at generation {n_gen}.")
         elif not overwrite:
-            print(f"Directory {cfg.log_dir} already exists. Use `--overwrite=True` to overwrite.")
+            print(f"Directory {cfg.log_dir_evo} already exists. Use `--overwrite=True` to overwrite.")
             return
         else:
-            shutil.rmtree(cfg.log_dir, ignore_errors=True)
+            shutil.rmtree(cfg.log_dir_il, ignore_errors=True)
     if not loaded:
         pop_size = cfg.batch_size
         trg_n_iter = 1000 # Max number of iterations while searching for solution. Will increase during evolution
-        os.makedirs(cfg.log_dir)
+        os.makedirs(cfg.log_dir_evo, exist_ok=True)
 
     env = init_base_env(cfg)
     env.reset()
@@ -181,16 +184,16 @@ def main(cfg):
             if cfg.record:
                 # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
                 # Save as mp4
-                imageio.mimsave(os.path.join(cfg.log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
+                imageio.mimsave(os.path.join(cfg.log_dir_evo, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
                 # Save elite as yaml
-                e.save(os.path.join(cfg.log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
+                e.save(os.path.join(cfg.log_dir_evo, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
         return
 
     def multiproc_eval_offspring(offspring):
         eval_offspring = []
         while len(offspring) > 0:
             eval_offspring += pool.map(evaluate_multi, [(env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
-            offspring = offspring[cfg.num_proc:]
+            offspring = offspring[cfg.n_proc:]
         return eval_offspring
 
     # Initial population
@@ -215,7 +218,7 @@ def main(cfg):
 
     # Training loop
     # Initialize tensorboard writer
-    writer = SummaryWriter(log_dir=cfg.log_dir)
+    writer = SummaryWriter(log_dir=cfg.log_dir_evo)
     for n_gen in range(n_gen, 10000):
         parents = np.random.choice(elites, size=cfg.batch_size, replace=True)
         offspring = []
@@ -259,7 +262,7 @@ def main(cfg):
             trg_n_iter += 1000
         if n_gen % cfg.save_freq == 0: 
             # Save the elites.
-            np.savez(os.path.join(cfg.log_dir, f"gen-{n_gen}"),
+            np.savez(os.path.join(cfg.log_dir_evo, f"gen-{n_gen}"),
             # np.savez(os.path.join(log_dir, "elites"), 
                 {
                     'n_gen': n_gen,
@@ -267,9 +270,9 @@ def main(cfg):
                     'trg_n_iter': trg_n_iter
                 })
             # Save the elite's game mechanics to a yaml
-            elite_games_dir = os.path.join(cfg.log_dir, "elite_games")
+            elite_games_dir = os.path.join(cfg.log_dir_evo, "elite_games")
             if not os.path.isdir(elite_games_dir):
-                os.mkdir(os.path.join(cfg.log_dir, "elite_games"))
+                os.mkdir(os.path.join(cfg.log_dir_evo, "elite_games"))
             for i, e in enumerate(elites):
                 e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
 

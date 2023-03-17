@@ -7,7 +7,7 @@ from einops import rearrange, repeat
 import gym
 from gym import spaces
 import numpy as np
-import pygame
+# import pygame
 # from tkinter import *      
 
 class HamiltonGrid(gym.Env):

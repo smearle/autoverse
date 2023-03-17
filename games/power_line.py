@@ -65,6 +65,6 @@ def make_env(height, width):
         player_placeable_tiles=[(force, TilePlacement.ADJACENT), (wire, TilePlacement.CURRENT)])
     # env = partial(GenEnv, h=10, w=10, tiles=tiles, rules=rules, player_placeable_tiles=[force])
 
-    # env.queue_maps([np.array([
+    # env.queue_games([np.array([
     # ])])
     return env

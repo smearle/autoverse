@@ -147,5 +147,5 @@ def make_env(height, width):
         player_placeable_tiles=[(force, TilePlacement.ADJACENT), (anchor, TilePlacement.CURRENT)],
         # events=[generate_board]
        )
-    env.queue_maps(maps_objsets)
+    env.queue_games(maps_objsets)
     return env

@@ -1,10 +1,12 @@
 defaults:
+  - base_config
+  - _self_
   # - override hydra/launcher: submitit_local
   - override hydra/launcher: submitit_slurm
 
 exp_id: 0
 overwrite: false
-num_proc: 40
+n_proc: 7
 batch_size: 40
 game: maze_for_evo
 mutate_rules: true
@@ -13,8 +15,15 @@ save_freq: 1
 render: false
 record: false
 workspace: ../gen-game-runs
-runs_dir: runs_evo
-log_dir: null  # Set later, automatically
+runs_dir_evo: evo_env
+runs_dir_rl: rl_player
+runs_dir_il: il_player
+
+log_dir_il: null  # Set later, automatically
+log_dir_rl: null
+log_dir_evo: null
+log_dir_common: null
+
 load_gen: null
 aggregate_playtraces: false
 

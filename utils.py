@@ -1,6 +1,19 @@
+import os
 import cv2
 import imageio
 import numpy as np
+from triton import Config
+
+
+def validate_config(cfg: Config):
+    env_exp_name = f"{cfg.game}_{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}"
+    cfg.log_dir_common = os.path.join(cfg.workspace, env_exp_name)
+
+    cfg.log_dir_rl = os.path.join(cfg.log_dir_common, cfg.runs_dir_rl)
+    cfg.log_dir_il = os.path.join(cfg.log_dir_common, cfg.runs_dir_il)
+    # cfg.log_dir_evo = os.path.join(cfg.workspace, cfg.runs_dir_evo, f"exp-{cfg.exp_id}")
+    cfg.log_dir_evo = os.path.join(cfg.log_dir_common, cfg.runs_dir_evo, env_exp_name)
+
 
 def save_video(frames, video_path, fps=10):
     """Save a list of frames to a video file.
