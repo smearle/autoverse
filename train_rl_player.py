@@ -30,8 +30,9 @@ def callback(_locals, _globals):
 @hydra.main(version_base="1.3", config_path="configs", config_name="rl")
 def main(cfg: Config):
     validate_config(cfg)
-    n_iters = cfg.n_iters
-    env_archive = np.load(os.path.join(cfg.log_dir_common, "unique_elites.npz"), allow_pickle=True)['arr_0']
+    n_iters = cfg.n_rl_iters
+    # env_archive = np.load(os.path.join(cfg.log_dir_evo, "unique_elites.npz"), allow_pickle=True)['arr_0']
+    env_archive = np.load(os.path.join(cfg.log_dir_common, "train_elites.npz"), allow_pickle=True)['arr_0']
     maps = [ind.map for ind in env_archive]
     rules = [ind.rules for ind in env_archive]
 
@@ -67,8 +68,8 @@ def main(cfg: Config):
     if model_state_dict is not None:
         model.set_parameters({'policy': model_state_dict, 'policy.optimizer': optimizer.state_dict()})
 
-    model.learn(total_timesteps=cfg.n_iters, tb_log_name="ppo", callback=callback)
-    model.save(os.path.join(cfg.log_dir_rl, f"policy_rl_epoch-{cfg.n_iters}.pt"))
+    model.learn(total_timesteps=cfg.n_rl_iters, tb_log_name="ppo", callback=callback)
+    model.save(os.path.join(cfg.log_dir_rl, f"policy_rl_epoch-{cfg.n_rl_iters}.pt"))
 
 
 if __name__ == "__main__":

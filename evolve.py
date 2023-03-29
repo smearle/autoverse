@@ -49,40 +49,59 @@ def aggregate_playtraces(cfg: Config):
     unique_elites_path = os.path.join(cfg.log_dir_evo, 'unique_elites.npz')
 
     # If overwriting, or elites have not previously been aggregated, then collect all unique games.
-    if cfg.overwrite or not os.path.isfile(unique_elites_path):
-        # Aggregate all playtraces into one file
-        elite_files = glob.glob(os.path.join(cfg.log_dir_evo, 'gen-*.npz'))
-        # An elite is a set of game rules, a game map, and a solution/playtrace
-        # elite_hashes = set()
-        elites = {}
-        n_evaluated = 0
-        for f in elite_files:
-            save_dict = np.load(f, allow_pickle=True)['arr_0'].item()
-            elites_i = save_dict['elites']
-            for elite in elites_i:
-                n_evaluated += 1
-                e_hash = elite.hashable()
-                if e_hash not in elites or elites[e_hash].fitness < elite.fitness:
-                    elites[e_hash] = elite
-        print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
-        # Replay episodes, recording obs and rewards and attaching to individuals
-        env = init_base_env(cfg)
-        elites = list(elites.values())
-        for elite in elites:
-            # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-            frames = replay_episode(cfg, env, elite)
-        # Save unique elites to npz file
-        np.savez(unique_elites_path, elites)
+    # if cfg.overwrite or not os.path.isfile(unique_elites_path):
+    # Aggregate all playtraces into one file
+    elite_files = glob.glob(os.path.join(cfg.log_dir_evo, 'gen-*.npz'))
+    # An elite is a set of game rules, a game map, and a solution/playtrace
+    # elite_hashes = set()
+    elites = {}
+    n_evaluated = 0
+    for f in elite_files:
+        save_dict = np.load(f, allow_pickle=True)['arr_0'].item()
+        elites_i = save_dict['elites']
+        for elite in elites_i:
+            n_evaluated += 1
+            e_hash = elite.hashable()
+            if e_hash not in elites or elites[e_hash].fitness < elite.fitness:
+                elites[e_hash] = elite
+    print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
+    # Replay episodes, recording obs and rewards and attaching to individuals
+    env = init_base_env(cfg)
+    elites = list(elites.values())
+    for elite in elites:
+        # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
+        frames = replay_episode(cfg, env, elite)
+    # Save unique elites to npz file
+    np.savez(unique_elites_path, elites)
     # If not overwriting, load existing elites
-    else:
+    # else:
         # Load elites from file
-        elites = np.load(unique_elites_path, allow_pickle=True)['arr_0']
+        # elites = np.load(unique_elites_path, allow_pickle=True)['arr_0']
 
     if not os.path.isdir(cfg.log_dir_common):
         os.mkdir(cfg.log_dir_common)
 
-    # Additionally save elites to workspace directory for easy access for imitation learning
-    np.savez(os.path.join(cfg.log_dir_common, 'unique_elites.npz'), elites)
+    # Split elites into train, val and test sets 
+    train_elites, val_elites, test_elites = split_elites(cfg, elites)
+    # Save elites to npz files
+    np.savez(os.path.join(cfg.log_dir_common, 'train_elites.npz'), train_elites)
+    np.savez(os.path.join(cfg.log_dir_common, 'val_elites.npz'), val_elites)
+    np.savez(os.path.join(cfg.log_dir_common, 'test_elites.npz'), test_elites)
+
+    # # Additionally save elites to workspace directory for easy access for imitation learning
+    # np.savez(os.path.join(cfg.log_dir_common, 'unique_elites.npz'), elites)
+
+def split_elites(cfg: Config, elites: Iterable[Individual]):
+    # Split elites into train, val and test sets 
+    n_elites = len(elites)
+    n_train = int(n_elites * .8)
+    n_val = int(n_elites * .1)
+    n_test = n_elites - n_train - n_val
+    train_elites = elites[:n_train]
+    val_elites = elites[n_train:n_train+n_val]
+    test_elites = elites[n_train+n_val:]
+    print(f"Split {n_elites} elites into {n_train} train, {n_val} val, {n_test} test.")
+    return train_elites, val_elites, test_elites
 
 def replay_episode(cfg, env, elite):
     # Re-play the episode, recording observations and rewards (for imitation learning)
@@ -130,10 +149,13 @@ def replay_episode(cfg, env, elite):
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="configs", config_name="evo")
 def main(cfg: Config):
-    overwrite, num_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
-    if cfg.record:
-        cfg.evaluate=True
     validate_config(cfg)
+    vid_dir = os.path.join(cfg.log_dir_evo, 'videos')
+    
+    if not os.path.exists(vid_dir):
+        os.makedirs(vid_dir)
+
+    overwrite, num_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
     load = not overwrite
     if cfg.aggregate_playtraces:
         aggregate_playtraces(cfg)
@@ -169,7 +191,7 @@ def main(cfg: Config):
             shutil.rmtree(cfg.log_dir_il, ignore_errors=True)
     if not loaded:
         pop_size = cfg.batch_size
-        trg_n_iter = 1000 # Max number of iterations while searching for solution. Will increase during evolution
+        trg_n_iter = 10000 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg.log_dir_evo, exist_ok=True)
 
     env = init_base_env(cfg)
@@ -178,15 +200,10 @@ def main(cfg: Config):
         envs = [init_base_env(cfg) for _ in range(num_proc)]
 
     if cfg.evaluate:
+
+        breakpoint()
         print(f"Elites at generation {n_gen}:")
-        for e_idx, e in enumerate(elites[:10]):
-            frames = replay_episode(cfg, env, e)
-            if cfg.record:
-                # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
-                # Save as mp4
-                imageio.mimsave(os.path.join(cfg.log_dir_evo, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
-                # Save elite as yaml
-                e.save(os.path.join(cfg.log_dir_evo, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
+        eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
         return
 
     def multiproc_eval_offspring(offspring):
@@ -257,9 +274,10 @@ def main(cfg: Config):
         print(f"Standard deviation: {np.std(fits)}")
         print()
         # Increment trg_n_iter if the best fitness is within 10 of it.
-        if max_fit > trg_n_iter - 10:
-            # trg_n_iter *= 2
-            trg_n_iter += 1000
+        # if max_fit > trg_n_iter - 10:
+        if max_fit > trg_n_iter * 0.5:
+            trg_n_iter *= 2
+            # trg_n_iter += 1000
         if n_gen % cfg.save_freq == 0: 
             # Save the elites.
             np.savez(os.path.join(cfg.log_dir_evo, f"gen-{n_gen}"),
@@ -275,6 +293,20 @@ def main(cfg: Config):
                 os.mkdir(os.path.join(cfg.log_dir_evo, "elite_games"))
             for i, e in enumerate(elites):
                 e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
+
+        if n_gen % cfg.eval_freq == 0:
+            eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
+
+def eval_elites(cfg: Config, env: PlayEnv, elites: Iterable[Individual], n_gen: int, vid_dir: str):
+    # Evaluate elites
+    for e_idx, e in enumerate(elites[:10]):
+        frames = replay_episode(cfg, env, e)
+        if cfg.record:
+            # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
+            # Save as mp4
+            imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
+            # Save elite as yaml
+            e.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
 
 if __name__ == '__main__':
     main()

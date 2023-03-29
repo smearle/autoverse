@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 import hydra
 from hydra.core.config_store import ConfigStore
+from numpy import int32
 from omegaconf import DictConfig
 
 
@@ -9,14 +10,15 @@ from omegaconf import DictConfig
 class Config:
     exp_id: int = 0
     overwrite: bool = False
-    n_proc: int = 40
+    n_proc: int = 4
     batch_size: int = 40
     game: str = "maze_for_evo"
     mutate_rules: bool = True
     evaluate: bool = False
+    eval_freq: int = 1
     save_freq: int = 1
     render: bool = False
-    record: bool = False
+    record: bool = True
     workspace: str = "../gen-game-runs"
     runs_dir_evo: str = "evo_env"
     runs_dir_rl: str = "rl_player"
@@ -29,12 +31,12 @@ class Config:
     log_dir_evo: Optional[str] = None
     log_dir_common: Optional[str] = None
 
-    n_il_batches: int = 1000
+    n_il_batches: float = 1e8
 
     load_il: bool = False
     load_rl: bool = False
 
-    n_iters: int = 1000
+    n_rl_iters: float = 1e6
 
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=Config)

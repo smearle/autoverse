@@ -1,13 +1,10 @@
 defaults:
   - evo
 
-exp_id: 0
-overwrite: false
-record: true
-game: maze_for_evo
-# n_epochs: null
-n_il_batches: 1000
-save_freq: 5
+load_il: True
+save_freq: 10
+eval_freq: 100
+# n_il_batches: 100000
 
 hydra:
   job:

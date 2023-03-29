@@ -6,14 +6,14 @@ defaults:
 
 exp_id: 0
 overwrite: false
-n_proc: 7
+n_proc: 8
 batch_size: 40
 game: maze_for_evo
 mutate_rules: true
 evaluate: false
 save_freq: 1
+eval_freq: 5
 render: false
-record: false
 workspace: ../gen-game-runs
 runs_dir_evo: evo_env
 runs_dir_rl: rl_player

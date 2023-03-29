@@ -3,9 +3,9 @@ fire
 gym
 hydra-core
 hydra-submitit-launcher
+imageio[ffmpeg]
 imitation
 opencv-python
 pandas
 pygame
-# ray[rllib,tune]
 stable-baselines3

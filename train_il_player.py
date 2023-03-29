@@ -70,7 +70,7 @@ def save(cfg, bc_trainer: bc.BC, curr_epoch):
     # pickle.dump(bc_trainer, open(os.path.join(cfg.log_dir, "bc_trainer.pkl"), "wb"))
     bc_trainer.save_policy(os.path.join(cfg.log_dir_il, "policy"))
     # Save current epoch number
-    with open(os.path.join(cfg.log_dir_il, "epoch.txt"), "w") as f:
+    with open(os.path.join(cfg.log_dir_il, "batch.txt"), "w") as f:
         f.write(str(curr_epoch))
 
 def load(cfg):
@@ -79,7 +79,7 @@ def load(cfg):
     # bc_trainer._bc_logger._logger = pickle.load(open(os.path.join(cfg.log_dir, "logger.pkl"), "rb"))
     policy = bc.reconstruct_policy(os.path.join(cfg.log_dir_il, "policy"))
     # Load current epoch number
-    with open(os.path.join(cfg.log_dir, "epoch.txt"), "r") as f:
+    with open(os.path.join(cfg.log_dir_il, "batch.txt"), "r") as f:
         # curr_epoch = int(f.read())
         curr_batch = int(f.read())
     return policy, curr_batch
@@ -87,6 +87,7 @@ def load(cfg):
 @hydra.main(version_base="1.3", config_path="configs", config_name="il")
 def main(cfg: Config):
     validate_config(cfg)
+
     # Environment class doesn't matter and will be overwritten when we load in an individual.
     # env = maze.make_env(10, 10)
     env = init_base_env(cfg)
@@ -95,7 +96,7 @@ def main(cfg: Config):
         os.makedirs(cfg.log_dir_il)
 
     # Initialize tensorboard logger
-    logger = th.utils.tensorboard.SummaryWriter(cfg.log_dir_il)
+    writer = th.utils.tensorboard.SummaryWriter(cfg.log_dir_il)
 
     # HACK to load trained run after refactor
     import evo
@@ -104,17 +105,24 @@ def main(cfg: Config):
     sys.modules['individual'] = individual
     # end HACK
 
-    elites = np.load(os.path.join(cfg.log_dir_common, "unique_elites.npz"), allow_pickle=True)['arr_0']
+    # elites = np.load(os.path.join(cfg.log_dir_evo, "unique_elites.npz"), allow_pickle=True)['arr_0']
+    train_elites = np.load(os.path.join(cfg.log_dir_common, "train_elites.npz"), allow_pickle=True)['arr_0']
+    val_elites = np.load(os.path.join(cfg.log_dir_common, "val_elites.npz"), allow_pickle=True)['arr_0']
+    test_elites = np.load(os.path.join(cfg.log_dir_common, "test_elites.npz"), allow_pickle=True)['arr_0']
+
+
     policy_kwargs = dict(net_arch=[64, 64], observation_space=env.observation_space, action_space=env.action_space,
                 # Set lr_schedule to max value to force error if policy.optimizer
                 # is used by mistake (should use self.optimizer instead).
                 lr_schedule=lambda _: th.finfo(th.float32).max,)
-    if cfg.overwrite or not os.path.exists(os.path.join(cfg.log_dir_common, "transitions.npz")):
+
+    # if cfg.overwrite or not os.path.exists(os.path.join(cfg.log_dir_common, "transitions.npz")):
+    if True:
         # progress_df = pd.DataFrame()
         cfg.overwrite = True
         obs = []
         acts = []
-        for elite in elites:
+        for elite in train_elites:
             # obs_seq = [ob for ob in elite.obs_seq[:-1]]
             obs_seq = elite.obs_seq[:-1]
             # if len(obs_seq) != len(elite.action_seq):
@@ -127,7 +135,7 @@ def main(cfg: Config):
         infos = np.array([{} for _ in range(obs.shape[0])])
         assert obs.shape[0] == acts.shape[0]
         transitions = TransitionsMinimal(obs=obs, acts=acts, infos=infos)
-        print(f"Loaded {transitions.obs.shape[0]} transitions from {len(elites)} playtraces.")
+        print(f"Loaded {transitions.obs.shape[0]} transitions from {len(train_elites)} playtraces.")
         # Save the transitions with pickle
         np.savez(os.path.join(cfg.log_dir_common, "transitions.npz"), {
             'obs': transitions.obs,
@@ -138,18 +146,22 @@ def main(cfg: Config):
         curr_batch = 0
 
         # policy=None
+
+
+    # else:
+    #     # progress_df = pd.read_csv(os.path.join(cfg.log_dir, "progress.csv"))
+    #     transitions = np.load(os.path.join(cfg.log_dir_common, "transitions.npz"), allow_pickle=True)['arr_0'].item()
+    #     transitions = TransitionsMinimal(
+    #         obs=transitions['obs'],
+    #         acts=transitions['acts'],
+    #         infos=transitions['infos'],
+    #     )
+
+    if cfg.overwrite:
         policy = MlpPolicy(**policy_kwargs)
 
-
     else:
-        # progress_df = pd.read_csv(os.path.join(cfg.log_dir, "progress.csv"))
-        transitions = np.load(os.path.join(cfg.log_dir_common, "transitions.npz"), allow_pickle=True)['arr_0'].item()
-        transitions = TransitionsMinimal(
-            obs=transitions['obs'],
-            acts=transitions['acts'],
-            infos=transitions['infos'],
-        )
-
+        # FIXME: Not reloading optimizer???
         policy, curr_batch = load(cfg)
 
     custom_logger = imitation.util.logger.configure(
@@ -170,18 +182,6 @@ def main(cfg: Config):
     assert not hasattr(bc_trainer._bc_logger, '_current_batch')
     bc_trainer._bc_logger._current_batch = curr_batch
 
-    def on_epoch_end(bc_trainer, cfg, base_n_epoch):
-        curr_epoch = base_n_epoch + bc_trainer._bc_logger._current_epoch
-        save(cfg, bc_trainer, curr_epoch)
-
-    def on_batch_end(bc_trainer, cfg, base_n_batch):
-        curr_batch = base_n_batch + bc_trainer._bc_logger._current_batch
-        if curr_batch % cfg.save_freq == 0:
-            save(cfg, bc_trainer, curr_batch)
-
-    # on_epoch_end = partial(on_epoch_end, bc_trainer=bc_trainer, cfg=cfg, base_n_epoch=curr_epoch)
-    on_batch_end = partial(on_batch_end, bc_trainer=bc_trainer, cfg=cfg, base_n_batch=curr_batch)
-
     if cfg.overwrite:
         # save(cfg, bc_trainer, curr_epoch)
         save(cfg, bc_trainer, curr_batch)
@@ -191,16 +191,38 @@ def main(cfg: Config):
         bc_trainer._bc_logger._tensorboard_step = curr_batch
 
     # reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, elites[-10:], name=f"epoch-{curr_epoch}")
-    reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, elites[-10:], name=f"batch-{curr_batch}")
+    # reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, val_elites[-10:], name=f"batch-{curr_batch}")
     # print(f"Reloaded epoch {curr_epoch}.\nReward before imitation learning: {reward}")
-    print(f"Reloaded batch {curr_batch}.\nReward before imitation learning: {reward}")
+    # print(f"Reloaded batch {curr_batch}.\nReward before imitation learning: {reward}")
     # with open(os.path.join(cfg.log_dir, f"epoch-{curr_epoch}_reward.txt"), "w") as f:
-    with open(os.path.join(cfg.log_dir_il, f"epoch-{curr_batch}_reward.txt"), "w") as f:
-        f.write(str(reward))
+    # with open(os.path.join(cfg.log_dir_il, f"epoch-{curr_batch}_reward.txt"), "w") as f:
+        # f.write(str(reward))
+
+
+    def on_epoch_end(bc_trainer, cfg, base_n_epoch):
+        curr_epoch = base_n_epoch + bc_trainer._bc_logger._current_epoch
+        save(cfg, bc_trainer, curr_epoch)
+
+    def on_batch_end(bc_trainer: imitation.algorithms.bc.BC,
+                    cfg: Config, base_n_batch, env, val_elites, writer):
+        curr_batch = base_n_batch + bc_trainer._bc_logger._current_batch
+        if curr_batch % (cfg.save_freq * 1000) == 0:
+            print(f"Saving at batch {curr_batch}")
+            save(cfg, bc_trainer, curr_batch)
+        if curr_batch % (cfg.eval_freq * 1000) == 0:
+            val_reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, np.random.choice(val_elites, 10), 
+                                                   name=f"batch-{curr_batch}")
+            print(f"Val reward at IL batch {curr_batch}: {val_reward}")
+            # bc_trainer._logger.record("val_reward", val_reward, bc_trainer._bc_logger._current_batch)
+            writer.add_scalar("val_reward", val_reward, curr_batch)
+        bc_trainer._bc_logger._current_batch += 1
+
+    # on_epoch_end = partial(on_epoch_end, bc_trainer=bc_trainer, cfg=cfg, base_n_epoch=curr_epoch)
+    on_batch_end = partial(on_batch_end, bc_trainer=bc_trainer, cfg=cfg, base_n_batch=curr_batch, env=env, val_elites=val_elites, writer=writer)
 
     print("Training a policy using Behavior Cloning")
     # n_train_epochs = cfg.n_epochs - curr_epoch
-    n_train_batches = cfg.n_il_batches - curr_batch
+    n_train_batches = int(cfg.n_il_batches - curr_batch)
     if n_train_batches > 0:
         bc_trainer.train(
             n_epochs=None, 
@@ -211,10 +233,10 @@ def main(cfg: Config):
 
         save(cfg, bc_trainer, cfg.n_il_batches)
 
-        reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, elites[-10:], name=f"batch-{cfg.n_il_batches}")
-        print(f"Reward after imitation learning: {reward}")
-        with open(os.path.join(cfg.log_dir_il, f"batch-{cfg.n_il_batches}_reward.txt"), "w") as f:
-            f.write(str(reward))
+        # reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, elites[-10:], name=f"batch-{cfg.n_il_batches}")
+        # print(f"Reward after imitation learning: {reward}")
+        # with open(os.path.join(cfg.log_dir_il, f"batch-{cfg.n_il_batches}_reward.txt"), "w") as f:
+        #     f.write(str(reward))
         
         # Access the logged data
         # logger = bc_trainer.logger
@@ -235,6 +257,7 @@ def main(cfg: Config):
 
     # Save the state dict
     th.save(policy.state_dict(), os.path.join(cfg.log_dir_il, "policy_il.pt"))
+
 
 
 

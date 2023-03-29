@@ -1,6 +1,8 @@
 defaults:
   - il
 
-load_il: False
+load_il: True
 load_rl: False
-n_iters: 1000000
+save_freq: 1
+eval_freq: 1
+# n_iters: 1000000
