@@ -3,12 +3,12 @@ from pdb import set_trace as TT
 from turtle import back
 
 import numpy as np
-from events import Event, activate_rules, on_start
 
-from envs.play_env import PlayEnv
-from rules import Rule, RuleSet
-from tiles import TileNot, TilePlacement, TileSet, TileType
-from variables import Variable
+from gen_env.events import Event, activate_rules, on_start
+from gen_env.envs.play_env import PlayEnv
+from gen_env.rules import Rule, RuleSet
+from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
+from gen_env.variables import Variable
 
 
 def make_env(height, width):

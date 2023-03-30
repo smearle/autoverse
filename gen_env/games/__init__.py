@@ -1,4 +1,4 @@
-from games import (
+from gen_env.games import (
     dungeon,
     evo_base,
     hamilton, 

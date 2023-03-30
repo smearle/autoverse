@@ -11,15 +11,14 @@ import gym
 from gym import spaces
 import numpy as np
 from PIL import ImageFont, ImageDraw, Image
-import pygame
 
-from configs.config import Config
-from events import Event, EventGraph
-from objects import ObjectType
-from rules import Rule
-from tiles import TileNot, TilePlacement, TileType
-from utils import draw_triangle
-from variables import Variable
+from gen_env.configs.config import Config
+from gen_env.events import Event, EventGraph
+from gen_env.objects import ObjectType
+from gen_env.rules import Rule
+from gen_env.tiles import TileNot, TilePlacement, TileType
+from gen_env.utils import draw_triangle
+from gen_env.variables import Variable
 
 from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -496,6 +495,7 @@ class PlayEnv(gym.Env):
         elif mode == "rgb_array":
             return self.rend_im
         if mode == "pygame":
+            import pygame
             # Map human-input keys to action indices. Here we assume the first 4 actions correspond to player navigation 
             # (i.e. placement of `force` at adjacent tiles).
             self.keys_to_acts = {

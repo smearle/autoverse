@@ -1,10 +1,10 @@
 import argparse
 from enum import Enum
 
-from fire import Fire
 import hydra
 import numpy as np
 import pygame
+from envs.blender_env import BlenderRender
 
 from evo_env import Individual, init_base_env, load_game_to_env
 from envs.play_env import PlayEnv, Rule, TileType
@@ -25,8 +25,10 @@ def main(cfg):
         else:
             game = globals()[game]
             env: PlayEnv = game.make_env(height, width)
+            env = BlenderRender(env)
     else:
         env: PlayEnv = game.make_env(height, width)
+        env = BlenderRender(env)
 
     # Set numpy seed
     np.random.seed(0)

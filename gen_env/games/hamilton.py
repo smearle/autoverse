@@ -1,8 +1,8 @@
 import numpy as np
 
-from envs.play_env import PlayEnv
-from rules import Rule, RuleSet
-from tiles import TilePlacement, TileSet, TileType
+from gen_env.envs.play_env import PlayEnv
+from gen_env.rules import Rule, RuleSet
+from gen_env.tiles import TilePlacement, TileSet, TileType
 
 
 def make_env(height, width):

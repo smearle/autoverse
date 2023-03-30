@@ -2,7 +2,7 @@ from typing import Iterable, List, Tuple
 
 import numpy as np
 
-from tiles import TileType
+from gen_env.tiles import TileType
 
 
 class ObjectType():

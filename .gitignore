@@ -7,4 +7,4 @@ outputs
 *.pyc
 multirun
 *__pycache__
-
+*.egg-info

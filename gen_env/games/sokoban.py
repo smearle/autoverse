@@ -1,9 +1,9 @@
 from math import inf
 import numpy as np
 
-from envs.play_env import PlayEnv
-from rules import Rule, RuleSet
-from tiles import TileNot, TilePlacement, TileSet, TileType
+from gen_env.envs.play_env import PlayEnv
+from gen_env.rules import Rule, RuleSet
+from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
 
 def make_env(height, width):
     n_crates = 3

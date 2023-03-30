@@ -2,7 +2,7 @@ import os
 import cv2
 import imageio
 import numpy as np
-from configs.config import Config
+from gen_env.configs.config import Config
 
 
 def validate_config(cfg: Config):

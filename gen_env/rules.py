@@ -42,9 +42,8 @@ import random
 from typing import Dict, Iterable
 
 import numpy as np
-from objects import ObjectType
-
-from tiles import TileType
+from gen_env.objects import ObjectType
+from gen_env.tiles import TileType
 
 
 def tile_to_str(tile: TileType) -> str:

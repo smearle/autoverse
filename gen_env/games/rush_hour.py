@@ -2,13 +2,13 @@ from functools import partial
 from pdb import set_trace as TT
 
 import numpy as np
-from events import Event, activate_rules
 
-from envs.play_env import PlayEnv, apply_rules
-from objects import ObjectType
-from rules import ObjectRule, Rule, RuleSet
-from tiles import TilePlacement, TileSet, TileType, tiles_to_multihot
-from variables import Variable
+from gen_env.events import Event, activate_rules
+from gen_env.envs.play_env import PlayEnv, apply_rules
+from gen_env.objects import ObjectType
+from gen_env.rules import ObjectRule, Rule, RuleSet
+from gen_env.tiles import TilePlacement, TileSet, TileType, tiles_to_multihot
+from gen_env.variables import Variable
 
 
 def make_env(height, width):
