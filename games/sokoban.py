@@ -1,7 +1,7 @@
 from math import inf
 import numpy as np
 
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TileNot, TilePlacement, TileSet, TileType
 

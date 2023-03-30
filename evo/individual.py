@@ -4,20 +4,24 @@ import yaml
 
 from einops import rearrange
 import numpy as np
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 
+from configs.config import Config
 from rules import Rule, RuleSet
 from tiles import TileType, TileSet
 
 
 class Individual():
-    def __init__(self, cfg, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
+    def __init__(self, cfg: Config, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
         self.cfg = cfg
         self.tiles = tiles
         self.rules = rules
         self.map = map
         self.fitness = None
+
+        self.obs_seq = None
         self.action_seq = None
+        self.reward_seq = None
 
     def mutate(self):
         if self.cfg.mutate_rules:
@@ -28,24 +32,30 @@ class Individual():
                 rule: Rule = self.rules[i]
                 rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
                 self.rules[i] = rule
-        # Mutate between 0 and 3 random tiles
-        # j_arr = np.random.randint(0, len(self.tiles) - 1, random.randint(0, 3))
-        # for j in j_arr:
-        #     tile: TileType = self.tiles[j]
-        #     if tile.is_player:
-        #         continue
-        #     other_tiles = [t for t in self.tiles[:j] + self.tiles[j+1:] if not t.is_player]
-        #     tile.mutate(other_tiles)
 
-        # Mutate onehot map by randomly changing some tile types
-        # Pick number of tiles to sample from gaussian
-        n_mut_tiles = abs(int(np.random.normal(0, 10)))
-        disc_map = self.map.argmax(axis=0)
-        k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
-        for k in k_arr:
-            disc_map.flat[k] = np.random.randint(0, len(self.tiles))
-        
-        self.map = PlayEnv.repair_map(disc_map, self.tiles)
+        if not self.cfg.fix_map:
+            # Mutate between 0 and 3 random tiles
+            # j_arr = np.random.randint(0, len(self.tiles) - 1, random.randint(0, 3))
+            # for j in j_arr:
+            #     tile: TileType = self.tiles[j]
+            #     if tile.is_player:
+            #         continue
+            #     other_tiles = [t for t in self.tiles[:j] + self.tiles[j+1:] if not t.is_player]
+            #     tile.mutate(other_tiles)
+
+
+            # TODO: This should be multi-hot (repairing impossible co-occurrences after). 
+            # Currently evolving a onehot initial map, adding co-occurrences later.
+
+            # Mutate onehot map by randomly changing some tile types
+            # Pick number of tiles to sample from gaussian
+            n_mut_tiles = abs(int(np.random.normal(0, 10)))
+            disc_map = self.map.argmax(axis=0)
+            k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
+            for k in k_arr:
+                disc_map.flat[k] = np.random.randint(0, len(self.tiles))
+            
+            self.map = PlayEnv.repair_map(disc_map, self.tiles)
 
 
     def save(self, filename):

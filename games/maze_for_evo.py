@@ -3,12 +3,12 @@ from pdb import set_trace as TT
 
 import numpy as np
 
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(height, width):
+def make_env(height, width, cfg):
     force = TileType(name='force', num=0, color='purple')
     wall = TileType('wall', prob=0.1, color='black')
     floor = TileType('floor', prob=0.9, color='grey')
@@ -90,5 +90,5 @@ def make_env(height, width):
     rules = RuleSet([player_move, player_consume_goal, rule_a])
     # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
     env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
-        search_tiles=search_tiles)
+        search_tiles=search_tiles, cfg=cfg)
     return env

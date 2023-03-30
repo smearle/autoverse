@@ -6,8 +6,8 @@ import hydra
 import numpy as np
 import pygame
 
-from evolve import Individual, init_base_env, load_game_to_env
-from play_env import PlayEnv, Rule, TileType
+from evo_env import Individual, init_base_env, load_game_to_env
+from envs.play_env import PlayEnv, Rule, TileType
 from games import *
 
 

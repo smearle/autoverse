@@ -1,10 +1,11 @@
 defaults:
   - base_config
   - _self_
-  # - override hydra/launcher: submitit_local
-  - override hydra/launcher: submitit_slurm
 
-exp_id: 0
+  - override hydra/launcher: submitit_local
+  # - override hydra/launcher: submitit_slurm
+
+env_exp_id: 0
 overwrite: false
 n_proc: 8
 batch_size: 40
@@ -19,18 +20,13 @@ runs_dir_evo: evo_env
 runs_dir_rl: rl_player
 runs_dir_il: il_player
 
-log_dir_il: null  # Set later, automatically
-log_dir_rl: null
-log_dir_evo: null
-log_dir_common: null
-
 load_gen: null
-aggregate_playtraces: false
+# aggregate_playtraces: false
 
 hydra:
-  sweeper:
-    params:
-      exp_id: 0, 1, 2
+  # sweeper:
+  #   params:
+  #     env_exp_id: 0, 1, 2
   
 
   launcher:

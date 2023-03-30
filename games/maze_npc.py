@@ -4,7 +4,7 @@ from pdb import set_trace as TT
 import numpy as np
 
 from events import Event, EventGraph, on_start
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 from pathfinding import draw_shortest_path
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType

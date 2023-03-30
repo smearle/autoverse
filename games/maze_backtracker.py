@@ -5,7 +5,7 @@ from turtle import back
 import numpy as np
 from events import Event, activate_rules, on_start
 
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TileNot, TilePlacement, TileSet, TileType
 from variables import Variable

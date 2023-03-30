@@ -4,7 +4,7 @@ from pdb import set_trace as TT
 import numpy as np
 from events import Event, activate_rules
 
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 from variables import Variable

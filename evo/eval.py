@@ -1,5 +1,5 @@
 
-from play_env import PlayEnv
+from envs.play_env import PlayEnv
 from evo.individual import Individual
 from search_agent import solve
 

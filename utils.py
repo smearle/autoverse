@@ -2,17 +2,22 @@ import os
 import cv2
 import imageio
 import numpy as np
-from triton import Config
+from configs.config import Config
 
 
 def validate_config(cfg: Config):
-    env_exp_name = f"{cfg.game}_{'mutRule_' if cfg.mutate_rules else ''}exp-{cfg.exp_id}"
-    cfg.log_dir_common = os.path.join(cfg.workspace, env_exp_name)
+    env_exp_name = (f"{cfg.game}_{'mutRule_' if cfg.mutate_rules else ''}{'fixMap_' if cfg.fix_map else ''}" + 
+        f"exp-{cfg.env_exp_id}")
 
-    cfg.log_dir_rl = os.path.join(cfg.log_dir_common, cfg.runs_dir_rl)
-    cfg.log_dir_il = os.path.join(cfg.log_dir_common, cfg.runs_dir_il)
+    cfg._log_dir_common = os.path.join(cfg.workspace, env_exp_name)
+
+    player_exp_name = (f"player{'_hideRule' if cfg.hide_rules else ''}")
+
+    cfg._log_dir_player_common = os.path.join(cfg._log_dir_common, player_exp_name)
+    cfg._log_dir_rl = os.path.join(cfg._log_dir_player_common, cfg.runs_dir_rl)
+    cfg._log_dir_il = os.path.join(cfg._log_dir_player_common, cfg.runs_dir_il)
     # cfg.log_dir_evo = os.path.join(cfg.workspace, cfg.runs_dir_evo, f"exp-{cfg.exp_id}")
-    cfg.log_dir_evo = os.path.join(cfg.log_dir_common, cfg.runs_dir_evo)
+    cfg._log_dir_evo = os.path.join(cfg._log_dir_common, cfg.runs_dir_evo)
 
 
 def save_video(frames, video_path, fps=10):

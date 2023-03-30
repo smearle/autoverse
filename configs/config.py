@@ -8,12 +8,14 @@ from omegaconf import DictConfig
 
 @dataclass
 class Config:
-    exp_id: int = 0
+    env_exp_id: int = 0
+    player_exp_id: int = 0
     overwrite: bool = False
     n_proc: int = 4
     batch_size: int = 40
     game: str = "maze_for_evo"
     mutate_rules: bool = True
+    fix_map: bool = False
     evaluate: bool = False
     eval_freq: int = 1
     save_freq: int = 1
@@ -24,19 +26,22 @@ class Config:
     runs_dir_rl: str = "rl_player"
     runs_dir_il: str = "il_player"
     load_gen: Optional[int] = None
-    aggregate_playtraces: bool = False
+    collect_elites: bool = False
 
-    log_dir_il: Optional[str] = None
-    log_dir_rl: Optional[str] = None
-    log_dir_evo: Optional[str] = None
-    log_dir_common: Optional[str] = None
+    _log_dir_il: Optional[str] = None
+    _log_dir_rl: Optional[str] = None
+    _log_dir_evo: Optional[str] = None
+    _log_dir_common: Optional[str] = None
+    _log_dir_player_common: Optional[str] = None
 
-    n_il_batches: float = 1e8
+    n_il_batches: float = 1_000_000
 
     load_il: bool = False
     load_rl: bool = False
 
     n_rl_iters: float = 1e6
+
+    hide_rules: bool = False
 
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=Config)
