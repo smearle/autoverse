@@ -18,26 +18,16 @@ from multiprocessing import Pool
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 
-from configs.config import Config
-from games import GAMES
-from envs.play_env import PlayEnv
-from evo.eval import load_game_to_env, evaluate_multi, evaluate
-from evo.individual import Individual
-from rules import Rule, RuleSet
-from search_agent import solve
-from tiles import TileSet, TileType
-from utils import validate_config
+from gen_env.configs.config import Config
+from gen_env.games import GAMES
+from gen_env.envs.play_env import PlayEnv
+from gen_env.evo.eval import load_game_to_env, evaluate_multi, evaluate
+from gen_env.evo.individual import Individual
+from gen_env.rules import Rule, RuleSet
+from gen_env.tiles import TileSet, TileType
+from gen_env.utils import validate_config
 
 
-def init_base_env(cfg):
-    env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
-    # env = evo_base.make_env(10, 10)
-    # env = maze.make_env(10, 10)
-    # env = maze_for_evo.make_env(10, 10)
-    # env = maze_spike.make_env(10, 10)
-    # env = sokoban.make_env(10, 10)
-    # env.search_tiles = [t for t in env.tiles]
-    return env
 
 # @dataclass
 # class Playtrace:

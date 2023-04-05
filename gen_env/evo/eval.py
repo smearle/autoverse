@@ -1,13 +1,7 @@
 
-from envs.play_env import PlayEnv
-from evo.individual import Individual
+from gen_env.envs.play_env import PlayEnv
+from gen_env.evo.individual import Individual
 from search_agent import solve
-
-def load_game_to_env(env: PlayEnv, individual: Individual):
-    env.tiles = individual.tiles
-    env._init_rules = individual.rules
-    env.init_obs_space()
-    return env
 
 def evaluate_multi(args):
     return evaluate(*args)

@@ -1,11 +1,13 @@
+bsfake-bpy-module-latest         # is the collections of the fake Blender Python API modules for the code completion in commonly used IDEs. Installed for fun4
 einops
-fire
 gym
 hydra-core
 hydra-submitit-launcher
 imageio[ffmpeg]
 imitation
+lxml
 opencv-python
 pandas
 pygame
 stable-baselines3
+torch[tensorboard]

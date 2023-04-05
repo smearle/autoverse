@@ -7,8 +7,8 @@ from fire import Fire
 import gym
 import numpy as np
 
-from games import (hamilton, maze, maze_backtracker, maze_npc, power_line, sokoban)
-from envs.play_env import PlayEnv, Rule, TileType
+from gen_env.games import (hamilton, maze, maze_backtracker, maze_npc, power_line, sokoban)
+from gen_env.envs.play_env import PlayEnv, Rule, TileType
 
 
 RENDER = False

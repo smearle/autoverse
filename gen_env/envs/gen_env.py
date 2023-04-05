@@ -3,10 +3,10 @@ import random
 import gym
 import numpy as np
 
-from games import GAMES
-from envs.play_env import PlayEnv
-from rules import Rule
-from tiles import TileType
+from gen_env.games import GAMES
+from gen_env.envs.play_env import PlayEnv
+from gen_env.rules import Rule
+from gen_env.tiles import TileType
 
 
 class GenEnv(gym.Env):

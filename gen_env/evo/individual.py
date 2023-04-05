@@ -4,11 +4,11 @@ import yaml
 
 from einops import rearrange
 import numpy as np
-from envs.play_env import PlayEnv
 
-from configs.config import Config
-from rules import Rule, RuleSet
-from tiles import TileType, TileSet
+from gen_env.envs.play_env import PlayEnv
+from gen_env.configs.config import Config
+from gen_env.rules import Rule, RuleSet
+from gen_env.tiles import TileType, TileSet
 
 
 class Individual():

@@ -1,0 +1,6 @@
+opencv-python
+einops
+imageio
+networkx
+pygame
+bs4

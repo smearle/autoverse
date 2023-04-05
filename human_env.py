@@ -4,14 +4,14 @@ from enum import Enum
 import hydra
 import numpy as np
 import pygame
-from envs.blender_env import BlenderRender
 
-from evo_env import Individual, init_base_env, load_game_to_env
-from envs.play_env import PlayEnv, Rule, TileType
-from games import *
+from gen_env.evo.individual import Individual
+from gen_env.utils import init_base_env, load_game_to_env
+from gen_env.envs.play_env import PlayEnv, Rule, TileType
+from gen_env.games import *
 
 
-@hydra.main(config_path="configs", config_name="human")
+@hydra.main(config_path="gen_env/configs", config_name="human")
 def main(cfg):
     game, height, width = cfg.game, cfg.height, cfg.width
     cfg.game = cfg.game
@@ -25,10 +25,8 @@ def main(cfg):
         else:
             game = globals()[game]
             env: PlayEnv = game.make_env(height, width)
-            env = BlenderRender(env)
     else:
         env: PlayEnv = game.make_env(height, width)
-        env = BlenderRender(env)
 
     # Set numpy seed
     np.random.seed(0)

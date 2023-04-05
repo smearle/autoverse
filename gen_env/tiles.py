@@ -1,4 +1,6 @@
 from enum import Enum
+import json
+import os
 from pdb import set_trace as TT
 import random
 from typing import Iterable, List, Tuple
@@ -13,12 +15,32 @@ class TilePlacement(Enum):
     # Tiles can be placed at any of the 4 tiles adjacent to the player.
     ADJACENT = 1
 
+if not os.path.exists("p8_colors.json"):
+    from bs4 import BeautifulSoup
+    # Load palette.xml
+    with open("palette.xml", "r") as f:
+        data = f.read()
+
+    soup = BeautifulSoup(data, "xml")
+    # Get all colors
+    colors = soup.find_all("color")
+
+    p8_colors = {c.get("symbol"): tuple(int(c.get("value")[i:i+2], 16) for i in (0, 2, 4)) for c in colors}
+
+    # Save p8 colors to file
+    with open("p8_colors.json", "w") as f:
+        json.dump(p8_colors, f) 
+else:
+    with open("p8_colors.json", "r") as f:
+        p8_colors = json.load(f)
+
 colors = {
     'aqua': (0, 255, 255),
     'black': (0, 0, 0),
     'blue': (0, 0, 255),
     'brown': (165, 42, 42),
     'cyan': (0, 255, 255),
+    'dark_green': (0, 100, 0),
     'dark_red': (128, 0, 0),
     'error': (255, 192, 203),  # pink
     'gold': (255, 215, 0),
@@ -62,7 +84,10 @@ class TileType():
         self.color_name = color
         if color is None:
             color = 'purple'
-        self.color = colors[color]
+        if color in p8_colors:
+            self.color = p8_colors[color]
+        else:
+            self.color = colors[color]
         self.passable = passable
         self.num = num
         self.idx = None  # This needs to be set externally, given some consistent ordering of the tiles.
@@ -119,6 +144,11 @@ class TileType():
     def __repr__(self):
         # return f"TileType: {self.name}"
         return self.name
+
+
+class MJTile(TileType):
+    def __init__(self, s, num=0, prob=0):
+        super().__init__(name=s, color=s, num=num, prob=prob)
 
 
 class TileSet(list):

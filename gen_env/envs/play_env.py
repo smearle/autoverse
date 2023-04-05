@@ -17,7 +17,7 @@ from gen_env.events import Event, EventGraph
 from gen_env.objects import ObjectType
 from gen_env.rules import Rule
 from gen_env.tiles import TileNot, TilePlacement, TileType
-from gen_env.utils import draw_triangle
+from gen_env.envs.utils import draw_triangle
 from gen_env.variables import Variable
 
 from os import environ
@@ -185,9 +185,13 @@ class PlayEnv(gym.Env):
                 for cotile in coactive_tiles:
                     # Activate parent channels of any child tiles wherever the latter are active.
                     map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
+        # obj_set = []
+        # return map_arr, obj_set
         return map_arr
 
     def reset(self):
+        self._done = False
+        self.unwrapped._done = False
         if len(self._rule_queue) > 0:
             self._game_idx = self._game_idx % len(self._rule_queue)
             self.rules = copy.copy(self._rule_queue[self._game_idx])
@@ -712,6 +716,7 @@ def hash_rules(rules):
     rule_hashes = [r.hashable() for r in rules]
     return hash(tuple(rule_hashes))
 
+import pygame
 def pygame_render_im(screen, img):
     surf = pygame.surfarray.make_surface(img)
     # Fill the background with white
