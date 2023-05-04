@@ -33,7 +33,8 @@ class Individual():
                 rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
                 self.rules[i] = rule
 
-        if not self.cfg.fix_map:
+        if not hasattr(self.cfg, 'fix_map') or not self.cfg.fix_map:
+        # if not self.cfg.fix_map:
             # Mutate between 0 and 3 random tiles
             # j_arr = np.random.randint(0, len(self.tiles) - 1, random.randint(0, 3))
             # for j in j_arr:

@@ -536,7 +536,7 @@ class PlayEnv(gym.Env):
         self.map, self._reward, self._done = apply_rules(self.map, self.rules)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
-        self._done = self._done or self.n_step >= self.max_episode_steps
+        self._done = self._done or self.n_step >= self.max_episode_steps or len(np.argwhere(self.map[self.player_idx] == 1)) == 0
         if not self._done:
             self._compile_map()
         return self._reward

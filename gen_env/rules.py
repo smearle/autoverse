@@ -141,7 +141,7 @@ class Rule():
         pass
 
     def mutate(self, tiles, other_rules):
-        n_muts = 1
+        # n_muts = 1
         x = random.random()
         if False:
             pass
@@ -152,7 +152,8 @@ class Rule():
         # elif x < 3 / n_muts:
         #     self.done = not self.done
         # elif x < 1 / n_muts:
-        #     self.reward = random.randint(0, 3)
+        if x < 0.2:
+            self.reward = random.randint(-1, 1)
         # elif x < 5 / n_muts:
         #     self.max_applications = random.randint(0, 11)
         #     self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
@@ -203,9 +204,11 @@ class Rule():
 
 
 def is_valid(in_out):
-    # Accept new in-out rule only if it does not result in invalid player transformation. 
+    """Accept new in-out rule only if it does not result in invalid player transformation.
+    A rule is allowed to move or remove the player, but not create new players where previously
+    there were none."""
     in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(in_out)
-    return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 1
+    return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() <= 1
 
 class ObjectRule(Rule):
     def __init__(self, *args, offset=(0, 0), **kwargs):

@@ -16,15 +16,13 @@ import numpy as np
 # from ray.util.multiprocessing import Pool
 from multiprocessing import Pool
 from torch.utils.tensorboard import SummaryWriter
-import yaml
 
 from gen_env.configs.config import Config
 from gen_env.games import GAMES
 from gen_env.envs.play_env import PlayEnv
-from gen_env.evo.eval import load_game_to_env, evaluate_multi, evaluate
+from gen_env.evo.eval import evaluate_multi, evaluate
+from gen_env.utils import init_base_env, load_game_to_env
 from gen_env.evo.individual import Individual
-from gen_env.rules import Rule, RuleSet
-from gen_env.tiles import TileSet, TileType
 from gen_env.utils import validate_config
 
 
@@ -118,6 +116,7 @@ def split_elites(cfg: Config, elites: Iterable[Individual]):
     print(f"Split {n_elites} elites into {n_train} train, {n_val} val, {n_test} test.")
     return train_elites, val_elites, test_elites
 
+
 def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
@@ -141,7 +140,8 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     i = 0
     while not done:
         if i >= len(elite.action_seq):
-            # print('Warning: action sequence too short. Ending episode before env is done. This must mean no solution was found.')
+            # FIXME: Problem with player death...?
+            print('Warning: action sequence too short. Ending episode before env is done. Something to do with player death rule?')
             # breakpoint()
             break
         obs, reward, done, info = env.step(elite.action_seq[i])
@@ -153,8 +153,9 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
             env.render(mode='human')
         i += 1
     if i < len(elite.action_seq):
-        raise Exception("Action sequence too long.")
-        # print('Warning: action sequence too long.')
+        # FIXME: Problem with player death...?
+        # raise Exception("Action sequence too long.")
+        print('Warning: action sequence too long.')
         # breakpoint()
     elite.obs_seq = obs_seq
     elite.rew_seq = rew_seq
@@ -163,7 +164,7 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
-@hydra.main(version_base='1.3', config_path="configs", config_name="evo")
+@hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def main(cfg: Config):
     validate_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
@@ -189,10 +190,16 @@ def main(cfg: Config):
                 save_file = max(save_files, key=lambda x: int(x.split('-')[-1].split('.')[0]))
 
             # HACK to load trained run after refactor
-            import evo
-            import sys
-            individual = evo.individual
-            sys.modules['individual'] = individual
+            # from gen_env import evo
+            # from gen_env import configs
+            # from gen_env import tiles, rules
+            # import sys
+            # individual = evo.individual
+            # sys.modules['individual'] = individual
+            # sys.modules['evo'] = evo
+            # sys.modules['configs'] = configs
+            # sys.modules['tiles'] = tiles
+            # sys.modules['rules'] = rules
             # end HACK
 
             save_dict = np.load(save_file, allow_pickle=True)['arr_0'].item()
@@ -221,6 +228,7 @@ def main(cfg: Config):
         # breakpoint()
         print(f"Elites at generation {n_gen}:")
         eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
+        return
 
     def multiproc_eval_offspring(offspring):
         eval_offspring = []
@@ -292,8 +300,8 @@ def main(cfg: Config):
         # Increment trg_n_iter if the best fitness is within 10 of it.
         # if max_fit > trg_n_iter - 10:
         if max_fit > trg_n_iter * 0.5:
-            trg_n_iter *= 2
-            # trg_n_iter += 1000
+            # trg_n_iter *= 2
+            trg_n_iter += 1000
         if n_gen % cfg.save_freq == 0: 
             # Save the elites.
             np.savez(os.path.join(cfg._log_dir_evo, f"gen-{n_gen}"),
@@ -314,7 +322,9 @@ def main(cfg: Config):
             eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
 
 def eval_elites(cfg: Config, env: PlayEnv, elites: Iterable[Individual], n_gen: int, vid_dir: str):
-    # Evaluate elites
+    """ Evaluate elites."""
+    # Sort elites by fitness.
+    elites = sorted(elites, key=lambda e: e.fitness, reverse=True)
     for e_idx, e in enumerate(elites[:10]):
         frames = replay_episode(cfg, env, e)
         if cfg.record:

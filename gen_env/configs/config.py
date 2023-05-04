@@ -13,7 +13,7 @@ class Config:
     overwrite: bool = False
     n_proc: int = 4
     batch_size: int = 40
-    game: str = "maze_for_evo"
+    game: str = "maze_for_evo_2"
     mutate_rules: bool = True
     fix_map: bool = False
     evaluate: bool = False

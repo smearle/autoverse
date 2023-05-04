@@ -24,11 +24,10 @@ from imitation.data import rollout
 from imitation.data.types import TransitionsMinimal
 from imitation.data.wrappers import RolloutInfoWrapper
 
-from configs.config import Config
-from evo_env import init_base_env, load_game_to_env
-from games import maze
-from envs.play_env import PlayEnv
-from utils import validate_config
+from gen_env.configs.config import Config
+from gen_env.games import maze
+from gen_env.envs.play_env import PlayEnv
+from gen_env.utils import init_base_env, load_game_to_env, validate_config
 
 
 def evaluate_policy_on_elites(cfg: Config, policy, env, elites, name):

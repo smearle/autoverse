@@ -1,6 +1,7 @@
 
 from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.individual import Individual
+from gen_env.utils import load_game_to_env
 from search_agent import solve
 
 def evaluate_multi(args):
