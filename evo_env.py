@@ -126,6 +126,7 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     rew_seq = []
     env.queue_games([elite.map.copy()], [elite.rules.copy()])
     obs = env.reset()
+    state = env.get_state()
     # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
     # env.render(mode='pygame')
@@ -144,7 +145,8 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
             print('Warning: action sequence too short. Ending episode before env is done. Something to do with player death rule?')
             # breakpoint()
             break
-        obs, reward, done, info = env.step(elite.action_seq[i])
+        state = env.get_state()
+        state, obs, reward, done, info = env.step(elite.action_seq[i], state=state)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
         if cfg.record:
@@ -169,10 +171,19 @@ def main(cfg: Config):
     validate_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
     
+    overwrite, num_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
+
+    if overwrite:
+        # Use input to overwrite
+        ovr_bool = input(f"Directory {cfg._log_dir_evo} already exists. Overwrite? (y/n)")
+        if ovr_bool == 'y':
+            shutil.rmtree(cfg._log_dir_evo, ignore_errors=True)
+        else:
+            return
+
     if not os.path.exists(vid_dir):
         os.makedirs(vid_dir)
 
-    overwrite, num_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
     # if cfg.record:
     #     cfg.evaluate=True
     load = not overwrite
@@ -333,6 +344,7 @@ def eval_elites(cfg: Config, env: PlayEnv, elites: Iterable[Individual], n_gen: 
         if cfg.record:
             # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
             # Save as mp4
+            # imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
             imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
             # Save elite as yaml
             e.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))

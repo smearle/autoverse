@@ -2,8 +2,6 @@ defaults:
  - base_config
  - _self_
 
-map_shape: [15, 15]
-
 hydra:
   job:
     chdir: false

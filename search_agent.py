@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 from math import inf
 from pdb import set_trace as TT
 import random
@@ -12,6 +13,7 @@ from gen_env.games import (hamilton, maze, maze_backtracker, maze_npc, power_lin
 from gen_env.envs.play_env import PlayEnv, Rule, TileType
 
 
+# For debugging. Render every environment state that is visited during search.
 RENDER = False
 
 
@@ -43,7 +45,9 @@ def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
         best_idx = np.argmax([f[2] for f in frontier])
         parent_state, parent_action_seq, parent_rew = frontier.pop(best_idx)
         
+        # FIXME: Redundant, remove me
         env.set_state(parent_state)
+
         # visited[env.player_pos] = env.get_state()
         # if type(env).hashable(parent_state) in visited:
             # continue
@@ -53,16 +57,21 @@ def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
         for action in possible_actions:
             env.set_state(parent_state)
             # print('set frontier state')
-            obs, rew, done, info = env.step(action)
-            child_rew = parent_rew + rew
+            state, obs, rew, done, info = env.step(action, parent_state)
+            child_rew = state.ep_rew
             if render:
                 env.render()
             # print(f'action: {action}')
+
+            # FIXME: Redundant, remove me
             state = env.get_state()
+
             # map_arr = state['map_arr']
             action_seq = parent_action_seq + [action]
             # if env.player_pos in visited:
             hashed_state = hash(env, state)
+            # if hashed_state in visited and child_rew > visited[hashed_state]:
+            #     breakpoint()
             if hashed_state in visited and child_rew <= visited[hashed_state]:
                 # print(f'already visited {hashed_state}')
                 continue
@@ -95,8 +104,6 @@ def main(game=maze, height=10, width=10, render=False):
 
     env: PlayEnv = game.make_env(height=height, width=width)
     while True:
-        env.reset()
-        env.render()
         sol = solve(env, render=render)
 
 if __name__ == "__main__":

@@ -17,12 +17,11 @@ def main(cfg: Config):
     game, map_shape = cfg.game, cfg.map_shape
     cfg.game = cfg.game
     if isinstance(game, str):
-        if '/' in game:
+        if cfg.load_game is not None:
             # Then it's a filepath, so we are loading up an evolved game, saved to a yaml.
-            fname = game
-            breakpoint()
+            fname = cfg.load_game
             env = init_base_env(cfg)
-            individual = Individual.load(fname)
+            individual = Individual.load(fname, cfg)
             load_game_to_env(env, individual)
         else:
             game_file = globals()[game]
@@ -33,7 +32,7 @@ def main(cfg: Config):
             )
             # env: PlayEnv = game.make_env(height, width)
     else:
-        env: PlayEnv = game.make_env(height, width)
+        env: PlayEnv = game.make_env()
 
     # Set numpy seed
     np.random.seed(0)

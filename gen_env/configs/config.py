@@ -13,7 +13,7 @@ class Config:
     overwrite: bool = False
     n_proc: int = 4
     batch_size: int = 40
-    game: str = "maze_for_evo_2"
+    game: str = "blank_for_evo"
     mutate_rules: bool = True
     fix_map: bool = False
     evaluate: bool = False
@@ -27,6 +27,7 @@ class Config:
     runs_dir_il: str = "il_player"
     load_gen: Optional[int] = None
     collect_elites: bool = False
+    load_game: Optional[str] = None
 
     _log_dir_il: Optional[str] = None
     _log_dir_rl: Optional[str] = None

@@ -62,10 +62,11 @@ class Individual():
     def save(self, filename):
         # Save dictionary to yaml
         with open(filename, 'w') as f:
-            d = {'tiles': [t.to_dict() for t in self.tiles], 'rules': [r.to_dict() for r in self.rules]}
+            d = {'tiles': [t.to_dict() for t in self.tiles], 'rules': [r.to_dict() for r in self.rules],
+                 'map': self.map.tolist()}
             yaml.safe_dump(d, f, indent=4, allow_unicode=False)
 
-    def load(filename):
+    def load(filename, cfg):
         # Load dictionary from yaml
         with open(filename, 'r') as f:
             d = yaml.safe_load(f)
@@ -87,7 +88,8 @@ class Individual():
                 r.children = [names_to_rules[c] for c in r.children]
                 r.inhibits = [names_to_rules[i] for i in r.inhibits]
             rules = RuleSet(rules)
-        return Individual(tiles=tiles, rules=rules)
+            map = np.array(d['map'])
+        return Individual(tiles=tiles, rules=rules, cfg=cfg, map=map)
 
     def hashable(self):
         rule_hashes = [r.hashable() for r in self.rules]

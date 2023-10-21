@@ -50,6 +50,8 @@ def init_base_env(cfg):
 
 
 def load_game_to_env(env: PlayEnv, individual: Individual):
+    env._map_queue = [individual.map,]
+    env.rules = individual.rules
     env.tiles = individual.tiles
     env._init_rules = individual.rules
     env.init_obs_space()

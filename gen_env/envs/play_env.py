@@ -23,12 +23,14 @@ from gen_env.variables import Variable
 from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
+
 @dataclass
-class GenEnvState:
+class EnvState:
     n_step: int
     map_arr: np.ndarray
     obj_set: Iterable
     player_rot: int
+    ep_rew: int
 
 class PlayEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
@@ -64,7 +66,7 @@ class PlayEnv(gym.Env):
         # FIXME: too hardcoded (for maze_for_evo) rn
         self._n_fixed_rules = 2
 
-        self._ep_rew = 0
+        self.ep_rew = 0
         self._done = False
         if search_tiles is None:
             self._search_tiles = tiles
@@ -198,7 +200,7 @@ class PlayEnv(gym.Env):
             self.map = copy.copy(self._map_queue[self._game_idx])
             self._game_idx += 1
 
-        self._ep_rew = 0
+        self.ep_rew = 0
         # Reset rules.
         # self.rules = copy.copy(self._init_rules)
         # Reset variables.
@@ -213,23 +215,31 @@ class PlayEnv(gym.Env):
             map_arr = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
         self.player_rot = 0
-        self._set_state(GenEnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}, player_rot=self.player_rot))
+        self._set_state(EnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}, player_rot=self.player_rot,
+                                 ep_rew=self.ep_rew))
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
         self._rot_dirs = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         obs = self.get_obs()
         return obs
 
-    def step(self, action):
+    def step(self, action, state: EnvState):
         # TODO: Only pass global variable object to event graph.
         self.event_graph.tick(self)
         self.act(action)
         reward = self.tick()
-        self.n_step += 1
+        n_step = state.n_step + 1
         if self._done:
             pass
             # print('done at step')
-        self._ep_rew += reward
-        return self.get_obs(), reward, self._done, {}
+        ep_rew = state.ep_rew + reward
+        state = EnvState(
+            n_step=n_step,
+            map_arr=self.map,
+            obj_set=self.objects,
+            player_rot=self.player_rot,
+            ep_rew=ep_rew
+        )
+        return state, self.get_obs(), reward, self._done, {}
 
     def act(self, action):
         if self.player_pos is None:
@@ -301,7 +311,7 @@ class PlayEnv(gym.Env):
                 assert len(np.where(disc_map == tile.idx)[0]) == tile.num
         for tile in fixed_num_tiles:
             assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        return rearrange(np.eye(len(tiles))[disc_map], 'h w c -> c h w')
+        return rearrange(np.eye(len(tiles), dtype=np.uint8)[disc_map], 'h w c -> c h w')
 
     def observe_map(self):
         obs = rearrange(self.map, 'b h w -> h w b')
@@ -388,7 +398,7 @@ class PlayEnv(gym.Env):
         # Below the image, add a row of text showing episode/cumulative reward
         # Add padding below the image
         tile_ims = np.pad(tile_ims, ((0, 30), (0, 0), (0, 0)), mode='constant', constant_values=0)
-        text = f'Reward: {self._ep_rew}'
+        text = f'Reward: {self.ep_rew}'
         # Paste text
         img_pil = Image.fromarray(tile_ims)
         draw = ImageDraw.Draw(img_pil)
@@ -573,7 +583,8 @@ class PlayEnv(gym.Env):
             if event.type == pygame.KEYDOWN:
                 if event.key in self.keys_to_acts:
                     action = self.keys_to_acts[event.key]
-                    obs, rew, done, info = self.step(action)
+                    state = self.get_state()
+                    state, obs, rew, done, info = self.step(action, state)
 
                     self.render(mode='pygame')
                     # if self._last_reward != self._reward:
@@ -586,10 +597,10 @@ class PlayEnv(gym.Env):
                 self.render(mode='pygame')
 
     def get_state(self):
-        return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects,
-            player_rot=self.player_rot)
+        return EnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects,
+            player_rot=self.player_rot, ep_rew=self.ep_rew)
 
-    def set_state(self, state: GenEnvState):
+    def set_state(self, state: EnvState):
         state = copy.deepcopy(state)
         self._set_state(state)
         # TODO: setting variables and event graph.
@@ -602,13 +613,14 @@ class PlayEnv(gym.Env):
         return hash((player_rot, search_state.tobytes()))
 
 
-    def _set_state(self, state: GenEnvState):
+    def _set_state(self, state: EnvState):
         map_arr, obj_set = state.map_arr, state.obj_set
         self.n_step = state.n_step
         self.map = map_arr
         self.objects = obj_set
         self.height, self.width = self.map.shape[1:]
         self.player_rot = state.player_rot
+        self.ep_rew = state.ep_rew
         self._compile_map()
 
 
