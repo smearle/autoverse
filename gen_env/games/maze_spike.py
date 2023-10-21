@@ -8,7 +8,7 @@ from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(height, width):
+def make_env():
     force = TileType(name='force', prob=0, color='purple')
     wall = TileType('wall', prob=0.1, color='black')
     floor = TileType('floor', prob=0.9, color='grey')
@@ -82,5 +82,9 @@ def make_env(height, width):
         done=True,
     )
     rules = RuleSet([wall_kill_force, player_consume_goal, spike_kill_player, player_move])
-    env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
-    return env
+    game_def = dict(
+        tiles=tiles,
+        rules=rules,
+        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+    )
+    return game_def

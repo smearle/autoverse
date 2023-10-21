@@ -11,7 +11,7 @@ from tiles import TileNot, TilePlacement, TileSet, TileType
 from variables import Variable
 
 
-def make_env(height, width):
+def make_env():
     force = TileType(name='force', prob=0, color='grey')
     wall = TileType('wall', prob=1.0, color='black')
     floor = TileType('floor', prob=0.0, color='white')

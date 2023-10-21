@@ -10,7 +10,7 @@ from rules import Rule, RuleSet
 from tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(height, width):
+def make_env():
     npc_path = TileType('npc_path', prob=0, color='grey')
     force = TileType(name='force', prob=0, color='purple')
     wall = TileType('wall', prob=0.3, color='black')

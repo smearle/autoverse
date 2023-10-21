@@ -1,7 +1,8 @@
-height: 10
-width: 10
-game: maze
-base_env: null
+defaults:
+ - base_config
+ - _self_
+
+map_shape: [15, 15]
 
 hydra:
   job:

@@ -11,3 +11,4 @@ pandas
 pygame
 stable-baselines3
 torch[tensorboard]
+-e .

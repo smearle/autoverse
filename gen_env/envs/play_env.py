@@ -507,14 +507,14 @@ class PlayEnv(gym.Env):
                 pygame.K_RIGHT: 1,
                 pygame.K_UP: 2,
                 # pygame.K_DOWN: 3,
-                # pygame.K_q: 4,
+                pygame.K_q: 3,
             }
             self.rend_im = np.flip(self.rend_im, axis=0)
             # Rotate to match pygame
             self.rend_im = np.rot90(self.rend_im, k=-1)
 
             # Scale up the image by 2
-            self.rend_im = cv2.resize(self.rend_im, (2048, 2048))
+            self.rend_im = cv2.resize(self.rend_im, self.cfg.window_shape)
 
             if self.screen is None:
                 pygame.init()

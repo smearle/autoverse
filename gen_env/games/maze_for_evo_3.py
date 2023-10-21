@@ -8,7 +8,7 @@ from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TilePlacement, TileSet, TileType
 
 
-def make_env():
+def make_env(height, width, cfg):
     force = TileType(name='force', num=0, color='purple')
     wall = TileType('wall', prob=0.1, color='black')
     floor = TileType('floor', prob=0.9, color='grey')
@@ -37,7 +37,7 @@ def make_env():
         rotate=True,
         reward=0,
         done=False,
-        # max_applications=1,
+        max_applications=1,
     )
     rule_b = Rule(
         'B',
@@ -54,7 +54,7 @@ def make_env():
         rotate=True,
         reward=0,
         done=False,
-        # max_applications=1,
+        max_applications=1,
     )
     rule_c = Rule(
         'C',
@@ -71,7 +71,7 @@ def make_env():
         rotate=True,
         reward=0,
         done=False,
-        # max_applications=1,
+        max_applications=1,
     )
     rule_d = Rule(
         'D',
@@ -88,7 +88,7 @@ def make_env():
         rotate=True,
         reward=0,
         done=False,
-        # max_applications=1,
+        max_applications=1,
     )
     rule_e = Rule(
         'E',
@@ -105,15 +105,10 @@ def make_env():
         rotate=True,
         reward=0,
         done=False,
-        # max_applications=1,
+        max_applications=1,
     )
     rules = RuleSet([rule_a, rule_b, rule_c, rule_d, rule_e])
     # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
-    # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
-        # search_tiles=search_tiles, cfg=cfg)
-    game_def = dict(
-        tiles=tiles,
-        rules=rules,
-        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
-    )
-    return game_def
+    env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+        search_tiles=search_tiles, cfg=cfg)
+    return env

@@ -11,7 +11,7 @@ from gen_env.tiles import TilePlacement, TileSet, TileType, tiles_to_multihot
 from gen_env.variables import Variable
 
 
-def make_env(height, width):
+def make_env():
     anchor = TileType(name='anchor', prob=0, color='pink')
     force = TileType(name='force', prob=0, color='purple')
     wall = TileType('wall', prob=0.1, color='black')

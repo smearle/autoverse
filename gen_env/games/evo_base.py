@@ -8,7 +8,7 @@ from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(height, width):
+def make_env():
     force = TileType(name='force', prob=0, color='purple')
     wall = TileType('wall', prob=1/4, color='black')
     floor = TileType('floor', prob=1/4, color='grey')

@@ -10,7 +10,7 @@ from gen_env.tiles import TilePlacement, TileSet, TileType
 from gen_env.variables import Variable
 
 
-def make_env(height, width):
+def make_env():
 
     force = TileType(name='force', prob=0, color='purple')
     wall = TileType('wall', prob=0.3, color='black')
@@ -148,6 +148,14 @@ def make_env(height, width):
         init_cond=lambda: player_keys.value >= 1,
     )
 
-    env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
-        events=[player_has_key], variables=[player_keys])
-    return env
+    # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
+    #     events=[player_has_key], variables=[player_keys])
+
+    game_def = dict(
+        tiles=tiles,
+        rules=rules,
+        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+        events=[player_has_key],
+        variables=[player_keys],
+    )
+    return game_def

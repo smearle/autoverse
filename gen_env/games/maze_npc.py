@@ -10,7 +10,7 @@ from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(height, width):
+def make_env():
     npc_path = TileType('npc_path', prob=0, color='grey')
     force = TileType(name='force', prob=0, color='purple')
     wall = TileType('wall', prob=0.3, color='black')
@@ -88,5 +88,11 @@ def make_env(height, width):
     )
     events = [npc_search_goal]
     rules = RuleSet([player_move, npc_move, player_consume_goal, npc_consume_goal])
-    env = PlayEnv(height, width, tiles=tiles, rules=rules, events=events, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
-    return env
+    # env = PlayEnv(height, width, tiles=tiles, rules=rules, events=events, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
+    game_def = dict(
+        tiles=tiles,
+        rules=rules,
+        events=events,
+        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+    )
+    return game_def

@@ -34,7 +34,12 @@ def save_video(frames, video_path, fps=10):
 
 
 def init_base_env(cfg):
-    env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
+    # env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
+    game_def = GAMES[cfg.game].make_env()
+    env = PlayEnv(
+        cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
+        **game_def
+    )
     # env = evo_base.make_env(10, 10)
     # env = maze.make_env(10, 10)
     # env = maze_for_evo.make_env(10, 10)

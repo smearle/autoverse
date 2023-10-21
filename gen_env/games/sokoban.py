@@ -5,7 +5,7 @@ from gen_env.envs.play_env import PlayEnv
 from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
 
-def make_env(height, width):
+def make_env():
     n_crates = 3
     force = TileType(name='force', prob=0, color=None)
     # passable = TileType(name='passable', prob=0, color=None)
@@ -89,5 +89,14 @@ def make_env(height, width):
     # Order is important for movement/physics.
     rules = RuleSet([player_push_crate, crate_kill_force, player_move, crate_on_target])
 
-    return PlayEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
-        done_at_reward=n_crates, search_tiles=search_tiles)
+    # return PlayEnv(10, 10, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)], 
+    #     done_at_reward=n_crates, search_tiles=search_tiles)
+
+    game_def = dict(
+        tiles=tiles,
+        rules=rules,
+        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+        done_at_reward=n_crates,
+        search_tiles=search_tiles,
+    )
+    return game_def

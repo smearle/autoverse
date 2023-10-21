@@ -5,7 +5,7 @@ from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TilePlacement, TileSet, TileType
 
 
-def make_env(height, width):
+def make_env():
     force = TileType(name='force', prob=0, color=None)
     floor = TileType('floor', prob=0.8, color='white')
     player = TileType('player', prob=0, color='blue', num=1, cooccurs=[floor])
@@ -28,6 +28,7 @@ def make_env(height, width):
             ],
         ]),
         rotate=True,
+        reward=1,
     )
 
     lava_kill_player = Rule(
@@ -46,19 +47,24 @@ def make_env(height, width):
         reward=-1,
         done=True
     )
-    reward_slime = Rule(
-        'reward_slime',
-        in_out=np.array([
-            [
-                [[slime]],
-            ],
-            [
-                [[slime]],
-            ],
-        ]),
-        rotate=False,
-        reward=1,
-    )
-    rules = RuleSet([player_move, lava_kill_player, reward_slime])
+    # reward_slime = Rule(
+    #     'reward_slime',
+    #     in_out=np.array([
+    #         [
+    #             [[slime]],
+    #         ],
+    #         [
+    #             [[slime]],
+    #         ],
+    #     ]),
+    #     rotate=False,
+    #     reward=1,
+    # )
+    rules = RuleSet([player_move, lava_kill_player])
 
-    return PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)])
+    game_def = dict(
+        tiles=tiles,
+        rules=rules,
+        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+    )
+    return game_def

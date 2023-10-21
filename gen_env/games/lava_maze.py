@@ -10,12 +10,12 @@ from gen_env.tiles import TilePlacement, TileSet, TileType
 
 def make_env():
     force = TileType(name='force', num=0, color='purple')
-    wall = TileType('wall', prob=0.1, color='black')
+    lava = TileType('lava', prob=0.1, color='red')
     floor = TileType('floor', prob=0.9, color='grey')
     player = TileType('player', num=1, color='blue', cooccurs=[floor])
     goal = TileType('goal', num=1, color='green', cooccurs=[floor])
-    tiles = TileSet([floor, wall, player, goal, force])
-    search_tiles = [floor, goal, player, wall]
+    tiles = TileSet([floor, lava, player, goal, force])
+    search_tiles = [floor, goal, player, lava]
 
     player_move = Rule(
         'player_move', 
@@ -47,13 +47,28 @@ def make_env():
         reward=1,
         done=True,
     )
-    rules = RuleSet([player_move, player_consume_goal])
-    # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
-    #     search_tiles=search_tiles)
+    player_fall_lava = Rule(
+        'player_die',
+        in_out=np.array([
+            [
+                [[player, force]],  # Player and goal tile overlap.
+                [[None, lava]],
+            ],
+            [
+                [[None, None]],  # Player remains.
+                [[None, lava]],  # Goal is removed.
+            ]
+        ]),
+        rotate=True,
+        reward=-1,
+        done=False,
+    )
+    rules = RuleSet([player_move, player_consume_goal, player_fall_lava])
+    player_passable_tiles = [(force, TilePlacement.ADJACENT)]
     game_def = dict(
         tiles=tiles,
         rules=rules,
-        player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
+        player_placeable_tiles=player_passable_tiles,
         search_tiles=search_tiles,
     )
-    return game_def
+   

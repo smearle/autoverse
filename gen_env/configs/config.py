@@ -42,6 +42,10 @@ class Config:
     n_rl_iters: float = 1e6
 
     hide_rules: bool = False
+    
+    map_shape: tuple = (10, 10)
+
+    window_shape: tuple = (800, 800)
 
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=Config)

@@ -69,13 +69,13 @@ def main():
             obs, rew, done, info = env.step(action)
             env._done = done
             env.render()
-            sys.exit()
+            # sys.exit()
 
         # # Deselct all objects
         # bpy.ops.object.select_all(action='DESELECT')
 
-        # return 1e-10
-        return 1
+        return 1e-10
+        # return 1
 
     # Register a simple timer that prints the current time
     bpy.app.timers.register(partial(timer_callback, env, bpy.context.scene))

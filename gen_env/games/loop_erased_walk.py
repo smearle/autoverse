@@ -12,7 +12,7 @@ from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
 from gen_env.variables import Variable
 
 
-def make_env(height, width):
+def make_env():
     # a = MJRule("RBB=WWR")
     # b = MJRule("RBW=GWP")
     # c = MJRule("PWG=PBU")

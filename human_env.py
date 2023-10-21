@@ -5,6 +5,7 @@ import hydra
 import numpy as np
 import pygame
 
+from gen_env.configs.config import Config
 from gen_env.evo.individual import Individual
 from gen_env.utils import init_base_env, load_game_to_env
 from gen_env.envs.play_env import PlayEnv, Rule, TileType
@@ -12,19 +13,25 @@ from gen_env.games import *
 
 
 @hydra.main(config_path="gen_env/configs", config_name="human")
-def main(cfg):
-    game, height, width = cfg.game, cfg.height, cfg.width
+def main(cfg: Config):
+    game, map_shape = cfg.game, cfg.map_shape
     cfg.game = cfg.game
     if isinstance(game, str):
         if '/' in game:
             # Then it's a filepath, so we are loading up an evolved game, saved to a yaml.
             fname = game
+            breakpoint()
             env = init_base_env(cfg)
             individual = Individual.load(fname)
             load_game_to_env(env, individual)
         else:
-            game = globals()[game]
-            env: PlayEnv = game.make_env(height, width)
+            game_file = globals()[game]
+            game_def = game_file.make_env()
+            env = PlayEnv(
+                cfg=cfg, height=map_shape[0], width=map_shape[1],
+                **game_def
+            )
+            # env: PlayEnv = game.make_env(height, width)
     else:
         env: PlayEnv = game.make_env(height, width)
 
