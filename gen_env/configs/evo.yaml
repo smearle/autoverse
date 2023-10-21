@@ -9,7 +9,7 @@ env_exp_id: 0
 overwrite: false
 n_proc: 8
 batch_size: 40
-game: maze_for_evo_2
+game: blank_for_evo
 mutate_rules: true
 evaluate: false
 save_freq: 1

@@ -22,39 +22,6 @@ def make_env(height, width, cfg):
     # search_tiles = [floor, goal, player, wall, tile_a]
     search_tiles = [floor, goal, player, wall, tile_a, tile_b, tile_c]
 
-    player_move = Rule(
-        'player_move', 
-        in_out=np.array(  [# Both input patterns must be present to activate the rule.
-            [[[player, floor]],  # Player next to a passable/floor tile.
-            [[None, force]], # A force is active on said passable tile.
-                ]  
-            ,
-            # Both changes are applied to the relevant channels, given by the respective input subpatterns.
-            [[[None, player]],  # Player moves to target. No change at source.
-            [[None, None]],  # Force is removed from target tile.
-            ],
-        ]),
-        rotate=True,
-        # max_applications=1,
-        )
-
-    player_consume_goal = Rule(
-        'player_consume_goal',
-        in_out=np.array([
-            [
-                [[player, force]],  # Player and goal tile overlap.
-                [[None, goal]],
-            ],
-            [
-                [[None, player]],  # Player remains.
-                [[None, None]],  # Goal is removed.
-            ]
-        ]),
-        rotate=True,
-        reward=1,
-        done=False,
-        max_applications=1,
-    )
     rule_a = Rule(
         'A',
         in_out=np.array([
@@ -106,7 +73,41 @@ def make_env(height, width, cfg):
         done=False,
         # max_applications=1,
     )
-    rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b, rule_c])
+    rule_d = Rule(
+        'D',
+        in_out=np.array([
+            [
+                [[None, None, None]],
+                [[None, None, None]],
+            ],
+            [
+                [[None, None, None]],
+                [[None, None, None]],
+            ]
+        ]),
+        rotate=True,
+        reward=0,
+        done=False,
+        # max_applications=1,
+    )
+    rule_e = Rule(
+        'E',
+        in_out=np.array([
+            [
+                [[None, None, None]],
+                [[None, None, None]],
+            ],
+            [
+                [[None, None, None]],
+                [[None, None, None]],
+            ]
+        ]),
+        rotate=True,
+        reward=0,
+        done=False,
+        # max_applications=1,
+    )
+    rules = RuleSet([rule_a, rule_b, rule_c, rule_d, rule_e])
     # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
     env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
         search_tiles=search_tiles, cfg=cfg)

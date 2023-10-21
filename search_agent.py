@@ -1,6 +1,7 @@
 import copy
 from math import inf
 from pdb import set_trace as TT
+import random
 from typing import Iterable
 
 from fire import Fire
@@ -48,6 +49,7 @@ def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
             # continue
         visited[hash(env, parent_state)] = parent_rew
         # print(visited.keys())
+        random.shuffle(possible_actions)
         for action in possible_actions:
             env.set_state(parent_state)
             # print('set frontier state')

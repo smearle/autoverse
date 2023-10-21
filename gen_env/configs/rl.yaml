@@ -1,5 +1,6 @@
 defaults:
   - il
+  - _self_
 
 load_il: True
 load_rl: False

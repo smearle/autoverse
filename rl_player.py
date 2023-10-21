@@ -27,7 +27,7 @@ def callback(_locals, _globals):
     pass
 
 
-@hydra.main(version_base="1.3", config_path="configs", config_name="rl")
+@hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="rl")
 def main(cfg: Config):
     validate_config(cfg)
     n_iters = cfg.n_rl_iters

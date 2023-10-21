@@ -1,4 +1,5 @@
 from gen_env.games import (
+    blank_for_evo,
     dungeon,
     evo_base,
     hamilton, 
@@ -15,6 +16,7 @@ from gen_env.games import (
     )
 
 GAMES = {
+    'blank_for_evo': blank_for_evo,
     'dungeon': dungeon,
     'evo_base': evo_base,
     'hamilton': hamilton,

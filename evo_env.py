@@ -181,7 +181,10 @@ def main(cfg: Config):
         return
     loaded = False
     if os.path.isdir(cfg._log_dir_evo):
-        if load:
+        ckpt_files = glob.glob(os.path.join(cfg._log_dir_evo, 'gen-*.npz'))
+        if len(ckpt_files) == 0:
+            print(f'No checkpoints found in {cfg._log_dir_evo}. Starting from scratch')
+        elif load:
             if cfg.load_gen is not None:
                 save_file = os.path.join(cfg._log_dir_evo, f'gen-{int(cfg.load_gen)}.npz')
             else:
@@ -216,7 +219,7 @@ def main(cfg: Config):
             shutil.rmtree(cfg._log_dir_il, ignore_errors=True)
     if not loaded:
         pop_size = cfg.batch_size
-        trg_n_iter = 10_000 # Max number of iterations while searching for solution. Will increase during evolution
+        trg_n_iter = 100 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
     env = init_base_env(cfg)

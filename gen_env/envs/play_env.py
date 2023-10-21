@@ -2,7 +2,7 @@ import copy
 from dataclasses import dataclass
 from enum import Enum
 import random
-import time
+from timeit import default_timer as timer
 from typing import Dict, Iterable, List, Tuple
 
 import cv2
@@ -533,7 +533,7 @@ class PlayEnv(gym.Env):
         self._last_reward = self._reward
         for obj in self.objects:
             obj.tick(self)
-        self.map, self._reward, self._done = apply_rules(self.map, self.rules)
+        self.map, self._reward, self._done, rule_time_ms = apply_rules(self.map, self.rules)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
         self._done = self._done or self.n_step >= self.max_episode_steps or len(np.argwhere(self.map[self.player_idx] == 1)) == 0
@@ -619,6 +619,9 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
         map (np.ndarray): A one-hot encoded map representing the game state.
         rules (List[Rule]): A list of rules for mutating the onehot-encoded map.
     """
+    # Start a timer for the rule application.
+    start = timer()
+
     # print(map)
     rules = copy.copy(rules)
     rules_set = set(rules)
@@ -701,8 +704,8 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
             # Will break the subrule loop if we have broken the board-scanning loop.
             break
                         
-                    
-    return next_map, reward, done
+    time_ms=(timer() - start) * 1000
+    return next_map, reward, done, time_ms
 
 def hash_rules(rules):
     """Hash a list of rules to a unique value.

@@ -1,5 +1,6 @@
 defaults:
   - evo
+  - _self_
 
 load_il: True
 save_freq: 10_000
@@ -8,7 +9,7 @@ eval_freq: 10_000
 env_exp_id: 0
 overwrite: false
 record: false
-game: maze_for_evo
+game: blank_for_evo
 # n_epochs: null
 n_il_batches: 500_000
 

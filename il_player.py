@@ -116,7 +116,7 @@ def load(cfg: Config):
     return policy, batch_i, epoch_i, tb_i
 
 
-@hydra.main(version_base="1.3", config_path="configs", config_name="il")
+@hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: Config):
     validate_config(cfg)
 
@@ -136,10 +136,12 @@ def main(cfg: Config):
     writer = th.utils.tensorboard.SummaryWriter(cfg._log_dir_il)
 
     # HACK to load trained run after refactor
-    # import evo
     # import sys
-    # individual = evo.individual
-    # sys.modules['individual'] = individual
+    # from gen_env import evo, configs, tiles, rules
+    # sys.modules['evo'] = evo
+    # sys.modules['configs'] = configs
+    # sys.modules['tiles'] = tiles
+    # sys.modules['rules'] = rules
     # end HACK
 
     # elites = np.load(os.path.join(cfg.log_dir_evo, "unique_elites.npz"), allow_pickle=True)['arr_0']
@@ -163,8 +165,9 @@ def main(cfg: Config):
         for elite in train_elites:
             # obs_seq = [ob for ob in elite.obs_seq[:-1]]
             obs_seq = elite.obs_seq[:-1]
-            # if len(obs_seq) != len(elite.action_seq):
-            #     breakpoint()
+            if len(obs_seq) != len(elite.action_seq):
+                print('Warning: obs_seq and action_seq have different lengths.')
+                elite.action_seq = elite.action_seq[:len(obs_seq)]
             assert len(obs_seq) == len(elite.action_seq)
             obs.extend(obs_seq)
             acts.extend(elite.action_seq)
