@@ -215,12 +215,13 @@ class PlayEnv(gym.Env):
             map_arr = self._map_queue[self._map_id]
             self._map_id = (self._map_id + 1) % len(self._map_queue)
         self.player_rot = 0
-        self._set_state(EnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}, player_rot=self.player_rot,
-                                 ep_rew=self.ep_rew))
+        env_state = EnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}, player_rot=self.player_rot,
+                                    ep_rew=self.ep_rew)
+        self._set_state(env_state)
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
         self._rot_dirs = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         obs = self.get_obs()
-        return obs
+        return env_state, obs
 
     def step(self, action, state: EnvState):
         # TODO: Only pass global variable object to event graph.
@@ -232,6 +233,8 @@ class PlayEnv(gym.Env):
             pass
             # print('done at step')
         ep_rew = state.ep_rew + reward
+        self.ep_rew = ep_rew
+        self.n_step = n_step
         state = EnvState(
             n_step=n_step,
             map_arr=self.map,
@@ -337,7 +340,7 @@ class PlayEnv(gym.Env):
         
         return rule_obs.astype(np.float32)
     
-    def render(self, mode='human'):
+    def render(self, state: EnvState, mode='human'):
         font = ImageFont.load_default()
         tile_size = self.tile_size
         # self.rend_im = np.zeros_like(self.int_map)
@@ -398,7 +401,7 @@ class PlayEnv(gym.Env):
         # Below the image, add a row of text showing episode/cumulative reward
         # Add padding below the image
         tile_ims = np.pad(tile_ims, ((0, 30), (0, 0), (0, 0)), mode='constant', constant_values=0)
-        text = f'Reward: {self.ep_rew}'
+        text = f'Reward: {state.ep_rew}'
         # Paste text
         img_pil = Image.fromarray(tile_ims)
         draw = ImageDraw.Draw(img_pil)
@@ -573,7 +576,7 @@ class PlayEnv(gym.Env):
         self._update_cooccurs(self.map)
         self._update_inhibits(self.map)
 
-    def tick_human(self):
+    def tick_human(self, state: EnvState):
         import pygame
         done = False
         # Did the user click the window close button?
@@ -583,7 +586,6 @@ class PlayEnv(gym.Env):
             if event.type == pygame.KEYDOWN:
                 if event.key in self.keys_to_acts:
                     action = self.keys_to_acts[event.key]
-                    state = self.get_state()
                     state, obs, rew, done, info = self.step(action, state)
 
                     self.render(mode='pygame')
@@ -592,9 +594,11 @@ class PlayEnv(gym.Env):
                 elif event.key == pygame.K_x:
                     done = True
             if done:
-                self.reset()
+                state = self.reset()
                 done = False
-                self.render(mode='pygame')
+                self.render(mode='pygame', state=state)
+        return state
+
 
     def get_state(self):
         return EnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects,
@@ -622,6 +626,17 @@ class PlayEnv(gym.Env):
         self.player_rot = state.player_rot
         self.ep_rew = state.ep_rew
         self._compile_map()
+
+
+class SB3PlayEnv(PlayEnv):
+    def reset(self, *args, **kwargs):
+        state, obs = super().reset(*args, **kwargs)
+        return obs
+
+    def step(self, *args, **kwargs):
+        state = self.get_state()
+        state, obs, rew, done, info = super().step(*args, **kwargs, state=state)
+        return obs, rew, done, info
 
 
 def apply_rules(map: np.ndarray, rules: List[Rule]):
@@ -652,11 +667,13 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
             print("Missing `rule.subrules`. Maybe you have not called `rule.compile`? You will need to do this manually" +
                 "if the rule is not included in a ruleset.")
         subrules = rule.subrules
+        # breakpoint()
         if rule.random:
             # Apply rotations of base rule in a random order.
             np.random.shuffle(subrules)
         for subrule in rule.subrules:
-            # Apply, e.g., rotations of the base rule
+        # for subrule_int in rule.subrules_int:
+            # Apply, e.j., rotations of the base rule
             inp, out = subrule
             xys = np.indices((h, w))
             xys = rearrange(xys, 'xy h w -> (h w) xy')

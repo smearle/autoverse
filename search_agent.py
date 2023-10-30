@@ -64,7 +64,6 @@ def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
             # print(f'action: {action}')
 
             # FIXME: Redundant, remove me
-            state = env.get_state()
 
             # map_arr = state['map_arr']
             action_seq = parent_action_seq + [action]

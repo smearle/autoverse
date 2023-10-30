@@ -21,9 +21,9 @@ from gen_env.configs.config import Config
 from gen_env.games import GAMES
 from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
-from gen_env.utils import init_base_env, load_game_to_env
 from gen_env.evo.individual import Individual
-from gen_env.utils import validate_config
+from gen_env.rules import is_valid
+from gen_env.utils import init_base_env, load_game_to_env, validate_config
 
 
 
@@ -39,6 +39,9 @@ def collect_elites(cfg: Config):
     # if cfg.overwrite or not os.path.isfile(unique_elites_path):
     # Aggregate all playtraces into one file
     elite_files = glob.glob(os.path.join(cfg._log_dir_evo, 'gen-*.npz'))
+    # Get the highest generation number
+    gen_nums = [int(f.split('-')[-1].split('.')[0]) for f in elite_files]
+    latest_gen = max(gen_nums)
     # An elite is a set of game rules, a game map, and a solution/playtrace
     # elite_hashes = set()
     elites = {}
@@ -68,9 +71,9 @@ def collect_elites(cfg: Config):
 
     train_elites, val_elites, test_elites = split_elites(cfg, elites)
     # Save elites to file
-    np.savez(os.path.join(cfg._log_dir_common, 'train_elites.npz'), train_elites)
-    np.savez(os.path.join(cfg._log_dir_common, 'val_elites.npz'), val_elites)
-    np.savez(os.path.join(cfg._log_dir_common, 'test_elites.npz'), test_elites)
+    np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)
+    np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.npz'), val_elites)
+    np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.npz'), test_elites)
 
     # Save unique elites to npz file
     # If not overwriting, load existing elites
@@ -125,8 +128,8 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     obs_seq = []
     rew_seq = []
     env.queue_games([elite.map.copy()], [elite.rules.copy()])
-    obs = env.reset()
-    state = env.get_state()
+    state, obs = env.reset()
+    # print(f"Initial state reward: {state.ep_rew}")
     # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
     # env.render(mode='pygame')
@@ -134,9 +137,9 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     #     env.tick_human()
     obs_seq.append(obs)
     if cfg.record:
-        frames = [env.render(mode='rgb_array')]
+        frames = [env.render(mode='rgb_array', state=state)]
     if cfg.render:
-        env.render(mode='human')
+        env.render(mode='human', state=state)
     done = False
     i = 0
     while not done:
@@ -145,14 +148,14 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
             print('Warning: action sequence too short. Ending episode before env is done. Something to do with player death rule?')
             # breakpoint()
             break
-        state = env.get_state()
         state, obs, reward, done, info = env.step(elite.action_seq[i], state=state)
+        # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
         if cfg.record:
-            frames.append(env.render(mode='rgb_array'))
+            frames.append(env.render(mode='rgb_array', state=state))
         if cfg.render:
-            env.render(mode='human')
+            env.render(mode='human', state=state)
         i += 1
     if i < len(elite.action_seq):
         # FIXME: Problem with player death...?
@@ -281,6 +284,9 @@ def main(cfg: Config):
             o: Individual = copy.deepcopy(p)
             o.mutate()
             offspring.append(o)
+            for rule in o.rules:
+                if not is_valid(rule._in_out):
+                    breakpoint()
         if num_proc == 1:
             for o in offspring:
                 o = evaluate(env, o, render, trg_n_iter)
@@ -315,7 +321,7 @@ def main(cfg: Config):
         # if max_fit > trg_n_iter - 10:
         if max_fit > trg_n_iter * 0.5:
             # trg_n_iter *= 2
-            trg_n_iter += 1000
+            trg_n_iter += 100
         if n_gen % cfg.save_freq == 0: 
             # Save the elites.
             np.savez(os.path.join(cfg._log_dir_evo, f"gen-{n_gen}"),

@@ -1,3 +1,4 @@
+import numpy as np
 
 from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.individual import Individual
@@ -7,11 +8,19 @@ from search_agent import solve
 def evaluate_multi(args):
     return evaluate(*args)
 
+def evaluate_DUMMY(env: PlayEnv, individual: Individual, render: bool, trg_n_iter: bool):
+    n_players_in_rules = 0
+    for rule in individual.rules:
+        n_players_in_rules += np.sum(np.vectorize(lambda t: t is not None and t.is_player)(rule._in_out[1])) - \
+            np.sum(np.vectorize(lambda t: t is not None and t.is_player)(rule._in_out[0]))
+    individual.fitness = n_players_in_rules
+    individual.action_seq = []
+    return individual
+
 def evaluate(env: PlayEnv, individual: Individual, render: bool, trg_n_iter: bool):
     load_game_to_env(env, individual)
     env.queue_games([individual.map.copy()], [individual.rules.copy()])
-    env.reset()
-    init_state = env.get_state()
+    init_state, obs = env.reset()
     # Save the map after it having been cleaned up by the environment
     individual.map = env.map.copy()
     # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
@@ -20,10 +29,9 @@ def evaluate(env: PlayEnv, individual: Individual, render: bool, trg_n_iter: boo
     if best_state_actions is not None:
         (final_state, action_seq) = best_state_actions
         if render:
-            env.set_state(init_state)
-            env.render()
+            env.render(state=state)
             for action in action_seq:
-                env.step(action)
+                state, obs, reward, done, info = env.step(action, state)
                 env.render()
     # TODO: dummy
     # fitness = best_reward

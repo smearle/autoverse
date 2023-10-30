@@ -45,7 +45,7 @@ def main(cfg: Config):
     while running:
         # env.step(env.action_space.sample())
         # env.render()
-        env.tick_human()
+        state = env.tick_human(state=state)
 
     pygame.quit()
 

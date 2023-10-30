@@ -71,4 +71,4 @@ def make_env():
         player_placeable_tiles=player_passable_tiles,
         search_tiles=search_tiles,
     )
-   
+    return game_def

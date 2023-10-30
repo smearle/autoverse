@@ -41,7 +41,9 @@ from pdb import set_trace as TT
 import random
 from typing import Dict, Iterable
 
+from einops import rearrange
 import numpy as np
+
 from gen_env.objects import ObjectType
 from gen_env.tiles import TileType
 
@@ -80,7 +82,7 @@ class Rule():
         self.max_applications = max_applications
         self.random = random
         self.reward = reward
-        self.compile()
+        self.n_tile_types = None
 
     def from_dict(d, names_to_tiles):
         assert len(d) == 1
@@ -123,11 +125,33 @@ class Rule():
         if self._rotate and self._in_out[0].shape != (1, 1):
             subrules += [np.rot90(in_out, k=1, axes=(2, 3)), np.rot90(in_out, k=2, axes=(2,3)), 
                 np.rot90(in_out, k=3, axes=(2,3))]
+        max_subrule_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
         self.subrules = subrules
+        self.subrules_int = [np.vectorize(TileType.get_idx)(sr) for sr in subrules]
+        self.subrules_int = \
+            [np.pad(sr, [(0, max_subrule_shape[i] - sr.shape[i]) for i in range(len(max_subrule_shape))], constant_values=-1) 
+                             for sr in self.subrules_int]
+        # Now shape: (n_subrules, in_out, rule_channels, height, width)
+        self.subrules_int = np.array(self.subrules_int) + 1
+        # Take one-hot over channels
+        # (n_subrules, in_out, rule_channels, height, width, tile_channels)
+        self.subrules_int = np.eye(self.n_tile_types + 1)[self.subrules_int][..., 1:]
+        self.subrules_int = rearrange(self.subrules_int, 'n_subrules in_out rule_channels height width tile_channels -> ' +
+                                      'n_subrules in_out rule_channels tile_channels height width')
+        # Get max shape over subrules
+        max_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
+        # Pad subrules to max shape
+        padded_subrules = []
+        # for sr in subrules:
+        #     padded_sr_shape = [(0, max_shape[i] - sr.shape[i]) for i in range(len(max_shape))]
+        #     padded_subrule = [np.pad(sr, padded_sr_shape) for sr in self.subrules_int]
+        #     padded_subrules.append(padded_subrule)
 
     def observe(self, n_tiles):
+        # FIXME: Need to observe reward, rotation, etc.
         # return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
         in_out_disc = np.vectorize(TileType.get_idx)(self._in_out)
+        # in_out_disc = self.subrules_int
 
         # if in_out_disc.min() < 0:
         #     print('WARNING: negative tile index in rule observation. `TileNot` observations not supported. Hope you\'re not training on this!')
@@ -222,5 +246,5 @@ class ObjectRule(Rule):
 class RuleSet(list):
     def __init__(self, rules: Iterable[Rule]):
         super().__init__(rules)
-        [rule.compile() for rule in rules]
+        # [rule.compile() for rule in rules]
 

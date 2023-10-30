@@ -2,6 +2,7 @@
 Refer to the jupyter notebooks for more detailed examples of how to use the algorithms.
 """
 from functools import partial
+import glob
 import json
 import os
 import shutil
@@ -37,6 +38,7 @@ def evaluate_policy_on_elites(cfg: Config, policy, env, elites, name):
 
     net_rew = 0
     for e_idx, elite in enumerate(elites):
+        print(f"Evaluating elite {e_idx} of {len(elites)}")
         rew, frames = evaluate_policy(cfg, policy, env, elite)
         net_rew += rew
         if cfg.record:
@@ -48,17 +50,17 @@ def evaluate_policy(cfg, policy, env: PlayEnv, individual):
     load_game_to_env(env, individual)
     # assert individual.map[4].sum() == 0, "Force tile should not be present in map"
     env.queue_games([individual.map.copy()], [individual.rules.copy()])
-    obs = env.reset()
+    state, obs = env.reset()
     frames = None
     if cfg.record:
-        frames = [env.render(mode="rgb_array")]
+        frames = [env.render(mode="rgb_array", state=state)]
     done = False
     total_reward = 0
     while not done:
         action, _ = policy.predict(obs, deterministic=False)
-        obs, reward, done, info = env.step(action)
+        state, obs, reward, done, info = env.step(action, state)
         if cfg.record:
-            frames.append(env.render(mode="rgb_array"))
+            frames.append(env.render(mode="rgb_array", state=state))
         total_reward += reward
     # print(f"Reward: {total_reward}")
     return total_reward, frames
@@ -100,7 +102,7 @@ def save(cfg: Config, bc_trainer: bc.BC, batch_i, epoch_i):
     # if os.path.exists(policy_filepath + ".bak"):
     #     os.remove(policy_filepath + ".bak")
 
-def load(cfg: Config):
+def load(cfg: Config, policy_path: str):
     # Load transitions and bc_trainer
     # bc_trainer = pickle.load(open(os.path.join(cfg.log_dir, "bc_trainer.pkl"), "rb"))
     # bc_trainer._bc_logger._logger = pickle.load(open(os.path.join(cfg.log_dir, "logger.pkl"), "rb"))
@@ -109,7 +111,7 @@ def load(cfg: Config):
     # logger = pickle.load(open(os.path.join(cfg._log_dir_il, "logger.pkl"), "rb"))
 
     # Load policy
-    policy = bc.reconstruct_policy(os.path.join(cfg._log_dir_il, "policy"))
+    policy = bc.reconstruct_policy(policy_path)
     # Load stats
     stats = json.load(open(os.path.join(cfg._log_dir_il, "stats.json"), "r"))
     batch_i, epoch_i, tb_i = stats["batch_i"], stats["epoch_i"], stats["tb_step"]
@@ -119,6 +121,13 @@ def load(cfg: Config):
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: Config):
     validate_config(cfg)
+
+    # glob files of form `gen-XX*elites.npz` and get highest gen number
+    gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.npz"))
+    gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
+    latest_gen = max(gen_nums)
+
+    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
 
     # Environment class doesn't matter and will be overwritten when we load in an individual.
     # env = maze.make_env(10, 10)
@@ -145,11 +154,11 @@ def main(cfg: Config):
     # end HACK
 
     # elites = np.load(os.path.join(cfg.log_dir_evo, "unique_elites.npz"), allow_pickle=True)['arr_0']
-    train_elites = np.load(os.path.join(cfg._log_dir_common, "train_elites.npz"), allow_pickle=True)['arr_0']
-    val_elites = np.load(os.path.join(cfg._log_dir_common, "val_elites.npz"), allow_pickle=True)['arr_0']
-    test_elites = np.load(os.path.join(cfg._log_dir_common, "test_elites.npz"), allow_pickle=True)['arr_0']
+    train_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_train_elites.npz"), allow_pickle=True)['arr_0']
+    val_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_val_elites.npz"), allow_pickle=True)['arr_0']
+    test_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.npz"), allow_pickle=True)['arr_0']
 
-    transitions_path = os.path.join(cfg._log_dir_player_common, "transitions.npz")
+    transitions_path = os.path.join(cfg._log_dir_il, "transitions.npz")
 
     policy_kwargs = dict(net_arch=[64, 64], observation_space=env.observation_space, action_space=env.action_space,
                 # Set lr_schedule to max value to force error if policy.optimizer
@@ -196,7 +205,8 @@ def main(cfg: Config):
     #         infos=transitions['infos'],
     #     )
 
-    if cfg.overwrite:
+    policy_path = os.path.join(cfg._log_dir_il, "policy")
+    if cfg.overwrite or not os.path.exists(policy_path):
         epoch_i = 0
         batch_i = 0
         policy = MlpPolicy(**policy_kwargs)
@@ -204,7 +214,7 @@ def main(cfg: Config):
 
     else:
         # FIXME: Not reloading optimizer???
-        policy, batch_i, epoch_i, tb_i = load(cfg)
+        policy, batch_i, epoch_i, tb_i = load(cfg, policy_path)
 
     custom_logger = imitation.util.logger.configure(
         os.path.join(cfg._log_dir_il, "logs"),
@@ -255,7 +265,9 @@ def main(cfg: Config):
         if batch_i % (cfg.save_freq) == 0:
             print(f"Saving at batch {batch_i}")
             save(cfg, bc_trainer, batch_i, epoch_i=epoch_i)
+            print(f"Saved at batch {batch_i}")
         if batch_i % (cfg.eval_freq) == 0:
+            print(f"Evaluating at batch {batch_i}")
             val_reward = evaluate_policy_on_elites(cfg, bc_trainer.policy, env, np.random.choice(val_elites, 20), 
                                                    name=f"batch-{batch_i}")
             print(f"Val reward at IL batch {batch_i}: {val_reward}")

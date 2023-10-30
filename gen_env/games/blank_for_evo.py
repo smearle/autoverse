@@ -18,7 +18,7 @@ def make_env():
     tile_b = TileType('tile_b', prob=0, color='yellow')
     tile_c = TileType('tile_c', prob=0, color='orange')
     # tiles = TileSet([floor, goal, player, wall, force, tile_a])
-    tiles = TileSet([floor, goal, player, wall, force, tile_a, tile_b, tile_c])
+    tiles = TileSet([player, floor, goal, wall, force, tile_a, tile_b, tile_c])
     # search_tiles = [floor, goal, player, wall, tile_a]
     search_tiles = [floor, goal, player, wall, tile_a, tile_b, tile_c]
 
@@ -26,11 +26,11 @@ def make_env():
         'A',
         in_out=np.array([
             [
-                [[None, None, None]],
+                [[None, player, force]],
                 [[None, None, None]],
             ],
             [
-                [[None, None, None]],
+                [[None, None, player]],
                 [[None, None, None]],
             ]
         ]),

@@ -3,7 +3,7 @@ import cv2
 import imageio
 import numpy as np
 from gen_env.configs.config import Config
-from gen_env.envs.play_env import PlayEnv
+from gen_env.envs.play_env import PlayEnv, SB3PlayEnv
 from gen_env.evo.individual import Individual
 from gen_env.games import GAMES
 
@@ -33,13 +33,22 @@ def save_video(frames, video_path, fps=10):
     imageio.mimwrite(video_path, frames, fps=25, quality=8, macro_block_size=1)
 
 
-def init_base_env(cfg):
+def init_base_env(cfg, sb3=False):
     # env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
     game_def = GAMES[cfg.game].make_env()
-    env = PlayEnv(
-        cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
-        **game_def
-    )
+    for rule in game_def['rules']:
+        rule.n_tile_types = len(game_def['tiles'])
+        rule.compile()
+    if not sb3:
+        env = PlayEnv(
+            cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
+            **game_def
+        )
+    else:
+        env = SB3PlayEnv(
+            cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
+            **game_def
+        )
     # env = evo_base.make_env(10, 10)
     # env = maze.make_env(10, 10)
     # env = maze_for_evo.make_env(10, 10)

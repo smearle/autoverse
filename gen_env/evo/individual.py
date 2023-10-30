@@ -26,8 +26,7 @@ class Individual():
     def mutate(self):
         if self.cfg.mutate_rules:
             # Mutate between 1 and 3 random rules
-            # Assume we're evolving rules, leave 2 base rules intact
-            i_arr = np.random.randint(2, len(self.rules), random.randint(1, 3))
+            i_arr = np.random.randint(0, len(self.rules), random.randint(1, 3))
             for i in i_arr:
                 rule: Rule = self.rules[i]
                 rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
