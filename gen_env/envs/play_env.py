@@ -199,6 +199,8 @@ class PlayEnv(gym.Env):
             self.rules = copy.copy(self._rule_queue[self._game_idx])
             self.map = copy.copy(self._map_queue[self._game_idx])
             self._game_idx += 1
+        max_rule_shape = max([r._in_out.shape for r in self.rules])
+        self.map_padding = (max(max_rule_shape) + 1) // 2
 
         self.ep_rew = 0
         # Reset rules.
@@ -546,7 +548,7 @@ class PlayEnv(gym.Env):
         self._last_reward = self._reward
         for obj in self.objects:
             obj.tick(self)
-        self.map, self._reward, self._done, rule_time_ms = apply_rules(self.map, self.rules)
+        self.map, self._reward, self._done, rule_time_ms = apply_rules(self.map, self.rules, self.map_padding)
         if self._done_at_reward is not None:
             self._done = self._done or self._reward == self._done_at_reward
         self._done = self._done or self.n_step >= self.max_episode_steps or len(np.argwhere(self.map[self.player_idx] == 1)) == 0
@@ -588,13 +590,13 @@ class PlayEnv(gym.Env):
                     action = self.keys_to_acts[event.key]
                     state, obs, rew, done, info = self.step(action, state)
 
-                    self.render(mode='pygame')
+                    self.render(mode='pygame', state=state)
                     # if self._last_reward != self._reward:
                     print(f"Step: {self.n_step}, Reward: {self._reward}")
                 elif event.key == pygame.K_x:
                     done = True
             if done:
-                state = self.reset()
+                state, obs = self.reset()
                 done = False
                 self.render(mode='pygame', state=state)
         return state
@@ -639,7 +641,7 @@ class SB3PlayEnv(PlayEnv):
         return obs, rew, done, info
 
 
-def apply_rules(map: np.ndarray, rules: List[Rule]):
+def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     """Apply rules to a one-hot encoded map state, to return a mutated map.
 
     Args:
@@ -653,10 +655,11 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
     rules = copy.copy(rules)
     rules_set = set(rules)
     # print([r.name for r in rules])
+    h, w = map.shape[1:]
+    map = np.pad(map, ((0, 0), (map_padding, map_padding), (map_padding, map_padding)), 'constant')
     next_map = map.copy()
     done = False
     reward = 0
-    h, w = map.shape[1:]
     # These rules may become blocked when other rules are activated.
     blocked_rules = set({})
     for rule in rules:
@@ -675,7 +678,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
         # for subrule_int in rule.subrules_int:
             # Apply, e.j., rotations of the base rule
             inp, out = subrule
-            xys = np.indices((h, w))
+            xys = np.indices((h + map_padding, w + map_padding))
             xys = rearrange(xys, 'xy h w -> (h w) xy')
             if rule.random:
                 np.random.shuffle(xys)
@@ -683,7 +686,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
             for (x, y) in xys:
                 match = True
                 for subp in inp:
-                    if subp.shape[0] + x > h or subp.shape[1] + y > w:
+                    if subp.shape[0] + x > map.shape[1] or subp.shape[1] + y > map.shape[2]:
                         match = False
                         break
                     if not match:
@@ -733,6 +736,8 @@ def apply_rules(map: np.ndarray, rules: List[Rule]):
             # Will break the subrule loop if we have broken the board-scanning loop.
             break
                         
+    # Remove padding.
+    next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
     return next_map, reward, done, time_ms
 

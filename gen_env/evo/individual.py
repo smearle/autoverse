@@ -16,6 +16,9 @@ class Individual():
         self.cfg = cfg
         self.tiles = tiles
         self.rules = rules
+        for rule in self.rules:
+            rule.n_tile_types = len(self.tiles)
+            rule.compile()
         self.map = map
         self.fitness = None
 

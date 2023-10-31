@@ -26,18 +26,22 @@ def main(cfg: Config):
         else:
             game_file = globals()[game]
             game_def = game_file.make_env()
+            for rule in game_def['rules']:
+                rule.n_tile_types = len(game_def['tiles'])
+                rule.compile()
             env = PlayEnv(
                 cfg=cfg, height=map_shape[0], width=map_shape[1],
                 **game_def
             )
+            [rule.compile() for rule in game_def['rules']]
             # env: PlayEnv = game.make_env(height, width)
     else:
         env: PlayEnv = game.make_env()
 
     # Set numpy seed
     np.random.seed(0)
-    env.reset()
-    env.render(mode='pygame')
+    state, obs = env.reset()
+    env.render(mode='pygame', state=state)
     done = False
 
     running = True
