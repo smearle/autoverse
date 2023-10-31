@@ -574,9 +574,11 @@ class PlayEnv(gym.Env):
         player_pos = np.argwhere(self.map[self.player_idx] == 1)
         if player_pos.shape[0] > 1:
             for i in range(1, player_pos.shape[0]):
-                # Set to random other tile
+                # Remove redundant players
                 self.map[self.player_idx, player_pos[i][0], player_pos[i][1]] = 0
-                rand_tile_type = random.randint(0, len(self.tiles) - 2)
+                # rand_tile_type = random.randint(0, len(self.tiles) - 2)
+                # Activate the next possible tile so that we know at least one tile is active
+                rand_tile_type = 1
                 rand_tile_type = rand_tile_type if rand_tile_type < self.player_idx else rand_tile_type + 1
                 self.map[rand_tile_type, player_pos[i][0], player_pos[i][1]] = 1
         elif player_pos.shape[0] == 0:
@@ -737,6 +739,10 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
                                 out_tile = subp[i, j]
                                 if out_tile is None:
                                     continue
+                                # if out_tile.get_idx() == -1:
+                                #     breakpoint()
+                                # if out_tile.get_idx() == 7:
+                                #     breakpoint()
                                 next_map[out_tile.get_idx(), x + i, y + j] = 1
                     n_rule_applications += 1
                     if n_rule_applications >= rule.max_applications:

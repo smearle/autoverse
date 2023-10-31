@@ -59,10 +59,20 @@ def collect_elites(cfg: Config):
     env = init_base_env(cfg)
     elites = list(elites.values())
 
+    vid_dir = os.path.join(cfg._log_dir_evo, 'debug_videos')
+    os.makedirs(vid_dir, exist_ok=True)
     # Replay the episode, storing the obs and action sequences to the elite.
-    for elite in elites:
+    for e_idx, elite in enumerate(elites):
     #     # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-        frames = replay_episode(cfg, env, elite)
+        frames = replay_episode(cfg, env, elite, record=False)
+
+        # Will only have returned frames in case of funky error, for debugging
+        if frames is not None:
+            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitness}.mp4"), frames, fps=10)
+            frames_2 = replay_episode(cfg, env, elite, record=False)
+            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitness}_take2.mp4"), frames_2, fps=10)
+            breakpoint()
+
 
     # Sort elites by increasing fitness
 
@@ -120,7 +130,8 @@ def split_elites(cfg: Config, elites: Iterable[Individual]):
     return train_elites, val_elites, test_elites
 
 
-def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
+def replay_episode(cfg: Config, env: PlayEnv, elite: Individual, 
+                   record: bool = False):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
     # print(f"Action sequence: {elite.action_seq}")
@@ -136,7 +147,7 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     # while True:
     #     env.tick_human()
     obs_seq.append(obs)
-    if cfg.record:
+    if record:
         frames = [env.render(mode='rgb_array', state=state)]
     if cfg.render:
         env.render(mode='human', state=state)
@@ -145,14 +156,18 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
     while not done:
         if i >= len(elite.action_seq):
             # FIXME: Problem with player death...?
-            print('Warning: action sequence too short. Ending episode before env is done. Something to do with player death rule?')
+            print('Warning: action sequence too short. Ending episode before env is done. Probably because of cap on '
+                  'search iterations.')
             # breakpoint()
+            # if not record:
+            #     print('Replaying again, rendering this time')
+            #     return replay_episode(cfg, env, elite, record=True)
             break
         state, obs, reward, done, info = env.step(elite.action_seq[i], state=state)
         # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
-        if cfg.record:
+        if record:
             frames.append(env.render(mode='rgb_array', state=state))
         if cfg.render:
             env.render(mode='human', state=state)
@@ -161,10 +176,13 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual):
         # FIXME: Problem with player death...?
         # raise Exception("Action sequence too long.")
         print('Warning: action sequence too long.')
+        if not record:
+            print('Replaying again, rendering this time')
+            return replay_episode(cfg, env, elite, record=True)
         # breakpoint()
     elite.obs_seq = obs_seq
     elite.rew_seq = rew_seq
-    if cfg.record:
+    if record:
         return frames
 
 
@@ -346,7 +364,7 @@ def eval_elites(cfg: Config, env: PlayEnv, elites: Iterable[Individual], n_gen: 
     # Sort elites by fitness.
     elites = sorted(elites, key=lambda e: e.fitness, reverse=True)
     for e_idx, e in enumerate(elites[:10]):
-        frames = replay_episode(cfg, env, e)
+        frames = replay_episode(cfg, env, e, record=cfg.record)
         if cfg.record:
             # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
             # Save as mp4

@@ -60,7 +60,6 @@ def main(cfg: Config):
         with open(os.path.join(cfg._log_dir_il, "policy"), "rb") as f:
             policy = th.load(f)
             model_state_dict = policy.state_dict()
-        breakpoint()
 
     # Now take the imitation-learned policy and do RL with it using sb3 PPO
     make_env = partial(init_base_env, cfg, sb3=True)
@@ -78,11 +77,15 @@ def main(cfg: Config):
 
     # model = PPO.load(os.path.join(cfg.log_dir_rl, 'policy'))
     policy_kwargs = dict(net_arch=[64, 64])
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=cfg._log_dir_rl, policy_kwargs=policy_kwargs)
+    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=cfg._log_dir_rl, policy_kwargs=policy_kwargs, device='cuda:1')
+
     optimizer = th.optim.Adam(model.policy.parameters(), lr=1e-4)
+    # optimizer = th.optim.Adam(model_state_dict, lr=1e-4)
 
     if model_state_dict is not None:
         model.set_parameters({'policy': model_state_dict, 'policy.optimizer': optimizer.state_dict()})
+        # model.set_parameters({'policy': model_state_dict})
+
 
     model.learn(total_timesteps=cfg.n_rl_iters, tb_log_name="ppo", callback=callback)
     model.save(os.path.join(cfg._log_dir_rl, f"policy_rl_epoch-{cfg.n_rl_iters}.pt"))
