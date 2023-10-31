@@ -95,7 +95,7 @@ class PlayEnv(gym.Env):
         # No rotation
         # self.action_space = spaces.Discrete(4)
         # Rotation
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(5)
         self.build_hist: list = []
         # self.static_builds: np.ndarray = None
         self.variables = variables
@@ -255,12 +255,25 @@ class PlayEnv(gym.Env):
             rot = self.player_rot + (1 if action == 0 else -1)
             self.player_rot = rot % 4
             return
+        elif action < 4:
+            # Move player to an adjacent tile if possible.
+            if action == 2:
+                pos = self.player_pos + self._rot_dirs[self.player_rot]
+            elif action == 3:
+                pos = self.player_pos - self._rot_dirs[self.player_rot]
+            # Check if pos is within bounds.
+            if np.any(pos < 0) or np.any(pos >= self.map.shape[1:]):
+                return
+            self.map[self.player_idx, self.player_pos[0], self.player_pos[1]] = 0
+            self.map[self.player_idx, pos[0], pos[1]] = 1
+            return
+
         # No rotation
         # new_tile, placement_id = self._actions[action]
         # pos = self.player_pos + self.placement_positions[placement_id]
 
         # Rotation
-        new_tile = self._actions[action - 2]
+        new_tile = self._actions[action - 4]
         pos = self.player_pos + self._rot_dirs[self.player_rot]
 
         # Do not place anything over the edge of the map. Should we wrap by default instead?
@@ -521,8 +534,8 @@ class PlayEnv(gym.Env):
                 pygame.K_LEFT: 0,
                 pygame.K_RIGHT: 1,
                 pygame.K_UP: 2,
-                # pygame.K_DOWN: 3,
-                pygame.K_q: 3,
+                pygame.K_DOWN: 3,
+                pygame.K_q: 4,
             }
             self.rend_im = np.flip(self.rend_im, axis=0)
             # Rotate to match pygame

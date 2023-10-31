@@ -232,7 +232,8 @@ def is_valid(in_out):
     A rule is allowed to move or remove the player, but not create new players where previously
     there were none."""
     in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(in_out)
-    return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() <= 1
+    # return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() <= 1
+    return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 0
 
 class ObjectRule(Rule):
     def __init__(self, *args, offset=(0, 0), **kwargs):

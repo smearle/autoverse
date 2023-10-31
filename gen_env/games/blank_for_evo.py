@@ -12,8 +12,8 @@ def make_env():
     force = TileType(name='force', num=0, color='purple')
     wall = TileType('wall', prob=0.1, color='black')
     floor = TileType('floor', prob=0.9, color='grey')
-    player = TileType('player', num=1, color='blue', cooccurs=[floor])
-    goal = TileType('goal', prob=0, color='green', cooccurs=[floor])
+    player = TileType('player', num=1, color='blue', cooccurs=[])
+    goal = TileType('goal', prob=0, color='green', cooccurs=[])
     tile_a = TileType('tile_a', prob=0, color='red')
     tile_b = TileType('tile_b', prob=0, color='yellow')
     tile_c = TileType('tile_c', prob=0, color='orange')
@@ -26,11 +26,11 @@ def make_env():
         'A',
         in_out=np.array([
             [
-                [[None, player, force]],
+                [[None, None, None]],
                 [[None, None, None]],
             ],
             [
-                [[None, None, player]],
+                [[None, None, None]],
                 [[None, None, None]],
             ]
         ]),
