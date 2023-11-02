@@ -9,6 +9,7 @@ import cv2
 from einops import rearrange, repeat
 import gym
 from gym import spaces
+import jax
 import numpy as np
 from PIL import ImageFont, ImageDraw, Image
 
@@ -226,6 +227,7 @@ class PlayEnv(gym.Env):
         return env_state, obs
 
     def step(self, action, state: EnvState):
+        breakpoint()
         # TODO: Only pass global variable object to event graph.
         self.event_graph.tick(self)
         self.act(action)
@@ -671,13 +673,19 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     rules_set = set(rules)
     # print([r.name for r in rules])
     h, w = map.shape[1:]
+    map = map.astype(np.int8)
     map = np.pad(map, ((0, 0), (map_padding, map_padding), (map_padding, map_padding)), 'constant')
     next_map = map.copy()
     done = False
     reward = 0
     # These rules may become blocked when other rules are activated.
     blocked_rules = set({})
+
+    # Add a batch channel to the map
+    map = rearrange(map, 'c h w -> () c h w')
+
     for rule in rules:
+        print(rule.name)
         if rule in blocked_rules:
             continue
         n_rule_applications = 0
@@ -689,72 +697,107 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
         if rule.random:
             # Apply rotations of base rule in a random order.
             np.random.shuffle(subrules)
-        for subrule in rule.subrules:
-        # for subrule_int in rule.subrules_int:
+        # for subrule in rule.subrules:
+        for subrule_int in rule.subrules_int:
             # Apply, e.j., rotations of the base rule
-            inp, out = subrule
-            xys = np.indices((h + map_padding, w + map_padding))
-            xys = rearrange(xys, 'xy h w -> (h w) xy')
-            if rule.random:
-                np.random.shuffle(xys)
-                # print(f'y: {y}')
-            for (x, y) in xys:
-                match = True
-                for subp in inp:
-                    if subp.shape[0] + x > map.shape[1] or subp.shape[1] + y > map.shape[2]:
-                        match = False
-                        break
-                    if not match:
-                        break
-                    for i in range(subp.shape[0]):
-                        if not match:
-                            break
-                        for j in range(subp.shape[1]):
-                            tile = subp[i, j]
-                            if tile is None:
-                                continue
-                            if map[tile.get_idx(), x + i, y + j] != tile.trg_val:
-                                match = False
-                                break
-                if match:
-                    # print(f'matched rule {rule.name} at {x}, {y}')
-                    # print(f'rule has input \n{inp}\n and output \n{out}')
-                    [f() for f in rule.application_funcs]
-                    [blocked_rules.add(r) for r in rule.inhibits]
-                    for r in rule.children:
-                        if r in rules_set:
-                            continue
-                        rules_set.add(r)
-                        rules.append(r)
-                    reward += rule.reward
-                    done = done or rule.done
-                    for k, subp in enumerate(out):
-                        for i in range(subp.shape[0]):
-                            for j in range(subp.shape[1]):
-                                # Remove the corresponding tile in the input pattern if one exists.
-                                in_tile = inp[k, i, j]
-                                if in_tile is not None:
-                                    # Note that this has no effect when in_tile is a NotTile.
-                                    next_map[in_tile.get_idx(), x + i, y + j] = 0
-                                out_tile = subp[i, j]
-                                if out_tile is None:
-                                    continue
-                                # if out_tile.get_idx() == -1:
-                                #     breakpoint()
-                                # if out_tile.get_idx() == 7:
-                                #     breakpoint()
-                                next_map[out_tile.get_idx(), x + i, y + j] = 1
-                    n_rule_applications += 1
-                    if n_rule_applications >= rule.max_applications:
-                        # print(f'Rule {rule.name} exceeded max applications')
-                        break
+            # Add one output channel
+            subrule_int = rearrange(subrule_int, 'iop (o i) h w -> iop o i h w', o=1).astype(np.int8)
+            inp, outp = subrule_int
+
+            # Always remove whatever was detected in the input pattern when
+            # it is activated.
+            outp -= inp
+
+            # Note that this can have values of `-1` to remove tiles
+            outp = rearrange(outp, 'o i h w -> i o h w')
+            # Add one output channel to ou
+            # Use jax to apply a convolution to the map
+            sr_activs = jax.lax.conv(map, inp, (1, 1), 'SAME')
+            # How many tiles are expected in the input pattern
+            n_constraints = inp.sum()
+            # Identify positions at which all constraints were met
+            sr_activs = (sr_activs == n_constraints).astype(np.int8)
+
+            if sr_activs.sum() > 0:
+                print(f'asacasdf')
+                breakpoint()
+            
+            # if sr_activs.sum() > 0 and rule.reward > 0:
+            #     breakpoint()
+
+            reward += rule.reward * sr_activs.sum()
+            print(reward)
+            done = done or np.any(sr_activs * rule.done)
+
+            # Now paste the output pattern wherever 
+            out_map = jax.lax.conv_transpose(sr_activs, outp, (1, 1), 'SAME',
+                                             dimension_numbers=('NCHW', 'OIHW', 'NCHW'))
+            next_map += out_map
+
+            # DEPRECATED approach
+            # xys = np.indices((h + map_padding, w + map_padding))
+            # xys = rearrange(xys, 'xy h w -> (h w) xy')
+            # if rule.random:
+            #     np.random.shuffle(xys)
+            #     # print(f'y: {y}')
+            # for (x, y) in xys:
+            #     match = True
+            #     for subp in inp:
+            #         if subp.shape[0] + x > map.shape[1] or subp.shape[1] + y > map.shape[2]:
+            #             match = False
+            #             break
+            #         if not match:
+            #             break
+            #         for i in range(subp.shape[0]):
+            #             if not match:
+            #                 break
+            #             for j in range(subp.shape[1]):
+            #                 tile = subp[i, j]
+            #                 if tile is None:
+            #                     continue
+            #                 if map[tile.get_idx(), x + i, y + j] != tile.trg_val:
+            #                     match = False
+            #                     break
+            #     if match:
+            #         # print(f'matched rule {rule.name} at {x}, {y}')
+            #         # print(f'rule has input \n{inp}\n and output \n{out}')
+            #         [f() for f in rule.application_funcs]
+            #         [blocked_rules.add(r) for r in rule.inhibits]
+            #         for r in rule.children:
+            #             if r in rules_set:
+            #                 continue
+            #             rules_set.add(r)
+            #             rules.append(r)
+            #         reward += rule.reward
+            #         done = done or rule.done
+            #         for k, subp in enumerate(out):
+            #             for i in range(subp.shape[0]):
+            #                 for j in range(subp.shape[1]):
+            #                     # Remove the corresponding tile in the input pattern if one exists.
+            #                     in_tile = inp[k, i, j]
+            #                     if in_tile is not None:
+            #                         # Note that this has no effect when in_tile is a NotTile.
+            #                         next_map[in_tile.get_idx(), x + i, y + j] = 0
+            #                     out_tile = subp[i, j]
+            #                     if out_tile is None:
+            #                         continue
+            #                     # if out_tile.get_idx() == -1:
+            #                     #     breakpoint()
+            #                     # if out_tile.get_idx() == 7:
+            #                     #     breakpoint()
+            #                     next_map[out_tile.get_idx(), x + i, y + j] = 1
+            #         n_rule_applications += 1
+            #         if n_rule_applications >= rule.max_applications:
+            #             # print(f'Rule {rule.name} exceeded max applications')
+            #             break
                 
-            else:
-                continue
+            # else:
+            #     continue
 
             # Will break the subrule loop if we have broken the board-scanning loop.
-            break
+            # break
                         
+    next_map = np.array(next_map)[0]
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000

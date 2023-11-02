@@ -41,7 +41,7 @@ from pdb import set_trace as TT
 import random
 from typing import Dict, Iterable
 
-from einops import rearrange
+from einops import rearrange, reduce
 import numpy as np
 
 from gen_env.objects import ObjectType
@@ -129,15 +129,23 @@ class Rule():
         self.subrules = subrules
         self.subrules_int = [np.vectorize(TileType.get_idx)(sr) for sr in subrules]
         self.subrules_int = \
-            [np.pad(sr, [(0, max_subrule_shape[i] - sr.shape[i]) for i in range(len(max_subrule_shape))], constant_values=-1) 
-                             for sr in self.subrules_int]
+            [np.pad(sr, [(0, max_subrule_shape[i] - sr.shape[i]) for i in range(len(max_subrule_shape))], constant_values=-1)
+            for sr in self.subrules_int]
         # Now shape: (n_subrules, in_out, rule_channels, height, width)
-        self.subrules_int = np.array(self.subrules_int) + 1
+
+        # To convert to onehot, make Nones (-1) equal to 0. We'll give them their
+        # own onehot channel for now (then remove it later).
+        self.subrules_int = (np.array(self.subrules_int) + 1).astype(np.uint8)
+
         # Take one-hot over channels
         # (n_subrules, in_out, rule_channels, height, width, tile_channels)
         self.subrules_int = np.eye(self.n_tile_types + 1)[self.subrules_int][..., 1:]
         self.subrules_int = rearrange(self.subrules_int, 'n_subrules in_out rule_channels height width tile_channels -> ' +
                                       'n_subrules in_out rule_channels tile_channels height width')
+        # Sum over rule channels.
+        # NOTE: This is assumes the rule int array is binary.
+        self.subrules_int = reduce(self.subrules_int, 'n_subrules in_out rule_channels tile_channels height width -> ' +
+                                      'n_subrules in_out tile_channels height width', 'sum').astype(np.uint8)
         # Get max shape over subrules
         max_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
         # Pad subrules to max shape
