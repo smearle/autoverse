@@ -146,8 +146,18 @@ class Rule():
                                       'n_subrules in_out rule_channels tile_channels height width')
         # Sum over rule channels.
         # NOTE: This is assumes the rule int array is binary.
-        self.subrules_int = reduce(self.subrules_int, 'n_subrules in_out rule_channels tile_channels height width -> ' +
-                                      'n_subrules in_out tile_channels height width', 'sum').astype(np.uint8)
+        self.subrules_int = reduce(self.subrules_int,
+                                   'n_subrules in_out rule_channels tile_channels height width -> ' +
+                                   'n_subrules in_out tile_channels height width', 'sum').astype(np.uint8)
+        
+        # We may have redundant tiles in different rule channels in input or output pattern, so clip
+        self.subrules_int = np.clip(self.subrules_int, 0, 1)
+
+        # Always remove whatever was detected in the input pattern when
+        # it is activated.
+        # outp -= inp
+        self.subrules_int[:, 1] -= self.subrules_int[:, 0]
+
         # Get max shape over subrules
         max_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
         # Pad subrules to max shape

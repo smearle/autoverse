@@ -10,9 +10,9 @@ from gen_env.events import Event, activate_rules, on_start
 from turtle import back
 
 import numpy as np
-from events import Event, activate_rules, on_start
+from gen_env.events import Event, activate_rules, on_start
 
-from gen_env.envs.gen_env import GenEnv
+# from gen_env.envs.gen_env import GenEnv
 from gen_env.rules import MJRule, MJRuleNode, Rule, RuleSet
 from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
 from gen_env.variables import Variable
@@ -30,6 +30,6 @@ def make_env(height, width):
         ])
     tiles = rules.tiles
 
-    env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[])
+    # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[])
     # env = GenEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[])
-    return env
+    # return env

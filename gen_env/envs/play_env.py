@@ -1,6 +1,7 @@
 import copy
 from dataclasses import dataclass
 from enum import Enum
+import math
 import random
 from timeit import default_timer as timer
 from typing import Dict, Iterable, List, Tuple
@@ -65,7 +66,7 @@ class PlayEnv(gym.Env):
         self._game_idx = 0
 
         # FIXME: too hardcoded (for maze_for_evo) rn
-        self._n_fixed_rules = 2
+        self._n_fixed_rules = 0
 
         self.ep_rew = 0
         self._done = False
@@ -189,7 +190,7 @@ class PlayEnv(gym.Env):
                 for cotile in coactive_tiles:
                     # Activate parent channels of any child tiles wherever the latter are active.
                     map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
-        obj_set = []
+        obj_set = {}
         return map_arr, obj_set
 
     def reset(self):
@@ -203,7 +204,7 @@ class PlayEnv(gym.Env):
         max_rule_shape = max([r._in_out.shape for r in self.rules])
         self.map_padding = (max(max_rule_shape) + 1) // 2
 
-        self._ep_rew = 0
+        self.ep_rew = 0
         self._has_applied_rule = False
         # Reset rules.
         # self.rules = copy.copy(self._init_rules)
@@ -214,12 +215,13 @@ class PlayEnv(gym.Env):
         self._last_reward = 0
         self._reward = 0
         if len(self._map_queue) == 0:
-            map_arr = self.gen_random_map()
+            map_arr, obj_set = self.gen_random_map()
         else:
             map_arr = self._map_queue[self._map_id]
+            obj_set = {}
             self._map_id = (self._map_id + 1) % len(self._map_queue)
         self.player_rot = 0
-        env_state = EnvState(n_step=self.n_step, map_arr=map_arr, obj_set={}, player_rot=self.player_rot,
+        env_state = EnvState(n_step=self.n_step, map_arr=map_arr, obj_set=obj_set, player_rot=self.player_rot,
                                     ep_rew=self.ep_rew)
         self._set_state(env_state)
         self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
@@ -228,7 +230,6 @@ class PlayEnv(gym.Env):
         return env_state, obs
 
     def step(self, action, state: EnvState):
-        breakpoint()
         # TODO: Only pass global variable object to event graph.
         self.event_graph.tick(self)
         self.act(action)
@@ -362,10 +363,10 @@ class PlayEnv(gym.Env):
         font = ImageFont.load_default()
         tile_size = self.tile_size
         # self.rend_im = np.zeros_like(self.int_map)
-        # Create an int map where the last tiles in `self.tiles` take priority.
-        int_map = np.zeros(self.map[0].shape, dtype=np.uint8)
+        # Create an int map where the first tiles in `self.tiles` take priority.
+        int_map = np.full(self.map[0].shape, dtype=np.int16, fill_value=-1)
         tile_ims = []
-        for tile in self.tiles:
+        for tile in self.tiles[::-1]:
             # if tile.color is not None:
             int_map[self.map[tile.idx] == 1] = tile.idx
             tile_map = np.where(self.map[tile.idx] == 1, tile.idx, -1)
@@ -395,7 +396,7 @@ class PlayEnv(gym.Env):
         tile_im = self.tile_colors[int_map]
         tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
         tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-        tile_ims = [tile_im] + tile_ims
+        tile_ims = [tile_im] + tile_ims[::-1]
 
         map_h, map_w = tile_ims[0].shape[:-1]
 
@@ -611,10 +612,11 @@ class PlayEnv(gym.Env):
                 if event.key in self.keys_to_acts:
                     action = self.keys_to_acts[event.key]
                     state, obs, rew, done, info = self.step(action, state)
+                    state: EnvState
 
                     self.render(mode='pygame', state=state)
                     # if self._last_reward != self._reward:
-                    print(f"Step: {self.n_step}, Reward: {self._reward}")
+                    print(f"Step: {self.n_step}, Reward: {state.ep_rew}")
                 elif event.key == pygame.K_x:
                     done = True
             if done:
@@ -680,7 +682,6 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     h, w = map.shape[1:]
     map = map.astype(np.int8)
     map = np.pad(map, ((0, 0), (map_padding, map_padding), (map_padding, map_padding)), 'constant')
-    next_map = map.copy()
     done = False
     reward = 0
     # These rules may become blocked when other rules are activated.
@@ -688,11 +689,11 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
 
     # Add a batch channel to the map
     map = rearrange(map, 'c h w -> () c h w')
+    next_map = map.copy()
 
     # for rule in rules:
     has_applied_rule = False
     while len(rules) > 0:
-        print(rule.name)
         rule = rules.pop(0)
         if rule in blocked_rules:
             continue
@@ -712,35 +713,39 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
             subrule_int = rearrange(subrule_int, 'iop (o i) h w -> iop o i h w', o=1).astype(np.int8)
             inp, outp = subrule_int
 
-            # Always remove whatever was detected in the input pattern when
-            # it is activated.
-            outp -= inp
-
-            # Note that this can have values of `-1` to remove tiles
-            outp = rearrange(outp, 'o i h w -> i o h w')
-            # Add one output channel to ou
             # Use jax to apply a convolution to the map
-            sr_activs = jax.lax.conv(map, inp, (1, 1), 'SAME')
+            sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
             # How many tiles are expected in the input pattern
             n_constraints = inp.sum()
             # Identify positions at which all constraints were met
             sr_activs = (sr_activs == n_constraints).astype(np.int8)
 
-            if sr_activs.sum() > 0:
-                has_applied_rule = True
-                print(f'asacasdf')
-                breakpoint()
-            
             # if sr_activs.sum() > 0 and rule.reward > 0:
             #     breakpoint()
 
             reward += rule.reward * sr_activs.sum()
-            print(reward)
             done = done or np.any(sr_activs * rule.done)
 
-            # Now paste the output pattern wherever 
+            # Note that this can have values of `-1` to remove tiles
+            outp = rearrange(outp, 'o i h w -> i o h w')
+
+            # Need to flip along height/width dimensions for transposed convolution to work as expected
+            outp = np.flip(outp, 2)
+            outp = np.flip(outp, 3)
+
+            # Now paste the output pattern wherever input is active
             out_map = jax.lax.conv_transpose(sr_activs, outp, (1, 1), 'SAME',
                                              dimension_numbers=('NCHW', 'OIHW', 'NCHW'))
+            
+            # Crop out_map to be the height and width as next_map, cropping more on the right/lower side if uneven
+            # crop_shapes = (out_map.shape[2] - next_map.shape[2]) / 2, (out_map.shape[3] - next_map.shape[3]) / 2
+            # crop_shapes = math.ceil(crop_shapes[0]), math.ceil(crop_shapes[1])
+            # out_map = out_map[:, :, crop_shapes[0]: crop_shapes[0] + next_map.shape[2], crop_shapes[1]:crop_shapes[1]+ next_map.shape[3]]
+
+            if sr_activs.sum() > 0:
+                has_applied_rule = True
+                # breakpoint()
+            
             next_map += out_map
 
             # DEPRECATED approach
@@ -810,7 +815,7 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
-    return next_map, reward, done, has_applied_rule
+    return next_map, reward, done, has_applied_rule, time_ms
 
 def hash_rules(rules):
     """Hash a list of rules to a unique value.

@@ -14,7 +14,7 @@ def make_env():
     floor = TileType('floor', prob=0.9, color='grey')
     player = TileType('player', num=1, color='blue', cooccurs=[floor])
     goal = TileType('goal', num=1, color='green', cooccurs=[floor])
-    tiles = TileSet([floor, lava, player, goal, force])
+    tiles = TileSet([force, lava, player, goal, floor])
     search_tiles = [floor, goal, player, lava]
 
     player_move = Rule(

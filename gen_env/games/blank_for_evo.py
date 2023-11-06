@@ -26,10 +26,14 @@ def make_env():
         'A',
         in_out=np.array([
             [
+                # [[None, player, force]],
+                # [[None, None, floor]],
                 [[None, None, None]],
                 [[None, None, None]],
             ],
             [
+                # [[None, None, player]],
+                # [[None, None, floor]],
                 [[None, None, None]],
                 [[None, None, None]],
             ]
@@ -107,7 +111,8 @@ def make_env():
         done=False,
         # max_applications=1,
     )
-    rules = RuleSet([rule_a, rule_b, rule_c, rule_d, rule_e])
+    # rules = RuleSet([rule_a, rule_b, rule_c, rule_d, rule_e])
+    rules = RuleSet([rule_a])
     # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
     # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
         # search_tiles=search_tiles, cfg=cfg)

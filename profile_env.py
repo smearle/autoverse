@@ -20,14 +20,15 @@ def profile(cfg: Config):
         reset_start = timer()
         state, obs = env.reset()
         total_reset_time = timer() - reset_start
-        for i in range(100):
+        for i in range(n_steps):
             state, obs, reward, done, info = env.step(env.action_space.sample(), state)
             if cfg.render:
-                env.render()
+                env.render(state=state)
     done_time = timer()
-    print(f"overall FPS: {n_steps / (done_time - start_time)}")
+    n_total_steps = n_episodes * n_steps
+    print(f"overall FPS: {n_total_steps / (done_time - start_time)}")
     print(f"reset FPS: {n_episodes / total_reset_time}")
-    print(f"step FPS: {n_steps / (done_time - start_time - total_reset_time)}")
+    print(f"step FPS: {n_total_steps / (done_time - start_time - total_reset_time)}")
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def render_sol(cfg: Config):
@@ -54,5 +55,5 @@ def render_sol(cfg: Config):
     save_video(frames, f"sol_{cfg.game}.mp4", fps=10)
 
 if __name__ == '__main__':
-    render_sol()
+    # render_sol()
     profile()
