@@ -42,16 +42,18 @@ def init_base_env(cfg: Config, sb3=False):
         rule.compile()
     if game_def.map is None:
         map_arr = gen_random_map(game_def, cfg.map_shape)
-    env_params = EnvParams(rules=game_def.rules, map=map_arr)
+    # TODO: Flatten rule and subrule dimensions!
+    rules_int = np.array([rule.subrules_int for rule in game_def.rules])
+    params = EnvParams(rules=rules_int, map=map_arr)
     if not sb3:
         env = PlayEnv(
             cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
-            game_def=game_def, params=env_params,
+            game_def=game_def, params=params,
         )
     else:
         env = SB3PlayEnv(
             cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
-            game_def=game_def, params=env_params,
+            game_def=game_def, params=params,
         )
     # env = evo_base.make_env(10, 10)
     # env = maze.make_env(10, 10)
@@ -59,7 +61,7 @@ def init_base_env(cfg: Config, sb3=False):
     # env = maze_spike.make_env(10, 10)
     # env = sokoban.make_env(10, 10)
     # env.search_tiles = [t for t in env.tiles]
-    return env
+    return env, params
 
 
 def load_game_to_env(env: PlayEnv, individual: Individual):

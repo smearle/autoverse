@@ -5,7 +5,6 @@ from pdb import set_trace as TT
 import random
 from typing import Iterable, List, Tuple
 
-from bs4 import BeautifulSoup
 import numpy as np
 
 

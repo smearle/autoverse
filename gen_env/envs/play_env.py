@@ -40,7 +40,7 @@ class GameDef:
 
 
 @struct.dataclass
-class EnvState:
+class EnvState(struct.PyTreeNode):
     n_step: int
     map_arr: chex.Array
     # obj_set: Iterable
@@ -150,17 +150,18 @@ class PlayEnv(gym.Env):
         self._map_queue = []
         self._rule_queue = []
         self._map_id = 0
-        self.init_obs_space()
+        self.init_obs_space(params)
 
         # max_rule_shape = max([r._in_out.shape for r in self.rules])
         max_rule_shape = max(params.rules.shape[-2:])
-        # self.map_padding = (max(max_rule_shape) + 1) // 2
+        self.map_padding = (max_rule_shape + 1) // 2
 
-    def init_obs_space(self):
+    def init_obs_space(self, params: EnvParams):
         # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         # Dictionary observation space containing box 2d map and flat list of rules
         # Note that we assume rule in/outs are fixed in size
-        len_rule_obs = sum([len(rule.observe(len(self.tiles))) for rule in self.rules[self._n_fixed_rules:]])
+        # len_rule_obs = sum([len(rule.observe(len(self.tiles))) for rule in params.rules[self._n_fixed_rules:]])
+        len_rule_obs = np.prod(params.rules.shape)
         # Lazily flattening observations for now. It is a binary array
         # Only observe player patch and rotation for now
         # self.observation_space = spaces.Dict({
@@ -176,7 +177,7 @@ class PlayEnv(gym.Env):
 
     def _update_player_pos(self, state: EnvState):
         player_pos = jnp.argwhere(state.map_arr[self.player_idx] == 1)
-        return state.update(player_pos=player_pos)
+        return state.replace(player_pos=player_pos)
         # if self.player_pos.shape[0] < 1:
         #     self.player_pos = None
         #     return
@@ -231,15 +232,15 @@ class PlayEnv(gym.Env):
         #     # obj_set = {}
         #     self._map_id = (self._map_id + 1) % len(self._map_queue)
         self.player_rot = 0
-        player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
-        env_state = EnvState(
+        player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
+        state = EnvState(
             n_step=self.n_step, map_arr=map_arr, #, obj_set=obj_set,
             player_rot=self.player_rot, ep_rew=self.ep_rew,
-            player_pos=player_pos, rules=params.rules,
+            player_pos=player_pos,
         )
-        self._set_state(env_state)
-        obs = self.get_obs()
-        return env_state, obs
+        # self._set_state(env_state)
+        obs = self.get_obs(state, params)
+        return state, obs
 
     @partial(jax.jit, static_argnums=(0,))
     def step(
@@ -251,8 +252,8 @@ class PlayEnv(gym.Env):
     ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
         """Performs step transitions in the environment."""
         # Use default env parameters if no others specified
-        if params is None:
-            params = self.default_params
+        # if params is None:
+        #     params = self.default_params
         key, key_reset = jax.random.split(key)
         obs_st, state_st, reward, done, info = self.step_env(
             key, state, action, params
@@ -339,7 +340,8 @@ class PlayEnv(gym.Env):
             player_pos,
         )
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(1)
-        return
+        state = state.replace(player_rot=player_rot, player_pos=player_pos, map_arr=new_map)
+        return state
 
     def get_obs(self, state: EnvState, params: EnvParams):
         # return self.observe_map()
@@ -349,7 +351,7 @@ class PlayEnv(gym.Env):
         #     'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
         # }
         return jnp.concatenate((
-            self.observe_map(state.map_arr).flatten(),
+            self.observe_map(map_arr=state.map_arr, player_pos=state.player_pos).flatten(),
             jnp.eye(4)[self.player_rot].astype(jnp.float32),
             self.observe_rules(params).flatten()))
 
@@ -403,21 +405,28 @@ class PlayEnv(gym.Env):
         # if self.player_pos is not None:
         # TODO: Rotate observation?
         x, y = player_pos
-        obs = obs[x: x + 2 * self.view_size + 1,
-                  y: y + 2 * self.view_size + 1]
+        obs = jax.lax.dynamic_slice(obs, (x, y, 0), (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles)))
+        # obs = obs[x: x + 2 * self.view_size + 1,
+        #           y: y + 2 * self.view_size + 1]
         n_tiles = self.map_shape[0]
-        assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, n_tiles)
+        assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles))
         return obs.astype(np.float32)
 
-    def observe_rules(self):
+    def observe_rules(self, params: EnvParams):
         # Hardcoded for maze_for_evo to ignore first 2 (unchanging) rules
-        if self._n_fixed_rules == len(self.rules):
-            return np.zeros((0,), dtype=np.float32)
-        rule_obs = np.concatenate([r.observe(n_tiles=len(self.tiles)) for r in self.rules[self._n_fixed_rules:]])
+        # if self._n_fixed_rules == len(self.rules):
+        #     return np.zeros((0,), dtype=np.float32)
+        # rule_obs = np.concatenate([r.observe(n_tiles=len(self.tiles)) for r in self.rules[self._n_fixed_rules:]])
+        rule_obs = params.rules
+        rule_obs = jax.lax.select(
+            self.cfg.hide_rules,
+            jnp.zeros_like(rule_obs),
+            rule_obs
+        )
 
-        if self.cfg.hide_rules:
-            # Hide rules
-            rule_obs = np.zeros_like(rule_obs)
+        # if self.cfg.hide_rules:
+        #     # Hide rules
+        #     rule_obs = np.zeros_like(rule_obs)
         
         return rule_obs.astype(np.float32)
     
@@ -628,7 +637,7 @@ class PlayEnv(gym.Env):
         # for obj in self.objects:
         #     obj.tick(self)
         map_arr, reward, done, has_applied_rule, rule_time_ms\
-            = apply_rules(state.map_arr, state.rules, self.map_padding)
+            = apply_rules(state.map_arr, params.rules, self.map_padding)
         # if self._done_at_reward is not None:
         #     done = done or reward == self._done_at_reward
         done = done or state.n_step >= self.max_episode_steps or \
@@ -642,7 +651,7 @@ class PlayEnv(gym.Env):
 
     def _remove_additional_players(self, map_arr: chex.Array):
         # Remove additional players
-        player_pos = np.argwhere(map_arr[self.player_idx] == 1)
+        player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         if player_pos.shape[0] > 1:
             for i in range(1, player_pos.shape[0]):
                 # Remove redundant players
@@ -883,8 +892,8 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     # rules_set = set(rules)
     # print([r.name for r in rules])
     h, w = map.shape[1:]
-    map = map.astype(np.int8)
-    map = np.pad(map, ((0, 0), (map_padding, map_padding), (map_padding, map_padding)), 'constant')
+    map = map.astype(jnp.int8)
+    map = jnp.pad(map, ((0, 0), (map_padding, map_padding), (map_padding, map_padding)), 'constant')
     done = False
     reward = 0
     # These rules may become blocked when other rules are activated.
@@ -896,7 +905,8 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     has_applied_rule = False
     done = False
 
-    subrules_ints = np.array([r.subrules_int for r in rules])
+    # subrules_ints = np.array([r.subrules_int for r in rules])
+    subrules_ints = rules
     rewards = np.array([r.reward for r in rules])
     dones = np.array([r.done for r in rules])
 

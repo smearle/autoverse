@@ -14,7 +14,7 @@ n_steps = 100
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def profile(cfg: Config):
     validate_config(cfg)
-    env = init_base_env(cfg)
+    env, params = init_base_env(cfg)
     start_time = timer()
     total_reset_time = 0
     key = jax.random.PRNGKey(0)
@@ -25,7 +25,7 @@ def profile(cfg: Config):
         total_reset_time = timer() - reset_start
         for i in range(n_steps):
             key = jax.random.split(key)[0]
-            state, obs, reward, done, info = env.step(key, env.action_space.sample(), state)
+            state, obs, reward, done, info = env.step(key, env.action_space.sample(), state, params=params)
             if cfg.render:
                 env.render(state=state)
     done_time = timer()
