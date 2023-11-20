@@ -21,8 +21,8 @@ from PIL import ImageFont, ImageDraw, Image
 from gen_env.configs.config import Config
 from gen_env.events import Event, EventGraph
 from gen_env.objects import ObjectType
-from gen_env.rules import Rule, RuleSet
-from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
+from gen_env.rules import Rule
+from gen_env.tiles import TileNot, TilePlacement, TileType
 from gen_env.envs.utils import draw_triangle
 from gen_env.variables import Variable
 
@@ -30,29 +30,18 @@ from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
 
-@dataclass
-class GameDef:
-    tiles: TileSet
-    rules: RuleSet
-    player_placeable_tiles: list
-    search_tiles: Iterable[TileType]
-    map: Optional[np.ndarray] = None
-
-
 @struct.dataclass
 class EnvState:
     n_step: int
-    map_arr: chex.Array
-    # obj_set: Iterable
+    map_arr: chex.ndarray
+    obj_set: Iterable
     player_rot: int
-    player_pos: Tuple[int]
     ep_rew: int
 
 
 @struct.dataclass
 class EnvParams:
-    rules: chex.Array
-    map: chex.Array
+    pass
 
 
 class PlayEnv(gym.Env):
@@ -61,12 +50,11 @@ class PlayEnv(gym.Env):
     view_size = 3
     
     def __init__(self, width: int, height: int,
-            game_def: GameDef,
-            # tiles: Iterable[TileType], 
-            params: EnvParams,
-            # player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
+            tiles: Iterable[TileType], 
+            rules: List[Rule], 
+            player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
             object_types: List[ObjectType] = [],
-            # search_tiles: List[TileType] = None,
+            search_tiles: List[TileType] = None,
             events: Iterable[Event] = [],
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
@@ -82,14 +70,7 @@ class PlayEnv(gym.Env):
             rules (list): A list of Rule objects, between TileTypes.
             done_at_reward (int): Defaults to None. Otherwise, episode ends when reward reaches this number.
         """
-        tiles, search_tiles, player_placeable_tiles = \
-            game_def.tiles, game_def.search_tiles, game_def.player_placeable_tiles
         self.cfg = cfg
-        # rules_int = np.array([r.subrules_int for r in rules])
-        rules_int = params.rules
-        # self.default_params = EnvParams(rules=rules_int)
-        self._rot_dirs = jnp.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
-        self.map_shape = jnp.array([len(tiles), width, height])
 
         # Which game in the game_archive are we loading next?
         self._game_idx = 0
@@ -118,8 +99,8 @@ class PlayEnv(gym.Env):
         # Add white for background when rendering individual tile-channel images.
         self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.uint8)
         # Rules as they should be at the beginning of the episode (in case later events should change them)
-        # self._init_rules = rules 
-        # self.rules = copy.copy(rules)
+        self._init_rules = rules 
+        self.rules = copy.copy(rules)
         self.map: np.ndarray = None
         self.objects: Iterable[ObjectType.GameObject] = []
         self.player_pos: Tuple[int] = None
@@ -152,10 +133,6 @@ class PlayEnv(gym.Env):
         self._map_id = 0
         self.init_obs_space()
 
-        # max_rule_shape = max([r._in_out.shape for r in self.rules])
-        max_rule_shape = max(params.rules.shape[-2:])
-        # self.map_padding = (max(max_rule_shape) + 1) // 2
-
     def init_obs_space(self):
         # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         # Dictionary observation space containing box 2d map and flat list of rules
@@ -174,15 +151,14 @@ class PlayEnv(gym.Env):
         self._map_queue = maps
         self._rule_queue = rules
 
-    def _update_player_pos(self, state: EnvState):
-        player_pos = jnp.argwhere(state.map_arr[self.player_idx] == 1)
-        return state.update(player_pos=player_pos)
-        # if self.player_pos.shape[0] < 1:
-        #     self.player_pos = None
-        #     return
-        #     # TT()
-        # if self.player_pos.shape[0] > 1:
-        #     raise Exception("More than one player on map.")
+    def _update_player_pos(self, map_arr):
+        self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)
+        if self.player_pos.shape[0] < 1:
+            self.player_pos = None
+            return
+            # TT()
+        if self.player_pos.shape[0] > 1:
+            raise Exception("More than one player on map.")
         # assert self.player_pos.shape[0] == 1
         self.player_pos = tuple(self.player_pos[0])
         
@@ -201,18 +177,42 @@ class PlayEnv(gym.Env):
                     # print(f"inhibit: {inhibit.name}")
                     map_arr[inhibit.idx, map_arr[tile_type.idx] == 1] = 0
 
-    def reset_env(self, key: chex.PRNGKey, params: EnvParams):
+    def gen_random_map(self):
+        # Generate frequency-based tiles with certain probabilities.
+        int_map = np.random.choice(len(self.tiles), size=(self.w, self.h), p=self.tile_probs)
+        map_coords = np.argwhere(int_map != -1)
+        # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
+        n_fixed = sum([tile.num for tile in self.tiles if tile.num is not None])
+        fixed_coords = map_coords[np.random.choice(map_coords.shape[0], size=n_fixed, replace=False)]
+        i = 0
+        for tile in self.tiles:
+            if tile.prob == 0 and tile.num is not None:
+                coord_list = fixed_coords[i: i + tile.num]
+                int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
+                i += tile.num
+        map_arr = np.eye(len(self.tiles), dtype=np.uint8)[int_map]
+        map_arr = rearrange(map_arr, "h w c -> c h w")
+        self._update_player_pos(map_arr)
+        # Activate parent/co-occuring tiles.
+        for tile in self.tiles:
+            coactive_tiles = tile.parents + tile.cooccurs
+            if len(coactive_tiles) > 0:
+                for cotile in coactive_tiles:
+                    # Activate parent channels of any child tiles wherever the latter are active.
+                    map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
+        obj_set = {}
+        return map_arr, obj_set
+
+    def reset(self):
         self._done = False
         self.unwrapped._done = False
-        rules, map_arr = params.rules, params.map
-
-        # if len(self._rule_queue) > 0:
-        #     self._game_idx = self._game_idx % len(self._rule_queue)
-            # self.rules = copy.copy(self._rule_queue[self._game_idx])
-            # self.map = copy.copy(self._map_queue[self._game_idx])
-            # self._game_idx += 1
-            # rules = queued_params.rules
-            # map_arr = queued_params.map_arr 
+        if len(self._rule_queue) > 0:
+            self._game_idx = self._game_idx % len(self._rule_queue)
+            self.rules = copy.copy(self._rule_queue[self._game_idx])
+            self.map = copy.copy(self._map_queue[self._game_idx])
+            self._game_idx += 1
+        max_rule_shape = max([r._in_out.shape for r in self.rules])
+        self.map_padding = (max(max_rule_shape) + 1) // 2
 
         self.ep_rew = 0
         self._has_applied_rule = False
@@ -224,20 +224,18 @@ class PlayEnv(gym.Env):
         self.n_step = 0
         # self._last_reward = 0
         self._reward = 0
-        # if len(self._map_queue) == 0:
-        #     map_arr = self.gen_random_map()
-        # else:
-        #     map_arr = self._map_queue[self._map_id]
-        #     # obj_set = {}
-        #     self._map_id = (self._map_id + 1) % len(self._map_queue)
-        self.player_rot = 0
-        player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
-        env_state = EnvState(
-            n_step=self.n_step, map_arr=map_arr, #, obj_set=obj_set,
-            player_rot=self.player_rot, ep_rew=self.ep_rew,
-            player_pos=player_pos, rules=params.rules,
-        )
+        if len(self._map_queue) == 0:
+            map_arr, obj_set = self.gen_random_map()
+        else:
+            map_arr = self._map_queue[self._map_id]
+            obj_set = {}
+            self._map_id = (self._map_id + 1) % len(self._map_queue)
+        self.player_rot = b0
+        env_state = EnvState(n_step=self.n_step, map_arr=map_arr, obj_set=obj_set, player_rot=self.player_rot,
+                                    ep_rew=self.ep_rew)
         self._set_state(env_state)
+        self.player_pos = np.argwhere(map_arr[self.player_idx] == 1)[0]
+        self._rot_dirs = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         obs = self.get_obs()
         return env_state, obs
 
@@ -272,13 +270,13 @@ class PlayEnv(gym.Env):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[EnvParams] = None,
+        self, key: chex.PRNGKey, params: Optional[EnvParams] = None, queued_state=None,
     ) -> Tuple[chex.Array, EnvState]:
         """Performs resetting of environment."""
         # Use default env parameters if no others specified
         if params is None:
             params = self.default_params
-        obs, state = self.reset_env(key, params)
+        obs, state = self.reset_env(key, params, queued_state)
         return obs, state
 
 
@@ -287,19 +285,22 @@ class PlayEnv(gym.Env):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
         state = self.act(action, state)
-        map_arr, reward, done = self.tick(state, params)
+        reward = self.tick(state, params)
         n_step = state.n_step + 1
+        if self._done:
+            pass
+            # print('done at step')
         ep_rew = state.ep_rew + reward
+        self.ep_rew = ep_rew
+        self.n_step = n_step
         state = EnvState(
             n_step=n_step,
-            map_arr=map_arr,
-            player_rot=state.player_rot,
-            player_pos=state.player_pos,
-            ep_rew=ep_rew,
+            map_arr=self.map,
+            obj_set=self.objects,
+            player_rot=self.player_rot,
+            ep_rew=ep_rew
         )
-        obs = self.get_obs(state, params)
-        info = {}
-        return state, obs, reward, done, info
+        return state, self.get_obs(), reward, self._done, {}
 
     def step_classic(self, action: chex.Array, state: EnvState):
         # TODO: Only pass global variable object to event graph.
@@ -316,42 +317,56 @@ class PlayEnv(gym.Env):
         state = EnvState(
             n_step=n_step,
             map_arr=self.map,
-            # obj_set=self.objects,
+            obj_set=self.objects,
             player_rot=self.player_rot,
             ep_rew=ep_rew
         )
         return state, self.get_obs(), reward, self._done, {}
 
     def act(self, action: int, state: EnvState):
-        # If action is 0 or 1, rotate player.
-        rot_diff = - jnp.int16(action > 0) + 1
-        player_rot = (state.player_rot + rot_diff) % 4
-        # Otherwise, move player to adjacent tile according to rotation.
-        move_coeff = jnp.where(jnp.where(action < 2, 0, action) == 2, -1, 1)
-        new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
-        new_map = state.map_arr
-        player_pos = state.player_pos
-        new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(0)
-        # Apply new position if within bounds.
-        player_pos = jax.lax.select(
-            jnp.all(new_pos >= 0) & jnp.all(new_pos < self.map_shape[1:]),
-            new_pos,
-            player_pos,
-        )
-        new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(1)
-        return
+        # if self.player_pos is None:
+        #     return
+        # if action >= len(self._actions):
+        #     return
+        if action < 2:
+            rot = self.player_rot + (1 if action == 0 else -1)
+            self.player_rot = rot % 4
+            return
+        elif action < 4:
+            # Move player to an adjacent tile if possible.
+            if action == 2:
+                pos = self.player_pos + self._rot_dirs[self.player_rot]
+            elif action == 3:
+                pos = self.player_pos - self._rot_dirs[self.player_rot]
+            # Check if pos is within bounds.
+            if np.any(pos < 0) or np.any(pos >= self.map.shape[1:]):
+                return
+            self.map[self.player_idx, self.player_pos[0], self.player_pos[1]] = 0
+            self.map[self.player_idx, pos[0], pos[1]] = 1
+            return
 
-    def get_obs(self, state: EnvState, params: EnvParams):
+        # No rotation
+        # new_tile, placement_id = self._actions[action]
+        # pos = self.player_pos + self.placement_positions[placement_id]
+
+        # Rotation
+        new_tile = self._actions[action - 4]
+        pos = self.player_pos + self._rot_dirs[self.player_rot]
+
+        # Do not place anything over the edge of the map. Should we wrap by default instead?
+        if np.any(pos < 0) or pos[0] >= self.w or pos[1] >= self.h:
+            return
+        self.map[new_tile, pos[0], pos[1]] = 1
+
+    def get_obs(self):
         # return self.observe_map()
         # return {
         #     'map': self.observe_map(),
         #     'rules': self.observe_rules(),
         #     'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
         # }
-        return jnp.concatenate((
-            self.observe_map(state.map_arr).flatten(),
-            jnp.eye(4)[self.player_rot].astype(jnp.float32),
-            self.observe_rules(params).flatten()))
+        return np.concatenate((self.observe_map().flatten(), np.eye(4)[self.player_rot].astype(np.float32),
+                self.observe_rules().flatten()))
 
     # # TODO: move this inside env??
     # def flatten_obs(obs):
@@ -393,20 +408,16 @@ class PlayEnv(gym.Env):
             assert len(np.where(disc_map == tile.idx)[0]) == tile.num
         return rearrange(np.eye(len(tiles), dtype=np.uint8)[disc_map], 'h w c -> c h w')
 
-    def observe_map(self, map_arr, player_pos):
-        obs = rearrange(map_arr, 'b h w -> h w b')
+    def observe_map(self):
+        obs = rearrange(self.map, 'b h w -> h w b')
         # Pad map to view size.
-        obs = jnp.pad(obs, (
-            (self.view_size, self.view_size),
-            (self.view_size, self.view_size), (0, 0)), 'constant')
+        obs = np.pad(obs, ((self.view_size, self.view_size), (self.view_size, self.view_size), (0, 0)), 'constant')
         # Crop map to player's view.
-        # if self.player_pos is not None:
-        # TODO: Rotate observation?
-        x, y = player_pos
-        obs = obs[x: x + 2 * self.view_size + 1,
-                  y: y + 2 * self.view_size + 1]
-        n_tiles = self.map_shape[0]
-        assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, n_tiles)
+        if self.player_pos is not None:
+            x, y = self.player_pos
+            obs = obs[x: x + 2 * self.view_size + 1,
+                      y: y + 2 * self.view_size + 1]
+        assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles))
         return obs.astype(np.float32)
 
     def observe_rules(self):
@@ -623,26 +634,21 @@ class PlayEnv(gym.Env):
             cv2.waitKey(1)
             # return self.rend_im
 
-    def tick(self, state: EnvState, params: EnvParams):
+    def tick(self):
         # self._last_reward = self._reward
-        # for obj in self.objects:
-        #     obj.tick(self)
-        map_arr, reward, done, has_applied_rule, rule_time_ms\
-            = apply_rules(state.map_arr, state.rules, self.map_padding)
-        # if self._done_at_reward is not None:
-        #     done = done or reward == self._done_at_reward
-        done = done or state.n_step >= self.max_episode_steps or \
-            jnp.sum(map_arr[self.player_idx]) == 0
-        # map_arr = jax.lax.cond(
-        #     not done,
-        #     lambda map_arr: self._compile_map(map_arr),
-        #     lambda map_arr: map_arr,
-        # )
-        return map_arr, reward, done
+        for obj in self.objects:
+            obj.tick(self)
+        self.map, self._reward, self._done, self._has_applied_rule, rule_time_ms = apply_rules(self.map, self.rules, self.map_padding)
+        if self._done_at_reward is not None:
+            self._done = self._done or self._reward == self._done_at_reward
+        self._done = self._done or self.n_step >= self.max_episode_steps or len(np.argwhere(self.map[self.player_idx] == 1)) == 0
+        if not self._done:
+            self._compile_map()
+        return self._reward
 
-    def _remove_additional_players(self, map_arr: chex.Array):
+    def _remove_additional_players(self):
         # Remove additional players
-        player_pos = np.argwhere(map_arr[self.player_idx] == 1)
+        player_pos = np.argwhere(self.map[self.player_idx] == 1)
         if player_pos.shape[0] > 1:
             for i in range(1, player_pos.shape[0]):
                 # Remove redundant players
@@ -658,12 +664,11 @@ class PlayEnv(gym.Env):
             # Set random tile to be player
             self.map[self.player_idx, x, y] = 1
 
-    def _compile_map(self, map_arr: chex.Array):
-        map_arr = self._remove_additional_players(map_arr)
-        map_arr = self._update_player_pos(map_arr)
-        map_arr = self._update_cooccurs(map_arr)
-        map_arr = self._update_inhibits(map_arr)
-        return map_arr
+    def _compile_map(self):
+        self._remove_additional_players()
+        self._update_player_pos(self.map)
+        self._update_cooccurs(self.map)
+        self._update_inhibits(self.map)
 
     def tick_human(self, state: EnvState):
         import pygame
@@ -695,8 +700,7 @@ class PlayEnv(gym.Env):
 
 
     def get_state(self):
-        return EnvState(n_step=self.n_step, map_arr=self.map.copy(),
-                        # obj_set=self.objects,
+        return EnvState(n_step=self.n_step, map_arr=self.map.copy(), obj_set=self.objects,
             player_rot=self.player_rot, ep_rew=self.ep_rew)
 
     def set_state(self, state: EnvState):
@@ -713,10 +717,10 @@ class PlayEnv(gym.Env):
 
 
     def _set_state(self, state: EnvState):
-        map_arr = state.map_arr
+        map_arr, obj_set = state.map_arr, state.obj_set
         self.n_step = state.n_step
         self.map = map_arr
-        # self.objects = obj_set
+        self.objects = obj_set
         self.height, self.width = self.map.shape[1:]
         self.player_rot = state.player_rot
         self.ep_rew = state.ep_rew
@@ -944,31 +948,3 @@ def pygame_render_im(screen, img):
     screen.blit(surf, (0, 0))
     # Flip the display
     pygame.display.flip()
-
-
-def gen_random_map(game_def: GameDef, map_shape):
-    """Generate frequency-based tiles with certain probabilities."""
-    tile_probs = [tile.prob for tile in game_def.tiles]
-    int_map = np.random.choice(len(game_def.tiles), size=map_shape, p=tile_probs)
-    map_coords = np.argwhere(int_map != -1)
-    # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
-    n_fixed = sum([tile.num for tile in game_def.tiles if tile.num is not None])
-    fixed_coords = map_coords[np.random.choice(map_coords.shape[0], size=n_fixed, replace=False)]
-    i = 0
-    for tile in game_def.tiles:
-        if tile.prob == 0 and tile.num is not None:
-            coord_list = fixed_coords[i: i + tile.num]
-            int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
-            i += tile.num
-    map_arr = np.eye(len(game_def.tiles), dtype=np.uint8)[int_map]
-    map_arr = rearrange(map_arr, "h w c -> c h w")
-    # self._update_player_pos(map_arr)
-    # Activate parent/co-occuring tiles.
-    for tile in game_def.tiles:
-        coactive_tiles = tile.parents + tile.cooccurs
-        if len(coactive_tiles) > 0:
-            for cotile in coactive_tiles:
-                # Activate parent channels of any child tiles wherever the latter are active.
-                map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
-    # obj_set = {}
-    return map_arr

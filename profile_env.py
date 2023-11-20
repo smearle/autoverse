@@ -1,6 +1,7 @@
 from timeit import default_timer as timer
 
 import hydra
+import jax
 
 from gen_env.utils import init_base_env, validate_config
 from gen_env.configs.config import Config
@@ -16,12 +17,15 @@ def profile(cfg: Config):
     env = init_base_env(cfg)
     start_time = timer()
     total_reset_time = 0
+    key = jax.random.PRNGKey(0)
     for i in range(n_episodes):
         reset_start = timer()
-        state, obs = env.reset()
+        key = jax.random.split(key)[0]
+        state, obs = env.reset(key=key, params=params)
         total_reset_time = timer() - reset_start
         for i in range(n_steps):
-            state, obs, reward, done, info = env.step(env.action_space.sample(), state)
+            key = jax.random.split(key)[0]
+            state, obs, reward, done, info = env.step(key, env.action_space.sample(), state)
             if cfg.render:
                 env.render(state=state)
     done_time = timer()

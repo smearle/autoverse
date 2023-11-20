@@ -1,5 +1,6 @@
 hydra-core
 hydra-submitit-launcher
 einops
+flax
 networkx
 imageio
