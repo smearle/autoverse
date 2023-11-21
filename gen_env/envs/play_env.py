@@ -55,6 +55,7 @@ class EnvParams:
     rule_rewards: chex.Array
     rule_dones: chex.Array
     map: chex.Array
+    player_placeable_tiles: chex.Array
 
 
 class PlayEnv(gym.Env):
@@ -122,7 +123,7 @@ class PlayEnv(gym.Env):
         self.player_idx = tiles_by_name['player'].idx if 'player' in tiles_by_name else 0
         self.tile_probs = [tile.prob for tile in tiles]
         # Add white for background when rendering individual tile-channel images.
-        self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.uint8)
+        self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.int16)
         # Rules as they should be at the beginning of the episode (in case later events should change them)
         # self._init_rules = rules 
         # self.rules = copy.copy(rules)
@@ -191,7 +192,7 @@ class PlayEnv(gym.Env):
         # if self.player_pos.shape[0] > 1:
         #     raise Exception("More than one player on map.")
         # assert self.player_pos.shape[0] == 1
-        self.player_pos = tuple(self.player_pos[0])
+        # self.player_pos = tuple(self.player_pos[0])
         
     def _update_cooccurs(self, map_arr: np.ndarray):
         for tile_type in self.tiles:
@@ -236,7 +237,7 @@ class PlayEnv(gym.Env):
         # else:
         #     map_arr = self._map_queue[self._map_id]
         #     # obj_set = {}
-        #     self._map_id = (self._map_id + 1) % len(self._map_queue)
+        # feeld mouse    self._map_id = (self._map_id + 1) % len(self._map_queue)
         self.player_rot = 0
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = EnvState(
@@ -293,17 +294,11 @@ class PlayEnv(gym.Env):
                  params: EnvParams):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
-        state = self.act(action=action, state=state)
-        map_arr, reward, done = self.tick(state, params)
+        state = self.act(action=action, state=state, params=params)
+        state, reward, done = self.tick(state, params)
         n_step = state.n_step + 1
         ep_rew = state.ep_rew + reward
-        state = EnvState(
-            n_step=n_step,
-            map=map_arr,
-            player_rot=state.player_rot,
-            player_pos=state.player_pos,
-            ep_rew=ep_rew,
-        )
+        state = state.replace(n_step=n_step, ep_rew=ep_rew)
         obs = self.get_obs(state, params)
         info = {}
         return state, obs, reward, done, info
@@ -329,12 +324,17 @@ class PlayEnv(gym.Env):
         )
         return state, self.get_obs(), reward, self._done, {}
 
-    def act(self, action: int, state: EnvState):
+    def act(self, action: int, state: EnvState, params: EnvParams):
         # If action is 0 or 1, rotate player.
-        rot_diff = - jnp.int32(action > 0) + 1
-        player_rot = (state.player_rot + rot_diff) % 4
         # Otherwise, move player to adjacent tile according to rotation.
-        move_coeff = jnp.where(jnp.where(action < 2, 0, action) == 2, -1, 1)
+        # move_coeff = jnp.where(jnp.where(action < 2, 0, action) == 2, -1, 1)
+        rot_diffs = jnp.array([1, -1, 0, 0, 0])
+        rot_diff = rot_diffs[action]
+        acts_to_move_coeffs = jnp.array([0, 0, 1, -1, 0])
+        place_tiles = jnp.array([0, 0, 0, 0, 1])
+        player_rot = (state.player_rot + rot_diff) % 4
+        move_coeff = acts_to_move_coeffs[action]
+        place_tile = place_tiles[action]
         new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
         new_map = state.map
         player_pos = state.player_pos
@@ -345,6 +345,12 @@ class PlayEnv(gym.Env):
             new_pos,
             player_pos,
         )
+
+        # Hackish way
+        n_prev = 4
+        trg_pos = player_pos + self._rot_dirs[player_rot]
+        new_map = new_map.at[params.player_placeable_tiles[action - n_prev], trg_pos[0], trg_pos[1]].set(place_tile)
+
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(1)
         state = state.replace(player_rot=player_rot, player_pos=player_pos,
                               map=new_map)
@@ -400,7 +406,7 @@ class PlayEnv(gym.Env):
                 assert len(np.where(disc_map == tile.idx)[0]) == tile.num
         for tile in fixed_num_tiles:
             assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        return rearrange(np.eye(len(tiles), dtype=np.uint8)[disc_map], 'h w c -> c h w')
+        return rearrange(np.eye(len(tiles), dtype=np.int16)[disc_map], 'h w c -> c h w')
 
     def observe_map(self, map_arr, player_pos):
         obs = rearrange(map_arr, 'b h w -> h w b')
@@ -449,16 +455,10 @@ class PlayEnv(gym.Env):
             int_map[state.map[tile.idx] == 1] = tile.idx
             tile_map = np.where(state.map[tile.idx] == 1, tile.idx, -1)
             # If this is the player, render as a triangle according to its rotation
-            if tile.name == 'player':
-                tile_im = np.zeros_like(self.tile_colors[tile_map]) + 255
-                tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-                tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-                tile_im = draw_triangle(tile_im, state.player_pos, state.player_rot, tile.color, tile_size)
-            else: 
-                tile_im = self.tile_colors[tile_map]
-                # Pad the tile image and add text to the bottom
-                tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-                tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+            tile_im = self.tile_colors[tile_map]
+            # Pad the tile image and add text to the bottom
+            tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+            tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
             # Get text as rgb np array
             text = tile.name
             # Draw text on image
@@ -468,8 +468,19 @@ class PlayEnv(gym.Env):
             draw = ImageDraw.Draw(img_pil)
             draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
             tile_im = np.array(img_pil)
-
             tile_ims.append(tile_im)
+
+        # Extra one for player pos
+        tile_im = np.zeros_like(self.tile_colors[tile_map]) + 255
+        tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+        tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+        tile_im = draw_triangle(tile_im, state.player_pos, state.player_rot, tile.color, tile_size)
+        img_pil = Image.fromarray(tile_im)
+        draw = ImageDraw.Draw(img_pil)
+        draw.text((10, 10), 'player pos', font=font, fill=(255, 255, 255, 0))
+        tile_im = np.array(img_pil)
+        tile_ims.append(tile_im)
+
         # Flat render of all tiles
         tile_im = self.tile_colors[int_map]
         tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
@@ -519,16 +530,21 @@ class PlayEnv(gym.Env):
             for p in (i, o):
                 lyr_ims = []
                 lyr_shape = p[0].shape
-                for lyr in p:
+                for tile_idx, lyr in enumerate(p):
                     col_ims = []
                     for row in lyr:
                         row_ims = []
                         # for tile in row:
-                        for tile_idx in row:
-                            # tile_im = self.tile_colors[tile_idx if tile is not None else -1]
-                            tile_im = self.tile_colors[tile_idx]
-                            tile_im = repeat(tile_im, f'c -> {tile_size} {tile_size} c')
-                            tile_im = np.pad(tile_im, ((3, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+                        for tile_pres in row:
+                            if tile_pres == 1:
+                                # tile_im = self.tile_colors[tile_idx if tile is not None else -1]
+                                tile_im = self.tile_colors[tile_idx]
+                            elif tile_pres == -1:
+                                tile_im = self.tile_colors[-1]
+                            else:
+                                tile_im = np.array([0, 0, 0], dtype=np.uint8)
+                            tile_im = repeat(tile_im, f' c -> {tile_size} {tile_size} c')
+                            # tile_im = np.pad(tile_im, ((3, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
                             row_ims.append(tile_im) 
                         # Concatenate the row images into a single image
                         row_im = np.concatenate(row_ims, axis=1)
@@ -652,12 +668,15 @@ class PlayEnv(gym.Env):
         #     done = done or reward == self._done_at_reward
         done = (done | state.n_step >= self.max_episode_steps) | \
             jnp.sum(map_arr[self.player_idx]) == 0
+        jax.debug.breakpoint()
+        player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
+        state = state.replace(player_pos=player_pos, map=map_arr)
         # map_arr = jax.lax.cond(
         #     not done,
         #     lambda map_arr: self._compile_map(map_arr),
         #     lambda map_arr: map_arr,
         # )
-        return map_arr, reward, done
+        return state, reward, done
 
     def _remove_additional_players(self, map_arr: chex.Array):
         # Remove additional players
@@ -685,11 +704,11 @@ class PlayEnv(gym.Env):
         return map_arr
 
     def tick_human(self, state: EnvState, params: EnvParams):
+        key = jax.random.PRNGKey(0)
         import pygame
         done = False
         # If there is no player, take any action to tick the environment (e.g. during level-generation).
-        if self.player_pos is None:
-            key = jax.random.PRNGKey(0)
+        if state.player_pos is None:
             action = 0
             state, obs, rew, done, info = self.step(key=key, action=action,
                                              state=state, params=params)
@@ -701,16 +720,18 @@ class PlayEnv(gym.Env):
             if event.type == pygame.KEYDOWN:
                 if event.key in self.keys_to_acts:
                     action = self.keys_to_acts[event.key]
-                    state, obs, rew, done, info = self.step(action, state)
+                    state, obs, rew, done, info = \
+                        self.step(key=key, action=action, state=state,
+                                  params=params)
                     state: EnvState
 
                     self.render(mode='pygame', state=state, params=params)
                     # if self._last_reward != self._reward:
-                    print(f"Step: {self.n_step}, Reward: {state.ep_rew}")
+                    print(f"Step: {state.n_step}, Reward: {state.ep_rew}")
                 elif event.key == pygame.K_x:
                     done = True
             if done:
-                state, obs = self.reset()
+                state, obs = self.reset(key=key, params=params)
                 done = False
                 self.render(mode='pygame', state=state)
         return state
@@ -869,24 +890,24 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: b
     #         "if the rule is not included in a ruleset.")
     # subrules = rule.subrules
     # breakpoint()
-    if random:
+    # if random:
         # Apply rotations of base rule in a random order.
-        np.random.shuffle(subrules_int)
-    if not VMAP:
-        out_map = np.zeros_like(map)
-        for subrule_int in subrules_int:
-            out_map_i, sr_activs = apply_subrule(map, subrule_int)
-            out_map += out_map_i
-            has_applied_rule = sr_activs.sum() > 0
-            reward += reward * sr_activs.sum()
-            done = done or np.any(sr_activs * done)
-            # next_map += out_map
-    else:
-        out_maps, sr_activs = jax.vmap(apply_subrule, (None, 0))(map, subrules_int)
-        out_map = out_maps.sum(axis=0)
-        done = np.any(sr_activs * done)
-        reward = reward * sr_activs.sum()
-        has_applied_rule = sr_activs.sum() > 0
+        # np.random.shuffle(subrules_int)
+    # if not VMAP:
+    #     out_map = np.zeros_like(map)
+    #     for subrule_int in subrules_int:
+    #         out_map_i, sr_activs = apply_subrule(map, subrule_int)
+    #         out_map += out_map_i
+    #         has_applied_rule = sr_activs.sum() > 0
+    #         reward += reward * sr_activs.sum()
+    #         done = done or np.any(sr_activs * done)
+    #         # next_map += out_map
+    # else:
+    out_maps, sr_activs = jax.vmap(apply_subrule, (None, 0))(map, subrules_int)
+    out_map = out_maps.sum(axis=0)
+    done = np.any(sr_activs * done)
+    reward = reward * sr_activs.sum()
+    has_applied_rule = sr_activs.sum() > 0
     return out_map, done, reward, has_applied_rule
 
 
@@ -941,7 +962,7 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     reward = r_rewards.sum()
     has_applied_rule = jnp.any(r_has_applied_rules)
                             
-    next_map = jnp.array(next_map, dtype=jnp.uint8)[0]
+    next_map = jnp.array(next_map, dtype=jnp.int16)[0]
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
@@ -983,7 +1004,7 @@ def gen_random_map(game_def: GameDef, map_shape):
             coord_list = fixed_coords[i: i + tile.num]
             int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
             i += tile.num
-    map_arr = np.eye(len(game_def.tiles), dtype=np.uint8)[int_map]
+    map_arr = np.eye(len(game_def.tiles), dtype=np.int16)[int_map]
     map_arr = rearrange(map_arr, "h w c -> c h w")
     # self._update_player_pos(map_arr)
     # Activate parent/co-occuring tiles.

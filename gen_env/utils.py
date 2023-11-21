@@ -49,8 +49,11 @@ def init_base_env(cfg: Config, sb3=False):
     rules_int = jnp.array([rule.subrules_int for rule in game_def.rules])
     rule_rewards = jnp.array([rule.reward for rule in game_def.rules])
     rule_dones = jnp.array([rule.done for rule in game_def.rules], dtype=bool)
+    player_placeable_tiles = \
+        jnp.array([tile.idx for tile, placement_rule in game_def.player_placeable_tiles])
     params = EnvParams(rules=rules_int, map=map_arr, rule_rewards=rule_rewards,
-                       rule_dones=rule_dones)
+                       rule_dones=rule_dones,
+                       player_placeable_tiles=player_placeable_tiles)
     if not sb3:
         env = PlayEnv(
             cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
