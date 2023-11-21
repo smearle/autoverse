@@ -7,20 +7,23 @@ from typing import Iterable
 
 from fire import Fire
 import gym
+import jax
 import numpy as np
 
 from gen_env.games import (hamilton, maze, maze_backtracker, maze_npc, power_line, sokoban)
-from gen_env.envs.play_env import PlayEnv, Rule, TileType
+from gen_env.envs.play_env import EnvParams, EnvState, PlayEnv, Rule, TileType
 
 
 # For debugging. Render every environment state that is visited during search.
 RENDER = False
 
 
-def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
+def solve(env: PlayEnv, state: EnvState, params: EnvParams,
+          max_steps: int = inf, render: bool = RENDER):
     """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
     # height, width = env.height, env.width
-    state = env.get_state()
+    # state = env.get_state()
+    key = jax.random.PRNGKey(0)
     frontier = [(state, [], 0)]
     visited = {}
     # visited = {env.player_pos: state}
@@ -46,7 +49,7 @@ def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
         parent_state, parent_action_seq, parent_rew = frontier.pop(best_idx)
         
         # FIXME: Redundant, remove me
-        env.set_state(parent_state)
+        # env.set_state(parent_state)
 
         # visited[env.player_pos] = env.get_state()
         # if type(env).hashable(parent_state) in visited:
@@ -55,9 +58,10 @@ def solve(env: PlayEnv, max_steps: int = inf, render: bool = RENDER):
         # print(visited.keys())
         random.shuffle(possible_actions)
         for action in possible_actions:
-            env.set_state(parent_state)
+            # env.set_state(parent_state)
             # print('set frontier state')
-            state, obs, rew, done, info = env.step(action, parent_state)
+            state, obs, rew, done, info = \
+                env.step(key=key, action=action, state=parent_state, params=params)
             child_rew = state.ep_rew
             if render:
                 env.render()

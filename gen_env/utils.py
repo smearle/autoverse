@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import os
+
 import cv2
 import imageio
+from jax import numpy as jnp
 import numpy as np
+
 from gen_env.configs.config import Config
 from gen_env.envs.play_env import GameDef, PlayEnv, SB3PlayEnv, EnvParams, gen_random_map
 from gen_env.evo.individual import Individual
@@ -43,8 +46,11 @@ def init_base_env(cfg: Config, sb3=False):
     if game_def.map is None:
         map_arr = gen_random_map(game_def, cfg.map_shape)
     # TODO: Flatten rule and subrule dimensions!
-    rules_int = np.array([rule.subrules_int for rule in game_def.rules])
-    params = EnvParams(rules=rules_int, map=map_arr)
+    rules_int = jnp.array([rule.subrules_int for rule in game_def.rules])
+    rule_rewards = jnp.array([rule.reward for rule in game_def.rules])
+    rule_dones = jnp.array([rule.done for rule in game_def.rules], dtype=bool)
+    params = EnvParams(rules=rules_int, map=map_arr, rule_rewards=rule_rewards,
+                       rule_dones=rule_dones)
     if not sb3:
         env = PlayEnv(
             cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],

@@ -2,6 +2,7 @@ import argparse
 from enum import Enum
 
 import hydra
+import jax
 import numpy as np
 import pygame
 
@@ -20,28 +21,27 @@ def main(cfg: Config):
         if cfg.load_game is not None:
             # Then it's a filepath, so we are loading up an evolved game, saved to a yaml.
             fname = cfg.load_game
-            env = init_base_env(cfg)
+            env, params = init_base_env(cfg)
             individual = Individual.load(fname, cfg)
             load_game_to_env(env, individual)
         else:
-            game_file = globals()[game]
-            game_def = game_file.make_env()
-            for rule in game_def['rules']:
-                rule.n_tile_types = len(game_def['tiles'])
-                rule.compile()
-            env = PlayEnv(
-                cfg=cfg, height=map_shape[0], width=map_shape[1],
-                **game_def
-            )
-            [rule.compile() for rule in game_def['rules']]
+            env, params = init_base_env(cfg)
+            # game_file = globals()[game]
+            # game_def = game_file.make_env()
+            # for rule in game_def.rules:
+            #     rule.n_tile_types = len(game_def.tiles)
+            #     rule.compile()
+            # env = PlayEnv(
+            #     cfg=cfg, height=map_shape[0], width=map_shape[1], 
+            # )
+            # [rule.compile() for rule in game_def.rules]
             # env: PlayEnv = game.make_env(height, width)
     else:
         env: PlayEnv = game.make_env()
 
-    # Set numpy seed
-    np.random.seed(0)
-    state, obs = env.reset()
-    env.render(mode='pygame', state=state)
+    key = jax.random.PRNGKey(0)
+    state, obs = env.reset(key=key, params=params)
+    env.render(mode='pygame', state=state, params=params)
     done = False
 
     running = True
@@ -49,7 +49,7 @@ def main(cfg: Config):
     while running:
         # env.step(env.action_space.sample())
         # env.render()
-        state = env.tick_human(state=state)
+        state = env.tick_human(state=state, params=params)
 
     pygame.quit()
 

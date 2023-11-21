@@ -137,7 +137,7 @@ class Rule():
 
         # To convert to onehot, make Nones (-1) equal to 0. We'll give them their
         # own onehot channel for now (then remove it later).
-        self.subrules_int = (np.array(self.subrules_int) + 1).astype(np.uint8)
+        self.subrules_int = (np.array(self.subrules_int) + 1).astype(np.int8)
 
         # Take one-hot over channels
         # (n_subrules, in_out, rule_channels, height, width, tile_channels)
@@ -148,7 +148,7 @@ class Rule():
         # NOTE: This is assumes the rule int array is binary.
         self.subrules_int = reduce(self.subrules_int,
                                    'n_subrules in_out rule_channels tile_channels height width -> ' +
-                                   'n_subrules in_out tile_channels height width', 'sum').astype(np.uint8)
+                                   'n_subrules in_out tile_channels height width', 'sum').astype(np.int8)
         
         # We may have redundant tiles in different rule channels in input or output pattern, so clip
         self.subrules_int = np.clip(self.subrules_int, 0, 1)

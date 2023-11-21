@@ -42,7 +42,7 @@ class GameDef:
 @struct.dataclass
 class EnvState(struct.PyTreeNode):
     n_step: int
-    map_arr: chex.Array
+    map: chex.Array
     # obj_set: Iterable
     player_rot: int
     player_pos: Tuple[int]
@@ -52,6 +52,8 @@ class EnvState(struct.PyTreeNode):
 @struct.dataclass
 class EnvParams:
     rules: chex.Array
+    rule_rewards: chex.Array
+    rule_dones: chex.Array
     map: chex.Array
 
 
@@ -84,6 +86,10 @@ class PlayEnv(gym.Env):
         """
         tiles, search_tiles, player_placeable_tiles = \
             game_def.tiles, game_def.search_tiles, game_def.player_placeable_tiles
+
+        # Just for rendering. Not jax-able!
+        self.rules = game_def.rules
+
         self.cfg = cfg
         # rules_int = np.array([r.subrules_int for r in rules])
         rules_int = params.rules
@@ -176,7 +182,7 @@ class PlayEnv(gym.Env):
         self._rule_queue = rules
 
     def _update_player_pos(self, state: EnvState):
-        player_pos = jnp.argwhere(state.map_arr[self.player_idx] == 1)
+        player_pos = jnp.argwhere(state.map[self.player_idx] == 1)
         return state.replace(player_pos=player_pos)
         # if self.player_pos.shape[0] < 1:
         #     self.player_pos = None
@@ -234,7 +240,7 @@ class PlayEnv(gym.Env):
         self.player_rot = 0
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = EnvState(
-            n_step=self.n_step, map_arr=map_arr, #, obj_set=obj_set,
+            n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
             player_rot=self.player_rot, ep_rew=self.ep_rew,
             player_pos=player_pos,
         )
@@ -256,9 +262,9 @@ class PlayEnv(gym.Env):
         #     params = self.default_params
         key, key_reset = jax.random.split(key)
         obs_st, state_st, reward, done, info = self.step_env(
-            key, state, action, params
+            key, action=action, state=state, params=params
         )
-        obs_re, state_re = self.reset_env(key_reset, params, queued_state=state.queued_state)
+        obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
         state = jax.tree_map(
             lambda x, y: jax.lax.select(done, x, y), state_re, state_st
@@ -287,13 +293,13 @@ class PlayEnv(gym.Env):
                  params: EnvParams):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
-        state = self.act(action, state)
+        state = self.act(action=action, state=state)
         map_arr, reward, done = self.tick(state, params)
         n_step = state.n_step + 1
         ep_rew = state.ep_rew + reward
         state = EnvState(
             n_step=n_step,
-            map_arr=map_arr,
+            map=map_arr,
             player_rot=state.player_rot,
             player_pos=state.player_pos,
             ep_rew=ep_rew,
@@ -325,12 +331,12 @@ class PlayEnv(gym.Env):
 
     def act(self, action: int, state: EnvState):
         # If action is 0 or 1, rotate player.
-        rot_diff = - jnp.int16(action > 0) + 1
+        rot_diff = - jnp.int32(action > 0) + 1
         player_rot = (state.player_rot + rot_diff) % 4
         # Otherwise, move player to adjacent tile according to rotation.
         move_coeff = jnp.where(jnp.where(action < 2, 0, action) == 2, -1, 1)
         new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
-        new_map = state.map_arr
+        new_map = state.map
         player_pos = state.player_pos
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(0)
         # Apply new position if within bounds.
@@ -340,7 +346,8 @@ class PlayEnv(gym.Env):
             player_pos,
         )
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(1)
-        state = state.replace(player_rot=player_rot, player_pos=player_pos, map_arr=new_map)
+        state = state.replace(player_rot=player_rot, player_pos=player_pos,
+                              map=new_map)
         return state
 
     def get_obs(self, state: EnvState, params: EnvParams):
@@ -351,7 +358,7 @@ class PlayEnv(gym.Env):
         #     'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
         # }
         return jnp.concatenate((
-            self.observe_map(map_arr=state.map_arr, player_pos=state.player_pos).flatten(),
+            self.observe_map(map_arr=state.map, player_pos=state.player_pos).flatten(),
             jnp.eye(4)[self.player_rot].astype(jnp.float32),
             self.observe_rules(params).flatten()))
 
@@ -430,23 +437,23 @@ class PlayEnv(gym.Env):
         
         return rule_obs.astype(np.float32)
     
-    def render(self, state: EnvState, mode='human'):
+    def render(self, state: EnvState, params: EnvParams, mode='human'):
         font = ImageFont.load_default()
         tile_size = self.tile_size
         # self.rend_im = np.zeros_like(self.int_map)
         # Create an int map where the first tiles in `self.tiles` take priority.
-        int_map = np.full(self.map[0].shape, dtype=np.int16, fill_value=-1)
+        int_map = np.full(state.map.shape[1:], dtype=np.int16, fill_value=-1)
         tile_ims = []
         for tile in self.tiles[::-1]:
             # if tile.color is not None:
-            int_map[self.map[tile.idx] == 1] = tile.idx
-            tile_map = np.where(self.map[tile.idx] == 1, tile.idx, -1)
+            int_map[state.map[tile.idx] == 1] = tile.idx
+            tile_map = np.where(state.map[tile.idx] == 1, tile.idx, -1)
             # If this is the player, render as a triangle according to its rotation
             if tile.name == 'player':
                 tile_im = np.zeros_like(self.tile_colors[tile_map]) + 255
                 tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
                 tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-                tile_im = draw_triangle(tile_im, self.player_pos, self.player_rot, tile.color, tile_size)
+                tile_im = draw_triangle(tile_im, state.player_pos, state.player_rot, tile.color, tile_size)
             else: 
                 tile_im = self.tile_colors[tile_map]
                 # Pad the tile image and add text to the bottom
@@ -502,9 +509,10 @@ class PlayEnv(gym.Env):
         # Visualize each rule's in_out pattern using grids of tiles
 
         rule_ims = []
-        for rule in self.rules:
-            # Get the in_out pattern
-            in_out = rule._in_out
+        # for rule in self.rules:
+        for rule_int, rule in zip(params.rules, self.rules):
+            # Select the first rotation-variant (subrule) of the rule
+            in_out = rule_int[0]
             # Get the tile images corresponding to the in_out pattern
             p_ims = []
             i, o = in_out
@@ -515,8 +523,10 @@ class PlayEnv(gym.Env):
                     col_ims = []
                     for row in lyr:
                         row_ims = []
-                        for tile in row:
-                            tile_im = self.tile_colors[tile.get_idx() if tile is not None else -1]
+                        # for tile in row:
+                        for tile_idx in row:
+                            # tile_im = self.tile_colors[tile_idx if tile is not None else -1]
+                            tile_im = self.tile_colors[tile_idx]
                             tile_im = repeat(tile_im, f'c -> {tile_size} {tile_size} c')
                             tile_im = np.pad(tile_im, ((3, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
                             row_ims.append(tile_im) 
@@ -637,10 +647,10 @@ class PlayEnv(gym.Env):
         # for obj in self.objects:
         #     obj.tick(self)
         map_arr, reward, done, has_applied_rule, rule_time_ms\
-            = apply_rules(state.map_arr, params.rules, self.map_padding)
+            = apply_rules(state.map, params, self.map_padding)
         # if self._done_at_reward is not None:
         #     done = done or reward == self._done_at_reward
-        done = done or state.n_step >= self.max_episode_steps or \
+        done = (done | state.n_step >= self.max_episode_steps) | \
             jnp.sum(map_arr[self.player_idx]) == 0
         # map_arr = jax.lax.cond(
         #     not done,
@@ -674,13 +684,16 @@ class PlayEnv(gym.Env):
         map_arr = self._update_inhibits(map_arr)
         return map_arr
 
-    def tick_human(self, state: EnvState):
+    def tick_human(self, state: EnvState, params: EnvParams):
         import pygame
         done = False
         # If there is no player, take any action to tick the environment (e.g. during level-generation).
         if self.player_pos is None:
-            obs, rew, done, info = self.step(0)
-            self.render(mode='pygame')
+            key = jax.random.PRNGKey(0)
+            action = 0
+            state, obs, rew, done, info = self.step(key=key, action=action,
+                                             state=state, params=params)
+            self.render(mode='pygame', state=state, params=params)
         # Did the user click the window close button?
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -691,7 +704,7 @@ class PlayEnv(gym.Env):
                     state, obs, rew, done, info = self.step(action, state)
                     state: EnvState
 
-                    self.render(mode='pygame', state=state)
+                    self.render(mode='pygame', state=state, params=params)
                     # if self._last_reward != self._reward:
                     print(f"Step: {self.n_step}, Reward: {state.ep_rew}")
                 elif event.key == pygame.K_x:
@@ -713,16 +726,16 @@ class PlayEnv(gym.Env):
         self._set_state(state)
         # TODO: setting variables and event graph.
 
-    def hashable(self, state):
+    def hashable(self, state: EnvState):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
-        search_state = state.map_arr[self._search_tile_idxs]
+        search_state = state.map[self._search_tile_idxs]
         player_rot = state.player_rot
         # Uniquely hash based on player rotation and search tile states
-        return hash((player_rot, search_state.tobytes()))
+        return hash((player_rot.item(), search_state.tobytes()))
 
 
     def _set_state(self, state: EnvState):
-        map_arr = state.map_arr
+        map_arr = state.map
         self.n_step = state.n_step
         self.map = map_arr
         # self.objects = obj_set
@@ -877,7 +890,7 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: b
     return out_map, done, reward, has_applied_rule
 
 
-def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
+def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     """Apply rules to a one-hot encoded map state, to return a mutated map.
 
     Args:
@@ -906,29 +919,29 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
     done = False
 
     # subrules_ints = np.array([r.subrules_int for r in rules])
-    subrules_ints = rules
-    rewards = np.array([r.reward for r in rules])
-    dones = np.array([r.done for r in rules])
+    subrules_ints = params.rules
+    rewards = params.rule_rewards
+    dones = params.rule_dones
 
-    if not VMAP:
-        for rule in rules:
-        # while len(rules) > 0:
-            # out_maps, dones, rewards, has_applied_rules = jax.vmap(apply_rule, (None, 0))(map, rules)
-            out_map, r_done, r_reward, r_has_applied_rule = apply_rule(
-                map, rule.subrules_int, rule.reward, rule.done)
-            next_map += out_map
-            done = done or r_done
-            reward += r_reward
-            has_applied_rule = has_applied_rule or r_has_applied_rule
-    else:
-        out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0))(
-            map, subrules_ints, rewards, dones)
-        next_map += out_maps.sum(axis=0)
-        done = np.any(r_dones)
-        reward = r_rewards.sum()
-        has_applied_rule = np.any(r_has_applied_rules)
+    # if not VMAP:
+    #     for rule in rules:
+    #     # while len(rules) > 0:
+    #         # out_maps, dones, rewards, has_applied_rules = jax.vmap(apply_rule, (None, 0))(map, rules)
+    #         out_map, r_done, r_reward, r_has_applied_rule = apply_rule(
+    #             map, rule.subrules_int, rule.reward, rule.done)
+    #         next_map += out_map
+    #         done = done or r_done
+    #         reward += r_reward
+    #         has_applied_rule = has_applied_rule or r_has_applied_rule
+    # else:
+    out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0))(
+        map, subrules_ints, rewards, dones)
+    next_map += out_maps.sum(axis=0)
+    done = jnp.any(r_dones)
+    reward = r_rewards.sum()
+    has_applied_rule = jnp.any(r_has_applied_rules)
                             
-    next_map = np.array(next_map)[0]
+    next_map = jnp.array(next_map, dtype=jnp.uint8)[0]
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
