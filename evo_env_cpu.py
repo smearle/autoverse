@@ -11,6 +11,7 @@ from typing import Iterable
 from einops import rearrange
 import hydra
 import imageio
+import jax
 import numpy as np
 # import pool from ray
 # from ray.util.multiprocessing import Pool
@@ -192,7 +193,7 @@ def main(cfg: Config):
     validate_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
     
-    overwrite, num_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
+    overwrite, n_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
 
     if overwrite:
         # Use input to overwrite
@@ -254,10 +255,13 @@ def main(cfg: Config):
         trg_n_iter = 100 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
-    env = init_base_env(cfg)
-    env.reset()
-    if num_proc > 1:
-        envs = [init_base_env(cfg) for _ in range(num_proc)]
+    env, params = init_base_env(cfg)
+    key = jax.random.PRNGKey(0)
+    state, obs = env.reset(key=key, params=params)
+    # if num_proc > 1:
+    #     envs, params = zip(*[init_base_env(cfg) for _ in range(num_proc)])
+    #     breakpoint()
+        # envs = [init_base_env(cfg) for _ in range(num_proc)]
 
     if cfg.evaluate:
         # breakpoint()
@@ -284,11 +288,11 @@ def main(cfg: Config):
             o = copy.deepcopy(ind)
             o.mutate()
             offspring.append(o)
-        if num_proc == 1:
+        if n_proc == 1:
             for o in offspring:
                 o = evaluate(env, o, render, trg_n_iter)
         else:
-            with Pool(processes=num_proc) as pool:
+            with Pool(processes=n_proc) as pool:
                 offspring = multiproc_eval_offspring(offspring)
         elites = offspring
 
@@ -305,11 +309,11 @@ def main(cfg: Config):
             for rule in o.rules:
                 if not is_valid(rule._in_out):
                     breakpoint()
-        if num_proc == 1:
+        if n_proc == 1:
             for o in offspring:
                 o = evaluate(env, o, render, trg_n_iter)
         else:
-            with Pool(processes=num_proc) as pool:
+            with Pool(processes=n_proc) as pool:
                 offspring = multiproc_eval_offspring(offspring)
 
         elites = np.concatenate((elites, offspring))

@@ -2,13 +2,23 @@ import random
 from typing import Dict, Iterable
 import yaml
 
+import chex
 from einops import rearrange
+from flax import struct
+import jax
+from jax import numpy as jnp
 import numpy as np
 
 from gen_env.envs.play_env import PlayEnv
 from gen_env.configs.config import Config
 from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TileType, TileSet
+
+
+@struct.dataclass
+class Genome:
+    rules: chex.Array
+    map: chex.Array
 
 
 class Individual():
@@ -26,7 +36,7 @@ class Individual():
         self.action_seq = None
         self.reward_seq = None
 
-    def mutate(self):
+    def mutate(self, key, fixed_tile_nums):
         if self.cfg.mutate_rules:
             # Mutate between 1 and 3 random rules
             i_arr = np.random.randint(0, len(self.rules), random.randint(1, 3))
@@ -35,7 +45,7 @@ class Individual():
                 rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
                 self.rules[i] = rule
 
-        if not hasattr(self.cfg, 'fix_map') or not self.cfg.fix_map:
+        # if not hasattr(self.cfg, 'fix_map') or not self.cfg.fix_map:
         # if not self.cfg.fix_map:
             # Mutate between 0 and 3 random tiles
             # j_arr = np.random.randint(0, len(self.tiles) - 1, random.randint(0, 3))
@@ -50,15 +60,20 @@ class Individual():
             # TODO: This should be multi-hot (repairing impossible co-occurrences after). 
             # Currently evolving a onehot initial map, adding co-occurrences later.
 
-            # Mutate onehot map by randomly changing some tile types
-            # Pick number of tiles to sample from gaussian
-            n_mut_tiles = abs(int(np.random.normal(0, 10)))
-            disc_map = self.map.argmax(axis=0)
-            k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
-            for k in k_arr:
-                disc_map.flat[k] = np.random.randint(0, len(self.tiles))
-            
-            self.map = PlayEnv.repair_map(disc_map, self.tiles)
+        # Mutate onehot map by randomly changing some tile types
+        # Pick number of tiles to sample from gaussian
+        n_mut_tiles = abs(int(np.random.normal(0, 10)))
+        # disc_map = self.map.argmax(axis=0)
+        # k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
+        flip_pct = jax.random.uniform(key, shape=(), minval=0.0, maxval=0.5)
+        bit_flips = jax.random.bernoulli(key, p=flip_pct, shape=self.map.shape)
+        map = jnp.bitwise_xor(self.map, bit_flips)
+        # for k in k_arr:
+            # breakpoint()
+            # disc_map.flat[k] = np.random.randint(0, len(self.tiles))
+        
+        # self.map = PlayEnv.repair_map(disc_map, self.tiles)
+        self.map = PlayEnv.repair_map(key, map, fixed_tile_nums=fixed_tile_nums)
 
 
     def save(self, filename):

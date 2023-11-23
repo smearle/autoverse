@@ -123,7 +123,7 @@ class PlayEnv(gym.Env):
         self.player_idx = tiles_by_name['player'].idx if 'player' in tiles_by_name else 0
         self.tile_probs = [tile.prob for tile in tiles]
         # Add white for background when rendering individual tile-channel images.
-        self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.int16)
+        self.tile_colors = np.array([tile.color for tile in tiles] + [[255,255,255]], dtype=np.uint8)
         # Rules as they should be at the beginning of the episode (in case later events should change them)
         # self._init_rules = rules 
         # self.rules = copy.copy(rules)
@@ -372,41 +372,80 @@ class PlayEnv(gym.Env):
     # def flatten_obs(obs):
     #     return np.concatenate((obs['map'].flatten(), obs['player_rot'].flatten(), obs['rules'].flatten()))
 
-    def repair_map(disc_map, tiles):
-        fixed_num_tiles = [t for t in tiles if t.num is not None]
-        free_num_tile_idxs = [t.idx for t in tiles if t.num is None]
+    def repair_map(key, map: chex.Array, fixed_tile_nums: chex.Array):
+        # map is (n_tiles, w, h)
+        # fixed_num_tiles = [t for t in tiles if t.num is not None]
+        # free_num_tile_idxs = [t.idx for t in tiles if t.num is None]
+
+        # padding the map at the right sides allows us to deal with ``none''
+        # indices of (-1,-1,) in the result of jnp.argmax
+        pad_map = jnp.pad(map, ((0, 0), (0, 1), (0, 1)))
+        tile_nums = map.sum(axis=(1, 2))
+        # How many to add/delete
+        n_add_delete = fixed_tile_nums - tile_nums
+        # set -1 in n_add wehere fixed_tile_nums is -1
+        n_add_delete = jnp.where(fixed_tile_nums == -1, 0, n_add_delete)
+        n_add = jnp.where(n_add_delete > 0, n_add_delete, 0)
+        n_delete = jnp.where(n_add_delete < 0, -n_add_delete, 0)
+
+        # generate random noise between 0 and .5 to add to the map, used for
+        # randomly ranking/ordering which tiles to add/delete
+
+        # flatten the map to 1d
+        # noised_map = rearrange(noised_map, 'c h w -> c (h w)')
+        # sorted_idxs = jnp.argsort(noised_map, axis=1, kind='stable')
+
+        for i in range(len(n_add)):
+
+            pres_idxs = jnp.where(map[i] == 1, size=math.prod(map[i].shape, fill=-1))[0]
+            update_array = -jnp.ones(pres_idxs.shape, dtype=sorted_idxs.dtype)
+
+            # Update for deletion
+            if n_delete[i] > 0:
+                # delete the first n_delete[i] tiles
+                update_array = jax.ops.index_update(update_array, jax.ops.index[:n_delete[i]], pres_idxs[:n_delete[i]])
+                # update the map
+                map = jax.ops.index_update(map, jax.ops.index[i, update_array], 0)
+                breakpoint()
+
+
+
+        # n_add = max(0, tile_nums.sum() - sum([t.num for t in fixed_tile_nums]))
+
         # For tile types with fixed numbers, make sure this many occur
-        for tile in fixed_num_tiles:
-            # If there are too many, remove some
-            # print(f"Checking {tile.name} tiles")
-            idxs = np.where(disc_map.flat == tile.idx)[0]
-            # print(f"Found {len(idxs)} {tile.name} tiles")
-            if len(idxs) > tile.num:
-                # print(f'Found too many {tile.name} tiles, removing some')
-                for idx in idxs[tile.num:]:
-                    disc_map.flat[idx] = np.random.choice(free_num_tile_idxs)
-                # print(f'Removed {len(idxs) - tile.num} tiles')
-                assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-            elif len(idxs) < tile.num:
-                # FIXME: Not sure if this is working
-                net_idxs = []
-                chs_i = 0
-                np.random.shuffle(free_num_tile_idxs)
-                while len(net_idxs) < tile.num:
-                    # Replace only 1 type of tile (weird)
-                    idxs = np.where(disc_map.flat == free_num_tile_idxs[chs_i])[0]
-                    net_idxs += idxs.tolist()
-                    chs_i += 1
-                    if chs_i >= len(free_num_tile_idxs):
-                        print(f"Warning: Not enough tiles to mutate into {tile.name} tiles")
-                        break
-                idxs = np.array(net_idxs[:tile.num])
-                for idx in idxs:
-                    disc_map.flat[idx] = tile.idx
-                assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        for tile in fixed_num_tiles:
-            assert len(np.where(disc_map == tile.idx)[0]) == tile.num
-        return rearrange(np.eye(len(tiles), dtype=np.int16)[disc_map], 'h w c -> c h w')
+        # for tile in fixed_num_tiles:
+        #     # If there are too many, remove some
+        #     # print(f"Checking {tile.name} tiles")
+        #     idxs = np.where(map[tile.idx] == 1)[0]
+        #     breakpoint()
+        #     # print(f"Found {len(idxs)} {tile.name} tiles")
+        #     if len(idxs) > tile.num:
+        #         # print(f'Found too many {tile.name} tiles, removing some')
+        #         for idx in idxs[tile.num:]:
+        #             map.flat[idx] = np.random.choice(free_num_tile_idxs)
+        #         # print(f'Removed {len(idxs) - tile.num} tiles')
+        #         assert len(np.where(map == tile.idx)[0]) == tile.num
+        #     elif len(idxs) < tile.num:
+        #         # FIXME: Not sure if this is working
+        #         net_idxs = []
+        #         chs_i = 0
+        #         # np.random.shuffle(free_num_tile_idxs)
+        #         freeze_num_tile_idxs = jax.random.shuffle(key, free_num_tile_idxs)
+        #         while len(net_idxs) < tile.num:
+        #             # Replace only 1 type of tile (weird)
+        #             idxs = np.where(map.flat == free_num_tile_idxs[chs_i])[0]
+        #             net_idxs += idxs.tolist()
+        #             chs_i += 1
+        #             if chs_i >= len(free_num_tile_idxs):
+        #                 print(f"Warning: Not enough tiles to mutate into {tile.name} tiles")
+        #                 break
+        #         idxs = np.array(net_idxs[:tile.num])
+        #         for idx in idxs:
+        #             map.flat[idx] = tile.idx
+        #         assert len(np.where(map == tile.idx)[0]) == tile.num
+        # for tile in fixed_num_tiles:
+        #     assert len(np.where(map == tile.idx)[0]) == tile.num
+        # return rearrange(np.eye(len(tiles), dtype=np.int16)[map], 'h w c -> c h w')
 
     def observe_map(self, map_arr, player_pos):
         obs = rearrange(map_arr, 'b h w -> h w b')
@@ -668,7 +707,7 @@ class PlayEnv(gym.Env):
         #     done = done or reward == self._done_at_reward
         done = (done | state.n_step >= self.max_episode_steps) | \
             jnp.sum(map_arr[self.player_idx]) == 0
-        jax.debug.breakpoint()
+        # jax.debug.breakpoint()
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = state.replace(player_pos=player_pos, map=map_arr)
         # map_arr = jax.lax.cond(
@@ -733,7 +772,7 @@ class PlayEnv(gym.Env):
             if done:
                 state, obs = self.reset(key=key, params=params)
                 done = False
-                self.render(mode='pygame', state=state)
+                self.render(mode='pygame', state=state, params=params)
         return state
 
 

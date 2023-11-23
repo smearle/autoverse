@@ -3,7 +3,7 @@ from pdb import set_trace as TT
 
 import numpy as np
 
-from gen_env.envs.play_env import PlayEnv
+from gen_env.envs.play_env import PlayEnv, GameDef
 from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TilePlacement, TileSet, TileType
 
@@ -116,7 +116,8 @@ def make_env():
     # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
     # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
         # search_tiles=search_tiles, cfg=cfg)
-    game_def = dict(
+    game_def = GameDef(
+        search_tiles=search_tiles,
         tiles=tiles,
         rules=rules,
         player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
