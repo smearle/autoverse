@@ -499,7 +499,7 @@ class PlayEnv(gym.Env):
         tile_ims = []
         for tile in self.tiles[::-1]:
             # if tile.color is not None:
-            int_map[state.map[tile.idx] == 1] = tile.idx
+            int_map[np.array(state.map)[tile.idx] == 1] = tile.idx
             tile_map = np.where(state.map[tile.idx] == 1, tile.idx, -1)
             # If this is the player, render as a triangle according to its rotation
             tile_im = self.tile_colors[tile_map]
@@ -833,9 +833,8 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # Pad the map, wrapping around the edges
     pad_width = 1
     # Make it toroidal
-    padded_map = toroidal_pad(map, pad_width)
     # Use jax to apply a convolution to the map
-    sr_activs = jax.lax.conv(padded_map, inp, window_strides=(1, 1), padding='SAME')
+    sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
     # How many tiles are expected in the input pattern
     n_constraints = inp.sum()
     # Identify positions at which all constraints were met
@@ -860,8 +859,7 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # crop_shapes = math.ceil(crop_shapes[0]), math.ceil(crop_shapes[1])
     # out_map = out_map[:, :, crop_shapes[0]: crop_shapes[0] + next_map.shape[2], crop_shapes[1]:crop_shapes[1]+ next_map.shape[3]]
 
-    out_map = out_map[:, :, pad_width: -pad_width, pad_width: -pad_width]
-    jax.debug.breakpoint()
+    # jax.debug.breakpoint()
 
     # if sr_activs.sum() > 0:
     #     has_applied_rule = True
@@ -981,7 +979,7 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     # print([r.name for r in rules])
     h, w = map.shape[1:]
     map = map.astype(jnp.int8)
-    map = jnp.pad(map, ((0, 0), (map_padding, map_padding), (map_padding, map_padding)), 'constant')
+    map = toroidal_pad(map, map_padding)
     done = False
     reward = 0
     # These rules may become blocked when other rules are activated.
@@ -1012,6 +1010,7 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0))(
         map, subrules_ints, rewards, dones)
     next_map += out_maps.sum(axis=0)
+    next_map = jnp.clip(next_map, 0, 1)
     done = jnp.any(r_dones)
     reward = r_rewards.sum()
     has_applied_rule = jnp.any(r_has_applied_rules)
@@ -1085,8 +1084,6 @@ def toroidal_pad(map, pad_width=1):
     - jax.numpy.ndarray: The padded, toroidal map.
     """
 
-    map = map[0]
-
     if map.ndim != 3 or map.shape[1] != map.shape[2]:
         raise ValueError("Input map must be a 3D array with the last two dimensions being square.")
 
@@ -1106,7 +1103,5 @@ def toroidal_pad(map, pad_width=1):
     padded_map = padded_map.at[:, -pad_width:, :pad_width].set(map[:, :pad_width, -pad_width:])  # Bottom-left to top-right
     padded_map = padded_map.at[:, :pad_width, -pad_width:].set(map[:, -pad_width:, :pad_width])  # Top-right to bottom-left
     padded_map = padded_map.at[:, -pad_width:, -pad_width:].set(map[:, :pad_width, :pad_width])  # Bottom-right to top-left
-
-    padded_map = padded_map[None]
 
     return padded_map
