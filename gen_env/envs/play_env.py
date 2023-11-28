@@ -336,19 +336,27 @@ class PlayEnv(gym.Env):
         move_coeff = acts_to_move_coeffs[action]
         place_tile = place_tiles[action]
         new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
+        new_pos = new_pos % jnp.array(state.map.shape[1:])
         new_map = state.map
         player_pos = state.player_pos
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(0)
         # Apply new position if within bounds.
-        player_pos = jax.lax.select(
-            jnp.all(new_pos >= 0) & jnp.all(new_pos < self.map_shape[1:]),
-            new_pos,
-            player_pos,
-        )
+        # player_pos = jax.lax.select(
+        #     jnp.all(new_pos >= 0) & jnp.all(new_pos < self.map_shape[1:]),
+        #     new_pos,
+        #     player_pos,
+        # )
+        player_pos = new_pos
+
+        # Actually print the values in the jax array
+        print(f"player_pos: {player_pos}")
+        # But also inside compiled jax code
+        # print(f"player_pos: {player_pos[0]}, {player_pos[1]}")
 
         # Hackish way
         n_prev = 4
         trg_pos = player_pos + self._rot_dirs[player_rot]
+        trg_pos = trg_pos % jnp.array(state.map.shape[1:])
         new_map = new_map.at[params.player_placeable_tiles[action - n_prev], trg_pos[0], trg_pos[1]].set(place_tile)
 
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(1)
@@ -822,8 +830,12 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     subrule_int = rearrange(subrule_int, 'iop (o i) h w -> iop o i h w', o=1).astype(np.int8)
     inp, outp = subrule_int
 
+    # Pad the map, wrapping around the edges
+    pad_width = 1
+    # Make it toroidal
+    padded_map = toroidal_pad(map, pad_width)
     # Use jax to apply a convolution to the map
-    sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
+    sr_activs = jax.lax.conv(padded_map, inp, window_strides=(1, 1), padding='SAME')
     # How many tiles are expected in the input pattern
     n_constraints = inp.sum()
     # Identify positions at which all constraints were met
@@ -847,6 +859,9 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # crop_shapes = (out_map.shape[2] - next_map.shape[2]) / 2, (out_map.shape[3] - next_map.shape[3]) / 2
     # crop_shapes = math.ceil(crop_shapes[0]), math.ceil(crop_shapes[1])
     # out_map = out_map[:, :, crop_shapes[0]: crop_shapes[0] + next_map.shape[2], crop_shapes[1]:crop_shapes[1]+ next_map.shape[3]]
+
+    out_map = out_map[:, :, pad_width: -pad_width, pad_width: -pad_width]
+    jax.debug.breakpoint()
 
     # if sr_activs.sum() > 0:
     #     has_applied_rule = True
@@ -944,7 +959,7 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: b
     # else:
     out_maps, sr_activs = jax.vmap(apply_subrule, (None, 0))(map, subrules_int)
     out_map = out_maps.sum(axis=0)
-    done = np.any(sr_activs * done)
+    done = jnp.any(sr_activs * done)
     reward = reward * sr_activs.sum()
     has_applied_rule = sr_activs.sum() > 0
     return out_map, done, reward, has_applied_rule
@@ -1055,3 +1070,43 @@ def gen_random_map(game_def: GameDef, map_shape):
                 map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
     # obj_set = {}
     return map_arr
+
+
+def toroidal_pad(map, pad_width=1):
+    """
+    Pads a 3D map (with channel as the first dimension) to make it toroidal (like in Pac-Man),
+    wrapping the last two dimensions.
+    
+    Args:
+    - map (jax.numpy.ndarray): A 3D array with shape (n_channels, height, width).
+    - pad_width (int): The width of the padding.
+    
+    Returns:
+    - jax.numpy.ndarray: The padded, toroidal map.
+    """
+
+    map = map[0]
+
+    if map.ndim != 3 or map.shape[1] != map.shape[2]:
+        raise ValueError("Input map must be a 3D array with the last two dimensions being square.")
+
+    # Padding the map normally
+    padded_map = jnp.pad(map, ((0, 0), (pad_width, pad_width), (pad_width, pad_width)), mode='constant')
+
+    # Wrapping the top to the bottom and the bottom to the top for each channel
+    padded_map = padded_map.at[:, :pad_width, pad_width:-pad_width].set(map[:, -pad_width:, :])
+    padded_map = padded_map.at[:, -pad_width:, pad_width:-pad_width].set(map[:, :pad_width, :])
+
+    # Wrapping the left to the right and the right to the left for each channel
+    padded_map = padded_map.at[:, pad_width:-pad_width, :pad_width].set(map[:, :, -pad_width:])
+    padded_map = padded_map.at[:, pad_width:-pad_width, -pad_width:].set(map[:, :, :pad_width])
+
+    # Handling the corners for each channel
+    padded_map = padded_map.at[:, :pad_width, :pad_width].set(map[:, -pad_width:, -pad_width:])  # Top-left to bottom-right
+    padded_map = padded_map.at[:, -pad_width:, :pad_width].set(map[:, :pad_width, -pad_width:])  # Bottom-left to top-right
+    padded_map = padded_map.at[:, :pad_width, -pad_width:].set(map[:, -pad_width:, :pad_width])  # Top-right to bottom-left
+    padded_map = padded_map.at[:, -pad_width:, -pad_width:].set(map[:, :pad_width, :pad_width])  # Bottom-right to top-left
+
+    padded_map = padded_map[None]
+
+    return padded_map

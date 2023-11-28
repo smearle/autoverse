@@ -41,6 +41,7 @@ def main(cfg: Config):
 
     key = jax.random.PRNGKey(0)
     state, obs = env.reset(key=key, params=params)
+    print(f'player pos {state.player_pos}')
     env.render(mode='pygame', state=state, params=params)
     done = False
 

@@ -26,16 +26,16 @@ def make_env():
         'A',
         in_out=np.array([
             [
-                # [[None, player, force]],
-                # [[None, None, floor]],
-                [[None, None, None]],
-                [[None, None, None]],
+                [[None, player, force]],
+                [[None, None, floor]],
+                # [[None, None, None]],
+                # [[None, None, None]],
             ],
             [
-                # [[None, None, player]],
-                # [[None, None, floor]],
-                [[None, None, None]],
-                [[None, None, None]],
+                [[None, None, player]],
+                [[None, None, floor]],
+                # [[None, None, None]],
+                # [[None, None, None]],
             ]
         ]),
         rotate=True,
