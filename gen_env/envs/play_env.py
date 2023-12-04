@@ -88,6 +88,8 @@ class PlayEnv(gym.Env):
         tiles, search_tiles, player_placeable_tiles = \
             game_def.tiles, game_def.search_tiles, game_def.player_placeable_tiles
 
+        self.game_def = game_def
+
         # Just for rendering. Not jax-able!
         self.rules = game_def.rules
 
@@ -283,19 +285,16 @@ class PlayEnv(gym.Env):
         self, key: chex.PRNGKey, params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, EnvState]:
         """Performs resetting of environment."""
-        # Use default env parameters if no others specified
-        if params is None:
-            params = self.default_params
         obs, state = self.reset_env(key, params)
         return obs, state
 
 
     def step_env(self, key: chex.PRNGKey, action: chex.Array, state: EnvState,
-                 params: EnvParams):
+                 params: EnvParams, vmap=False):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
         state = self.act(action=action, state=state, params=params)
-        state, reward, done = self.tick(state, params)
+        state, reward, done = self.tick(state, params, vmap=vmap)
         n_step = state.n_step + 1
         ep_rew = state.ep_rew + reward
         state = state.replace(n_step=n_step, ep_rew=ep_rew)
@@ -357,7 +356,7 @@ class PlayEnv(gym.Env):
         n_prev = 4
         trg_pos = player_pos + self._rot_dirs[player_rot]
         trg_pos = trg_pos % jnp.array(state.map.shape[1:])
-        new_map = new_map.at[params.player_placeable_tiles[action - n_prev], trg_pos[0], trg_pos[1]].set(place_tile)
+        new_map = new_map.at[params.player_placeable_tiles[jnp.int16(action) - n_prev], trg_pos[0], trg_pos[1]].set(place_tile)
 
         new_map = new_map.at[self.player_idx, player_pos[0], player_pos[1]].set(1)
         state = state.replace(player_rot=player_rot, player_pos=player_pos,
@@ -403,18 +402,32 @@ class PlayEnv(gym.Env):
         # noised_map = rearrange(noised_map, 'c h w -> c (h w)')
         # sorted_idxs = jnp.argsort(noised_map, axis=1, kind='stable')
 
-        for i in range(len(n_add)):
+        # Function to add activations
+        def add_activations(key, channel, n):
+            flat_channel = channel.ravel()
+            zero_indices = jnp.where(flat_channel == 0)[0]
+            selected_indices = jax.random.choice(key, zero_indices, shape=(n,), replace=False)
+            flat_channel = flat_channel.at[selected_indices].set(1)
+            return flat_channel.reshape(channel.shape)
 
-            pres_idxs = jnp.where(map[i] == 1, size=math.prod(map[i].shape, fill=-1))[0]
-            update_array = -jnp.ones(pres_idxs.shape, dtype=sorted_idxs.dtype)
+        # Function to delete activations
+        def delete_activations(key, channel, n):
+            flat_channel = channel.ravel()
+            one_indices = jnp.where(flat_channel == 1)[0]
+            selected_indices = jax.random.choice(key, one_indices, shape=(n,), replace=False)
+            flat_channel = flat_channel.at[selected_indices].set(0)
+            return flat_channel.reshape(channel.shape)
 
-            # Update for deletion
-            if n_delete[i] > 0:
-                # delete the first n_delete[i] tiles
-                update_array = jax.ops.index_update(update_array, jax.ops.index[:n_delete[i]], pres_idxs[:n_delete[i]])
-                # update the map
-                map = jax.ops.index_update(map, jax.ops.index[i, update_array], 0)
-                breakpoint()
+        # Processing each channel
+        for i in range(map.shape[0]):
+            if n_add[i] > 0:
+                key, subkey = jax.random.split(key)
+                map = map.at[i].set(add_activations(subkey, map[i], n_add[i]))
+            elif n_delete[i] > 0:
+                key, subkey = jax.random.split(key)
+                map = map.at[i].set(delete_activations(subkey, map[i], n_delete[i]))
+
+        return map
 
 
 
@@ -705,7 +718,7 @@ class PlayEnv(gym.Env):
             cv2.waitKey(1)
             # return self.rend_im
 
-    def tick(self, state: EnvState, params: EnvParams):
+    def tick(self, state: EnvState, params: EnvParams, vmap: bool):
         # self._last_reward = self._reward
         # for obj in self.objects:
         #     obj.tick(self)
@@ -713,9 +726,8 @@ class PlayEnv(gym.Env):
             = apply_rules(state.map, params, self.map_padding)
         # if self._done_at_reward is not None:
         #     done = done or reward == self._done_at_reward
-        done = (done | state.n_step >= self.max_episode_steps) | \
-            jnp.sum(map_arr[self.player_idx]) == 0
-        # jax.debug.breakpoint()
+        done = done | (state.n_step >= self.max_episode_steps) | \
+            (jnp.sum(map_arr[self.player_idx]) == 0)
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = state.replace(player_pos=player_pos, map=map_arr)
         # map_arr = jax.lax.cond(
@@ -840,19 +852,23 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # Identify positions at which all constraints were met
     sr_activs = (sr_activs == n_constraints).astype(np.int8)
 
+    # jax.debug.print('sr_activs {sr_activs}', sr_activs=sr_activs)
     # if sr_activs.sum() > 0 and rule.reward > 0:
-    #     breakpoint()
+    #     jax.debug.breakpoint()
 
     # Note that this can have values of `-1` to remove tiles
     outp = rearrange(outp, 'o i h w -> i o h w')
 
     # Need to flip along height/width dimensions for transposed convolution to work as expected
     outp = np.flip(outp, 2)
-    outp = np.flip(outp, 3)
+    # outp = np.flip(outp, 3)
+
+    # jax.debug.print('outp {outp}', outp=outp)
 
     # Now paste the output pattern wherever input is active
     out_map = jax.lax.conv_transpose(sr_activs, outp, (1, 1), 'SAME',
                                         dimension_numbers=('NCHW', 'OIHW', 'NCHW'))
+    # jax.debug.print('out_map {out_map}', out_map=out_map)
     
     # Crop out_map to be the height and width as next_map, cropping more on the right/lower side if uneven
     # crop_shapes = (out_map.shape[2] - next_map.shape[2]) / 2, (out_map.shape[3] - next_map.shape[3]) / 2
@@ -932,7 +948,8 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
 
 VMAP = True
     
-def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: bool, random: bool = False):
+def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: bool, random: bool,
+               map_padding: int):
     # rule = rules.pop(0)
     # if rule in blocked_rules:
     #     continue
@@ -1007,8 +1024,8 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     #         reward += r_reward
     #         has_applied_rule = has_applied_rule or r_has_applied_rule
     # else:
-    out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0))(
-        map, subrules_ints, rewards, dones)
+    out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0, None, None))(
+        map, subrules_ints, rewards, dones, False, map_padding)
     next_map += out_maps.sum(axis=0)
     next_map = jnp.clip(next_map, 0, 1)
     done = jnp.any(r_dones)

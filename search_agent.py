@@ -8,6 +8,7 @@ from typing import Iterable
 from fire import Fire
 import gym
 import jax
+from jax import numpy as jnp
 import numpy as np
 
 from gen_env.games import (hamilton, maze, maze_backtracker, maze_npc, power_line, sokoban)
@@ -90,8 +91,9 @@ def solve(env: PlayEnv, state: EnvState, params: EnvParams,
                 best_state_actions = (state, action_seq)
                 best_reward = child_rew
                 n_iter_best = n_iter
-                # print('found new best')
-            if not done:
+                print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+            if not jnp.all(done):
+                # Add this state to the frontier so can we can continue searching from it later
                 frontier.append((state, action_seq, child_rew))
 
     return best_state_actions, best_reward, n_iter_best, n_iter

@@ -38,7 +38,7 @@ def profile(cfg: Config):
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def render_sol(cfg: Config):
-    key = jax.random.PRNGKey(0)
+    key = jax.random.PRNGKey(1)
     env, params = init_base_env(cfg)
     best_state_actions = None
     best_reward = 0
@@ -47,6 +47,7 @@ def render_sol(cfg: Config):
     state, obs = env.reset(key=key, params=params)
     best_state_actions, best_reward, n_iter_best, n_iter = \
         solve(env, state, max_steps=1000, params=params)
+    print(f"Found best solution afger {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
     # Render the solution
     frames = []
     if best_state_actions is not None:

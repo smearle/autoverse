@@ -1,8 +1,9 @@
+import jax
 import numpy as np
 
 from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.individual import Individual
-from gen_env.utils import load_game_to_env
+from gen_env.utils import get_params_from_individual, load_game_to_env
 from search_agent import solve
 
 def evaluate_multi(args):
@@ -17,14 +18,16 @@ def evaluate_DUMMY(env: PlayEnv, individual: Individual, render: bool, trg_n_ite
     individual.action_seq = []
     return individual
 
-def evaluate(env: PlayEnv, individual: Individual, render: bool, trg_n_iter: bool):
+def evaluate(key: jax.random.PRNGKey,
+             env: PlayEnv, individual: Individual, render: bool, trg_n_iter: bool):
     load_game_to_env(env, individual)
     env.queue_games([individual.map.copy()], [individual.rules.copy()])
-    init_state, obs = env.reset()
+    params = get_params_from_individual(env, individual)
+    init_state, obs = env.reset(key=key, params=params)
     # Save the map after it having been cleaned up by the environment
-    individual.map = env.map.copy()
+    # individual.map = env.map.copy()
     # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-    best_state_actions, best_reward, n_iter_best, n_iter = solve(env, max_steps=trg_n_iter)
+    best_state_actions, best_reward, n_iter_best, n_iter = solve(env, init_state, params, max_steps=trg_n_iter)
     action_seq = None
     if best_state_actions is not None:
         (final_state, action_seq) = best_state_actions

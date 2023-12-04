@@ -15,12 +15,6 @@ from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TileType, TileSet
 
 
-@struct.dataclass
-class Genome:
-    rules: chex.Array
-    map: chex.Array
-
-
 class Individual():
     def __init__(self, cfg: Config, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
         self.cfg = cfg
@@ -74,6 +68,9 @@ class Individual():
         
         # self.map = PlayEnv.repair_map(disc_map, self.tiles)
         self.map = PlayEnv.repair_map(key, map, fixed_tile_nums=fixed_tile_nums)
+
+        if self.map is None:
+            breakpoint()
 
 
     def save(self, filename):

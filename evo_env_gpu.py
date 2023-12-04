@@ -16,15 +16,15 @@ import numpy as np
 # import pool from ray
 # from ray.util.multiprocessing import Pool
 from multiprocessing import Pool
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 
 from gen_env.configs.config import Config
 from gen_env.games import GAMES
-from gen_env.envs.play_env import PlayEnv
+from gen_env.envs.play_env import EnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
 from gen_env.evo.individual import Individual
 from gen_env.rules import is_valid
-from gen_env.utils import init_base_env, load_game_to_env, validate_config
+from gen_env.utils import get_params_from_individual, init_base_env, load_game_to_env, validate_config
 
 
 
@@ -135,12 +135,13 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual,
                    record: bool = False):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
-    # print(f"Action sequence: {elite.action_seq}")
+    params = get_params_from_individual(env, elite)
     load_game_to_env(env, elite)
     obs_seq = []
     rew_seq = []
-    env.queue_games([elite.map.copy()], [elite.rules.copy()])
-    state, obs = env.reset()
+    # env.queue_games([elite.map.copy()], [elite.rules.copy()])
+    key = jax.random.PRNGKey(0)
+    state, obs = env.reset(key=key, params=params)
     # print(f"Initial state reward: {state.ep_rew}")
     # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
@@ -149,7 +150,7 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual,
     #     env.tick_human()
     obs_seq.append(obs)
     if record:
-        frames = [env.render(mode='rgb_array', state=state)]
+        frames = [env.render(mode='rgb_array', state=state, params=params)]
     if cfg.render:
         env.render(mode='human', state=state)
     done = False
@@ -164,14 +165,14 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual,
             #     print('Replaying again, rendering this time')
             #     return replay_episode(cfg, env, elite, record=True)
             break
-        state, obs, reward, done, info = env.step(elite.action_seq[i], state=state)
+        state, obs, reward, done, info = env.step(key, state=state, action=elite.action_seq[i], params=params)
         # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
         if record:
-            frames.append(env.render(mode='rgb_array', state=state))
+            frames.append(env.render(mode='rgb_array', state=state, params=params))
         if cfg.render:
-            env.render(mode='human', state=state)
+            env.render(mode='human', state=state, params=params)
         i += 1
     if i < len(elite.action_seq):
         # FIXME: Problem with player death...?
@@ -252,7 +253,7 @@ def main(cfg: Config):
             shutil.rmtree(cfg._log_dir_il, ignore_errors=True)
     if not loaded:
         pop_size = cfg.batch_size
-        trg_n_iter = 100 # Max number of iterations while searching for solution. Will increase during evolution
+        trg_n_iter = 200 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
     env, params = init_base_env(cfg)
@@ -272,6 +273,7 @@ def main(cfg: Config):
     def multiproc_eval_offspring(offspring):
         eval_offspring = []
         while len(offspring) > 0:
+            envs = [env for _ in range(len(offspring))]
             eval_offspring += pool.map(evaluate_multi, [(env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
             offspring = offspring[cfg.n_proc:]
         return eval_offspring
@@ -293,7 +295,7 @@ def main(cfg: Config):
             offspring.append(o)
         if n_proc == 1:
             for o in offspring:
-                o = evaluate(env, o, render, trg_n_iter)
+                o = evaluate(key, env, o, render, trg_n_iter)
         else:
             with Pool(processes=n_proc) as pool:
                 offspring = multiproc_eval_offspring(offspring)
@@ -311,12 +313,12 @@ def main(cfg: Config):
             for rule in o.rules:
                 if not is_valid(rule._in_out):
                     breakpoint()
-        if n_proc == 1:
-            for o in offspring:
-                o = evaluate(env, o, render, trg_n_iter)
-        else:
-            with Pool(processes=n_proc) as pool:
-                offspring = multiproc_eval_offspring(offspring)
+        # if n_proc == 1:
+        for o in offspring:
+            o = evaluate(key, env, o, render, trg_n_iter)
+        # else:
+        #     with Pool(processes=n_proc) as pool:
+        #         offspring = multiproc_eval_offspring(offspring)
 
         elites = np.concatenate((elites, offspring))
         # Discard the weakest.
@@ -345,7 +347,7 @@ def main(cfg: Config):
         # if max_fit > trg_n_iter - 10:
         if max_fit > trg_n_iter * 0.5:
             # trg_n_iter *= 2
-            trg_n_iter += 100
+            trg_n_iter += 200
         if n_gen % cfg.save_freq == 0: 
             # Save the elites.
             np.savez(os.path.join(cfg._log_dir_evo, f"gen-{n_gen}"),

@@ -50,7 +50,7 @@ def init_base_env(cfg: Config, sb3=False):
     rule_rewards = jnp.array([rule.reward for rule in game_def.rules])
     rule_dones = jnp.array([rule.done for rule in game_def.rules], dtype=bool)
     player_placeable_tiles = \
-        jnp.array([tile.idx for tile, placement_rule in game_def.player_placeable_tiles])
+        jnp.array([tile.idx for tile, placement_rule in game_def.player_placeable_tiles], dtype=int)
     params = EnvParams(rules=rules_int, map=map_arr, rule_rewards=rule_rewards,
                        rule_dones=rule_dones,
                        player_placeable_tiles=player_placeable_tiles)
@@ -78,5 +78,16 @@ def load_game_to_env(env: PlayEnv, individual: Individual):
     env.rules = individual.rules
     env.tiles = individual.tiles
     env._init_rules = individual.rules
-    env.init_obs_space()
+    params = get_params_from_individual(env, individual)
+    env.init_obs_space(params=params)
     return env
+
+
+# TODO: individual should basically be its own dataclass
+def get_params_from_individual(env: PlayEnv, individual: Individual):
+    params = EnvParams(rules=jnp.array([rule.subrules_int for rule in individual.rules]),
+                       map=individual.map,
+                       rule_rewards=jnp.array([rule.reward for rule in individual.rules]),
+                       rule_dones=jnp.array([rule.done for rule in individual.rules], dtype=bool),
+                       player_placeable_tiles=jnp.array([tile.idx for tile, placement_rule in env.game_def.player_placeable_tiles]))
+    return params
