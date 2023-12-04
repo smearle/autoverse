@@ -18,7 +18,7 @@ def render_sol(cfg: Config):
     env, params = init_base_env(cfg)
     state, obs = env.reset_env(key=key, params=params)
     best_state_actions, best_reward, n_iter_best, n_iter = \
-        solve(env, state, max_steps=10000, params=params)
+        solve(env, state, max_steps=50_000, params=params)
     print(f"Found best solution afger {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
     # Render the solution
     frames = []
