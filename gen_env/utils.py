@@ -44,7 +44,7 @@ def init_base_env(cfg: Config, sb3=False):
         rule.n_tile_types = len(game_def.tiles)
         rule.compile()
     if game_def.map is None:
-        map_arr = gen_random_map(game_def, cfg.map_shape)
+        map_arr = gen_random_map(game_def, cfg.map_shape).astype(jnp.int16)
     # TODO: Flatten rule and subrule dimensions!
     rules_int = jnp.array([rule.subrules_int for rule in game_def.rules])
     rule_rewards = jnp.array([rule.reward for rule in game_def.rules])

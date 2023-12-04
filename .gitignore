@@ -8,3 +8,5 @@ outputs
 multirun
 *__pycache__
 *.egg-info
+sol_*.mp4
+*workspace

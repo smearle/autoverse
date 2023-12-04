@@ -244,7 +244,7 @@ class PlayEnv(gym.Env):
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = EnvState(
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
-            player_rot=self.player_rot, ep_rew=0.0,
+            player_rot=0, ep_rew=0.0,
             player_pos=player_pos,
         )
         # self._set_state(env_state)
@@ -263,6 +263,7 @@ class PlayEnv(gym.Env):
         # Use default env parameters if no others specified
         # if params is None:
         #     params = self.default_params
+        action = action.astype(jnp.int32)
         key, key_reset = jax.random.split(key)
         obs_st, state_st, reward, done, info = self.step_env(
             key, action=action, state=state, params=params
@@ -331,7 +332,11 @@ class PlayEnv(gym.Env):
         rot_diff = rot_diffs[action]
         acts_to_move_coeffs = jnp.array([0, 0, 1, -1, 0])
         place_tiles = jnp.array([0, 0, 0, 0, 1])
-        player_rot = ((state.player_rot + rot_diff) % 4).item()
+
+        # player_rot = ((state.player_rot + rot_diff) % 4).item()
+        # Above but jax-compatible
+        player_rot = jnp.mod(state.player_rot + rot_diff, 4).astype(jnp.int32)
+
         move_coeff = acts_to_move_coeffs[action]
         place_tile = place_tiles[action]
         new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
@@ -724,6 +729,7 @@ class PlayEnv(gym.Env):
         #     obj.tick(self)
         map_arr, reward, done, has_applied_rule, rule_time_ms\
             = apply_rules(state.map, params, self.map_padding)
+        map_arr = map_arr.astype(jnp.float32)
         # if self._done_at_reward is not None:
         #     done = done or reward == self._done_at_reward
         done = done | (state.n_step >= self.max_episode_steps) | \
@@ -1090,7 +1096,7 @@ def gen_random_map(game_def: GameDef, map_shape):
                 # Activate parent channels of any child tiles wherever the latter are active.
                 map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
     # obj_set = {}
-    return map_arr
+    return map_arr.astype(jnp.int16)
 
 
 def toroidal_pad(map, pad_width=1):

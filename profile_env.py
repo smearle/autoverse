@@ -66,5 +66,5 @@ def render_sol(cfg: Config):
     save_video(frames, f"sol_{cfg.game}.mp4", fps=10)
 
 if __name__ == '__main__':
-    render_sol()
-    # profile()
+    # render_sol()
+    profile()
