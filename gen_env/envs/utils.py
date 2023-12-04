@@ -22,7 +22,7 @@ def draw_triangle(im, pos, rot, color, tile_size):
     ])
 
     # Rotate the triangle
-    rot_mat = cv2.getRotationMatrix2D((tile_size / 2, tile_size / 2), (rot.item() - 1) * 90, 1)
+    rot_mat = cv2.getRotationMatrix2D((tile_size / 2, tile_size / 2), (float(rot) - 1) * 90, 1)
     triangle = cv2.transform(triangle.reshape(1, -1, 2), rot_mat).reshape(-1, 2)
 
     # Draw the triangle

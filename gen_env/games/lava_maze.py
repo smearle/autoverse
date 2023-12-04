@@ -20,13 +20,13 @@ def make_env():
     player_move = Rule(
         'player_move', 
         in_out=np.array(  [# Both input patterns must be present to activate the rule.
-            [[[player, floor]],  # Player next to a passable/floor tile.
-            [[None, force]], # A force is active on said passable tile.
+            [[[player, force]],  # Player next to a passable/floor tile.
+            [[None, floor]], # A force is active on said passable tile.
                 ]  
             ,
             # Both changes are applied to the relevant channels, given by the respective input subpatterns.
             [[[None, player]],  # Player moves to target. No change at source.
-            [[None, None]],  # Force is removed from target tile.
+            [[None, floor]],  # Force is removed from target tile.
             ],
         ]),
         rotate=True,)

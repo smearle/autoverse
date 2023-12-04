@@ -50,7 +50,8 @@ def main(cfg: Config):
     while running:
         # env.step(env.action_space.sample())
         # env.render()
-        state = env.tick_human(state=state, params=params)
+        key, subkey = jax.random.split(key)
+        state = env.tick_human(key=subkey, state=state, params=params)
 
     pygame.quit()
 

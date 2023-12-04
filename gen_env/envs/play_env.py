@@ -214,7 +214,7 @@ class PlayEnv(gym.Env):
     def reset_env(self, key: chex.PRNGKey, params: EnvParams):
         self._done = False
         self.unwrapped._done = False
-        rules, map_arr = params.rules, params.map
+        rules, map_arr = params.rules, jnp.array(params.map, dtype=np.float32)
 
         # if len(self._rule_queue) > 0:
         #     self._game_idx = self._game_idx % len(self._rule_queue)
@@ -233,7 +233,7 @@ class PlayEnv(gym.Env):
         self.event_graph.reset()
         self.n_step = 0
         # self._last_reward = 0
-        self._reward = 0
+        self._reward = 0.0
         # if len(self._map_queue) == 0:
         #     map_arr = self.gen_random_map()
         # else:
@@ -244,7 +244,7 @@ class PlayEnv(gym.Env):
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = EnvState(
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
-            player_rot=self.player_rot, ep_rew=self.ep_rew,
+            player_rot=self.player_rot, ep_rew=0.0,
             player_pos=player_pos,
         )
         # self._set_state(env_state)
@@ -290,11 +290,11 @@ class PlayEnv(gym.Env):
 
 
     def step_env(self, key: chex.PRNGKey, action: chex.Array, state: EnvState,
-                 params: EnvParams, vmap=False):
+                 params: EnvParams):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
         state = self.act(action=action, state=state, params=params)
-        state, reward, done = self.tick(state, params, vmap=vmap)
+        state, reward, done = self.tick(state, params)
         n_step = state.n_step + 1
         ep_rew = state.ep_rew + reward
         state = state.replace(n_step=n_step, ep_rew=ep_rew)
@@ -331,7 +331,7 @@ class PlayEnv(gym.Env):
         rot_diff = rot_diffs[action]
         acts_to_move_coeffs = jnp.array([0, 0, 1, -1, 0])
         place_tiles = jnp.array([0, 0, 0, 0, 1])
-        player_rot = (state.player_rot + rot_diff) % 4
+        player_rot = ((state.player_rot + rot_diff) % 4).item()
         move_coeff = acts_to_move_coeffs[action]
         place_tile = place_tiles[action]
         new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
@@ -718,7 +718,7 @@ class PlayEnv(gym.Env):
             cv2.waitKey(1)
             # return self.rend_im
 
-    def tick(self, state: EnvState, params: EnvParams, vmap: bool):
+    def tick(self, state: EnvState, params: EnvParams):
         # self._last_reward = self._reward
         # for obj in self.objects:
         #     obj.tick(self)
@@ -762,8 +762,7 @@ class PlayEnv(gym.Env):
         map_arr = self._update_inhibits(map_arr)
         return map_arr
 
-    def tick_human(self, state: EnvState, params: EnvParams):
-        key = jax.random.PRNGKey(0)
+    def tick_human(self, key: jax.random.PRNGKey, state: EnvState, params: EnvParams):
         import pygame
         done = False
         # If there is no player, take any action to tick the environment (e.g. during level-generation).
@@ -780,8 +779,9 @@ class PlayEnv(gym.Env):
                 if event.key in self.keys_to_acts:
                     action = self.keys_to_acts[event.key]
                     state, obs, rew, done, info = \
-                        self.step(key=key, action=action, state=state,
-                                  params=params)
+                        self.step_env(key=key, action=action, state=state, params=params)
+                        # self.step(key=key, action=action, state=state,
+                        #           params=params)
                     state: EnvState
 
                     self.render(mode='pygame', state=state, params=params)
@@ -790,7 +790,9 @@ class PlayEnv(gym.Env):
                 elif event.key == pygame.K_x:
                     done = True
             if done:
-                state, obs = self.reset(key=key, params=params)
+                map_arr = gen_random_map(self.game_def, self.cfg.map_shape)
+                params = params.replace(map=map_arr)
+                state, obs = self.reset_env(key=key, params=params)
                 done = False
                 self.render(mode='pygame', state=state, params=params)
         return state
@@ -839,7 +841,7 @@ class SB3PlayEnv(PlayEnv):
 def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # Apply, e.j., rotations of the base rule
     # Add one output channel
-    subrule_int = rearrange(subrule_int, 'iop (o i) h w -> iop o i h w', o=1).astype(np.int8)
+    subrule_int = rearrange(subrule_int, 'iop (o i) h w -> iop o i h w', o=1)
     inp, outp = subrule_int
 
     # Pad the map, wrapping around the edges
@@ -850,7 +852,7 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # How many tiles are expected in the input pattern
     n_constraints = inp.sum()
     # Identify positions at which all constraints were met
-    sr_activs = (sr_activs == n_constraints).astype(np.int8)
+    sr_activs = (sr_activs == n_constraints).astype(jnp.float32)
 
     # jax.debug.print('sr_activs {sr_activs}', sr_activs=sr_activs)
     # if sr_activs.sum() > 0 and rule.reward > 0:
@@ -861,7 +863,7 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
 
     # Need to flip along height/width dimensions for transposed convolution to work as expected
     outp = np.flip(outp, 2)
-    # outp = np.flip(outp, 3)
+    outp = np.flip(outp, 3)
 
     # jax.debug.print('outp {outp}', outp=outp)
 
@@ -950,6 +952,9 @@ VMAP = True
     
 def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: bool, random: bool,
                map_padding: int):
+    map = map.astype(jnp.float32)
+    subrules_int = subrules_int.astype(jnp.float32)
+
     # rule = rules.pop(0)
     # if rule in blocked_rules:
     #     continue
@@ -995,10 +1000,10 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     # rules_set = set(rules)
     # print([r.name for r in rules])
     h, w = map.shape[1:]
-    map = map.astype(jnp.int8)
+    # map = map.astype(jnp.int8)
     map = toroidal_pad(map, map_padding)
     done = False
-    reward = 0
+    reward = 0.0
     # These rules may become blocked when other rules are activated.
     blocked_rules = set({})
 
