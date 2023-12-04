@@ -19,24 +19,69 @@ from gen_env.envs.play_env import EnvParams, EnvState, PlayEnv, Rule, TileType
 RENDER = False
 
 
-def solve(env: PlayEnv, state: EnvState, params: EnvParams,
-          max_steps: int = inf, render: bool = RENDER):
+def solve_parallel(env: PlayEnv, state: EnvState, params: EnvParams,
+                   max_steps: int = inf, render: bool = RENDER):
     """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
-    # height, width = env.height, env.width
-    # state = env.get_state()
     key = jax.random.PRNGKey(0)
     frontier = [(state, [], 0)]
     visited = {}
-    # visited = {env.player_pos: state}
-    # visited = {type(env).hashable(state): state}
-    # visited_0 = [state]
+    best_state_actions = None
+    best_reward = -inf
+    n_iter = 0
+    n_iter_best = 0
+
+    possible_actions = jnp.array(range(env.action_space.n))
+
+    # Define a parallel version of the env.step_env function
+    parallel_step_env = vmap(env.step_env, in_axes=(None, 0, None, None, None))
+
+    while len(frontier) > 0:
+        n_iter += 1
+        if n_iter > max_steps:
+            break
+
+        # Find the idx of the best state in the frontier
+        best_idx = np.argmax([f[2] for f in frontier])
+
+        parent_state, parent_action_seq, parent_rew = frontier.pop(best_idx)
+        visited[hash(env, parent_state)] = parent_rew
+
+        # Generate new keys for each action to ensure randomness
+        keys = jax.random.split(key, len(possible_actions))
+
+        # Take steps in parallel
+        states, obss, rews, dones, infos = parallel_step_env(keys, possible_actions, parent_state, params, render)
+
+        for action, (state, obs, rew, done, info) in zip(possible_actions, zip(states, obss, rews, dones, infos)):
+            child_rew = state.ep_rew
+            action_seq = parent_action_seq + [action]
+            hashed_state = hash(env, state)
+            if hashed_state in visited and child_rew <= visited[hashed_state]:
+                continue
+            visited[hashed_state] = child_rew
+            if child_rew > best_reward:
+                best_state_actions = (state, action_seq)
+                best_reward = child_rew
+                n_iter_best = n_iter
+            if not jnp.all(done):
+                frontier.append((state, action_seq, child_rew))
+
+    return best_state_actions, best_reward, n_iter_best, n_iter
+
+
+def solve(env: PlayEnv, state: EnvState, params: EnvParams,
+          max_steps: int = inf, render: bool = RENDER):
+    """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
+    key = jax.random.PRNGKey(0)
+    frontier = [(state, [], 0)]
+    visited = {}
     best_state_actions = None
     best_reward = -inf
     n_iter = 0
     n_iter_best = 0
 
     if isinstance(env.action_space, gym.spaces.Discrete):
-        possible_actions = list(range(env.action_space.n))
+        possible_actions = jnp.array(list(range(env.action_space.n)), dtype=jnp.int32)
     else:
         raise NotImplementedError
 
@@ -44,55 +89,40 @@ def solve(env: PlayEnv, state: EnvState, params: EnvParams,
         n_iter += 1
         if n_iter > max_steps:
             break
-        # parent_state, parent_action_seq, parent_rew = frontier.pop(0)
+
         # Find the idx of the best state in the frontier
         best_idx = np.argmax([f[2] for f in frontier])
-        parent_state, parent_action_seq, parent_rew = frontier.pop(best_idx)
-        
-        # FIXME: Redundant, remove me
-        # env.set_state(parent_state)
 
-        # visited[env.player_pos] = env.get_state()
-        # if type(env).hashable(parent_state) in visited:
-            # continue
+        parent_state, parent_action_seq, parent_rew = frontier.pop(best_idx)
         visited[hash(env, parent_state)] = parent_rew
-        # print(visited.keys())
-        random.shuffle(possible_actions)
-        for action in possible_actions:
-            # env.set_state(parent_state)
-            # print('set frontier state')
-            state, obs, rew, done, info = \
-                env.step(key=key, action=action, state=parent_state, params=params)
-            child_rew = state.ep_rew
+        # random.shuffle(possible_actions)
+
+        step_key = jax.random.split(key, possible_actions.shape[0])
+        v_state, v_obs, v_rew, v_done, v_info = \
+            jax.vmap(env.step_env, in_axes=(None, None, 0, None))(
+                key,
+                parent_state,
+                possible_actions,
+                params)
+
+        for i, action in enumerate(possible_actions):
+            # state, obs, rew, done, info = \
+            #     env.step_env(key=key, action=action, state=parent_state, params=params)
+            child_rew = v_state.ep_rew[i]
             if render:
                 env.render()
-            # print(f'action: {action}')
-
-            # FIXME: Redundant, remove me
-
-            # map_arr = state['map_arr']
             action_seq = parent_action_seq + [action]
-            # if env.player_pos in visited:
+            state = jax.tree_map(lambda x: x[i], v_state)
             hashed_state = hash(env, state)
-            # if hashed_state in visited and child_rew > visited[hashed_state]:
-            #     breakpoint()
             if hashed_state in visited and child_rew <= visited[hashed_state]:
-                # print(f'already visited {hashed_state}')
                 continue
-            # visited[env.player_pos] = state
-            # visited[tuple(action_seq)] = state
             visited[hashed_state] = child_rew
-            # print(len(visited))
-            # visited_0.append(state)
-            # print([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()])
-            # if not np.all([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()]):
-                # TT()
             if child_rew > best_reward:
                 best_state_actions = (state, action_seq)
                 best_reward = child_rew
                 n_iter_best = n_iter
-                print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
-            if not jnp.all(done):
+                # print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+            if not jnp.all(v_done[i]):
                 # Add this state to the frontier so can we can continue searching from it later
                 frontier.append((state, action_seq, child_rew))
 

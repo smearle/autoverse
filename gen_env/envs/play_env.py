@@ -211,10 +211,11 @@ class PlayEnv(gym.Env):
                     # print(f"inhibit: {inhibit.name}")
                     map_arr[inhibit.idx, map_arr[tile_type.idx] == 1] = 0
 
+    @partial(jax.jit, static_argnums=(0,))
     def reset_env(self, key: chex.PRNGKey, params: EnvParams):
         self._done = False
         self.unwrapped._done = False
-        rules, map_arr = params.rules, jnp.array(params.map, dtype=np.float32)
+        rules, map_arr = params.rules, jnp.array(params.map, dtype=jnp.int16)
 
         # if len(self._rule_queue) > 0:
         #     self._game_idx = self._game_idx % len(self._rule_queue)
@@ -290,8 +291,13 @@ class PlayEnv(gym.Env):
         return obs, state
 
 
-    def step_env(self, key: chex.PRNGKey, action: chex.Array, state: EnvState,
-                 params: EnvParams):
+    @partial(jax.jit, static_argnums=(0,))
+    def step_env(self,
+            key: chex.PRNGKey,
+            state: EnvState,
+            action: int,
+            params: EnvParams
+        ):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
         state = self.act(action=action, state=state, params=params)
@@ -353,7 +359,7 @@ class PlayEnv(gym.Env):
         player_pos = new_pos
 
         # Actually print the values in the jax array
-        print(f"player_pos: {player_pos}")
+        # print(f"player_pos: {player_pos}")
         # But also inside compiled jax code
         # print(f"player_pos: {player_pos[0]}, {player_pos[1]}")
 

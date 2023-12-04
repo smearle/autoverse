@@ -85,7 +85,7 @@ def load_game_to_env(env: PlayEnv, individual: Individual):
 
 # TODO: individual should basically be its own dataclass
 def get_params_from_individual(env: PlayEnv, individual: Individual):
-    params = EnvParams(rules=jnp.array([rule.subrules_int for rule in individual.rules]),
+    params = EnvParams(rules=jnp.array([rule.subrules_int for rule in individual.rules], dtype=jnp.int16),
                        map=individual.map,
                        rule_rewards=jnp.array([rule.reward for rule in individual.rules]),
                        rule_dones=jnp.array([rule.done for rule in individual.rules], dtype=bool),

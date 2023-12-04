@@ -12,6 +12,20 @@ python human_env.py game=lava_maze window_shape=[1000,1000]
 Use the left and right arrow keys to rotate the agent, and `q` to place a `force` tile in front of the agent, which will
 move it forward where appropriate. The game is defined in `games/lava_maze.py`.
 
+## Profile environment:
+```
+python profile_env.py game=lava_maze
+```
+This will initialize a level in the give game, and take random actions. It will then print the FPS of `reset()` and `step()`.
+
+## Render solution:
+```
+python render_solution.py game=lava_maze
+```
+This will initialize a random level in the given game, and search for some number of iterations for a solution. It will
+then save a video of the solution.
+
+## Render in blender (deprecated)
 To render in blender:
 ```bash
 blender render_scene.blend --python enjoy_blender.py

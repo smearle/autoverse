@@ -141,7 +141,7 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual,
     rew_seq = []
     # env.queue_games([elite.map.copy()], [elite.rules.copy()])
     key = jax.random.PRNGKey(0)
-    state, obs = env.reset(key=key, params=params)
+    state, obs = env.reset_env(key=key, params=params)
     # print(f"Initial state reward: {state.ep_rew}")
     # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
@@ -165,7 +165,7 @@ def replay_episode(cfg: Config, env: PlayEnv, elite: Individual,
             #     print('Replaying again, rendering this time')
             #     return replay_episode(cfg, env, elite, record=True)
             break
-        state, obs, reward, done, info = env.step(key, state=state, action=elite.action_seq[i], params=params)
+        state, obs, reward, done, info = env.step_env(key, state=state, action=elite.action_seq[i], params=params)
         # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
