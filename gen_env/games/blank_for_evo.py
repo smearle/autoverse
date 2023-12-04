@@ -11,30 +11,33 @@ from gen_env.tiles import TilePlacement, TileSet, TileType
 def make_env():
     force = TileType(name='force', num=0, color='purple')
     player = TileType('player', num=1, color='blue', cooccurs=[])
-    tile_a = TileType('tile_a', prob=1.0, color='red')
-    tiles = TileSet([player, force, tile_a])
+    tile_a = TileType('tile_a', prob=1/3, color='red')
+    tile_b = TileType('tile_b', prob=1/3, color='green')
+    tile_c = TileType('tile_c', prob=1/3, color='yellow')
+    tiles = TileSet([player, force, tile_a, tile_b, tile_c])
     # tiles = TileSet([floor, goal, player, wall, force, tile_a])
     # tiles = TileSet([player, floor, goal, wall, force, tile_a, tile_b, tile_c])
     # search_tiles = [floor, goal, player, wall, tile_a]
     # search_tiles = [floor, goal, player, wall, tile_a, tile_b, tile_c]
-    search_tiles = [player, tile_a]
+    # search_tiles = [player, tile_a]
+    search_tiles=tiles
 
     rule_a = Rule(
         'A',
         in_out=np.array([
             [
-                [[None, player, force]],
-                [[None, None, None]],
-                # [[None, None, None]],
+                # [[None, player, force]],
+                [[None, force, None]],
+                [[None, tile_a, None]],
             ],
             [
-                [[None, None, player]],
+                # [[None, None, player]],
                 [[None, None, None]],
-                # [[None, None, None]],
+                [[None, None, None]],
             ]
         ]),
         rotate=True,
-        reward=0,
+        reward=1,
         done=False,
         # max_applications=1,
     )
@@ -174,8 +177,8 @@ def make_env():
     #     done=False,
     #     # max_applications=1,
     # )
-    # rules = RuleSet([rule_a, rule_b, rule_c, rule_d, rule_e])
-    rules = RuleSet([rule_a])
+    rules = RuleSet([rule_a, rule_b, rule_c, rule_d, rule_e])
+    # rules = RuleSet([rule_a, rule_b])
     # rules = RuleSet([player_move, player_consume_goal, rule_a, rule_b])
     # env = PlayEnv(height, width, tiles=tiles, rules=rules, player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
         # search_tiles=search_tiles, cfg=cfg)
