@@ -11,6 +11,7 @@ from einops import rearrange, repeat
 import gym
 from gym import spaces
 import jax
+from jax import numpy as jnp
 import numpy as np
 from PIL import ImageFont, ImageDraw, Image
 
@@ -693,129 +694,89 @@ def apply_rules(map: np.ndarray, rules: List[Rule], map_padding: int):
 
     # for rule in rules:
     has_applied_rule = False
-    while len(rules) > 0:
-        rule = rules.pop(0)
-        if rule in blocked_rules:
-            continue
-        n_rule_applications = 0
-        if not hasattr(rule, 'subrules'):
-            print("Missing `rule.subrules`. Maybe you have not called `rule.compile`? You will need to do this manually" +
-                "if the rule is not included in a ruleset.")
-        subrules = rule.subrules
-        # breakpoint()
-        if rule.random:
-            # Apply rotations of base rule in a random order.
-            np.random.shuffle(subrules)
-        # for subrule in rule.subrules:
-        for subrule_int in rule.subrules_int:
-            # Apply, e.j., rotations of the base rule
-            # Add one output channel
-            subrule_int = rearrange(subrule_int, 'iop (o i) h w -> iop o i h w', o=1).astype(np.int8)
-            inp, outp = subrule_int
+    for rule in rules:
+        r_out_map, r_reward, r_done = apply_rule(map, rule.subrules_int, rule.reward, rule.done)
+        next_map += r_out_map
+        reward += r_reward
+        done = done or r_done
 
-            # Use jax to apply a convolution to the map
-            sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
-            # How many tiles are expected in the input pattern
-            n_constraints = inp.sum()
-            # Identify positions at which all constraints were met
-            sr_activs = (sr_activs == n_constraints).astype(np.int8)
-
-            # if sr_activs.sum() > 0 and rule.reward > 0:
-            #     breakpoint()
-
-            reward += rule.reward * sr_activs.sum()
-            done = done or np.any(sr_activs * rule.done)
-
-            # Note that this can have values of `-1` to remove tiles
-            outp = rearrange(outp, 'o i h w -> i o h w')
-
-            # Need to flip along height/width dimensions for transposed convolution to work as expected
-            outp = np.flip(outp, 2)
-            outp = np.flip(outp, 3)
-
-            # Now paste the output pattern wherever input is active
-            out_map = jax.lax.conv_transpose(sr_activs, outp, (1, 1), 'SAME',
-                                             dimension_numbers=('NCHW', 'OIHW', 'NCHW'))
-            
-            # Crop out_map to be the height and width as next_map, cropping more on the right/lower side if uneven
-            # crop_shapes = (out_map.shape[2] - next_map.shape[2]) / 2, (out_map.shape[3] - next_map.shape[3]) / 2
-            # crop_shapes = math.ceil(crop_shapes[0]), math.ceil(crop_shapes[1])
-            # out_map = out_map[:, :, crop_shapes[0]: crop_shapes[0] + next_map.shape[2], crop_shapes[1]:crop_shapes[1]+ next_map.shape[3]]
-
-            if sr_activs.sum() > 0:
-                has_applied_rule = True
-                # breakpoint()
-            
-            next_map += out_map
-
-            # DEPRECATED approach
-            # xys = np.indices((h + map_padding, w + map_padding))
-            # xys = rearrange(xys, 'xy h w -> (h w) xy')
-            # if rule.random:
-            #     np.random.shuffle(xys)
-            #     # print(f'y: {y}')
-            # for (x, y) in xys:
-            #     match = True
-            #     for subp in inp:
-            #         if subp.shape[0] + x > map.shape[1] or subp.shape[1] + y > map.shape[2]:
-            #             match = False
-            #             break
-            #         if not match:
-            #             break
-            #         for i in range(subp.shape[0]):
-            #             if not match:
-            #                 break
-            #             for j in range(subp.shape[1]):
-            #                 tile = subp[i, j]
-            #                 if tile is None:
-            #                     continue
-            #                 if map[tile.get_idx(), x + i, y + j] != tile.trg_val:
-            #                     match = False
-            #                     break
-            #     if match:
-            #         # print(f'matched rule {rule.name} at {x}, {y}')
-            #         # print(f'rule has input \n{inp}\n and output \n{out}')
-            #         [f() for f in rule.application_funcs]
-            #         [blocked_rules.add(r) for r in rule.inhibits]
-            #         for r in rule.children:
-            #             if r in rules_set:
-            #                 continue
-            #             rules_set.add(r)
-            #             rules.append(r)
-            #         reward += rule.reward
-            #         done = done or rule.done
-            #         for k, subp in enumerate(out):
-            #             for i in range(subp.shape[0]):
-            #                 for j in range(subp.shape[1]):
-            #                     # Remove the corresponding tile in the input pattern if one exists.
-            #                     in_tile = inp[k, i, j]
-            #                     if in_tile is not None:
-            #                         # Note that this has no effect when in_tile is a NotTile.
-            #                         next_map[in_tile.get_idx(), x + i, y + j] = 0
-            #                     out_tile = subp[i, j]
-            #                     if out_tile is None:
-            #                         continue
-            #                     # if out_tile.get_idx() == -1:
-            #                     #     breakpoint()
-            #                     # if out_tile.get_idx() == 7:
-            #                     #     breakpoint()
-            #                     next_map[out_tile.get_idx(), x + i, y + j] = 1
-            #         n_rule_applications += 1
-            #         if n_rule_applications >= rule.max_applications:
-            #             # print(f'Rule {rule.name} exceeded max applications')
-            #             break
-                
-            # else:
-            #     continue
-
-            # Will break the subrule loop if we have broken the board-scanning loop.
-            # break
                         
     next_map = np.array(next_map)[0]
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
     return next_map, reward, done, has_applied_rule, time_ms
+
+
+def apply_rule(map, rule, rule_reward, rule_done):
+    # Convert data to float32 if it's not already
+    map = jnp.array(map).astype(jnp.float32)
+    rule = jnp.array(rule).astype(jnp.float32)
+    rule_reward = jnp.array(rule_reward).astype(jnp.float32)
+    rule_done = jnp.array(rule_done).astype(jnp.float32)
+
+    r_activs = jnp.zeros((rule.shape[0],) + map.shape[2:], dtype=np.int8)
+    r_out_maps = jnp.zeros((rule.shape[0],) + map.shape, dtype=np.int8)
+    r_rewards = jnp.zeros(rule.shape[0], dtype=np.int8)
+    r_dones = jnp.zeros(rule.shape[0], dtype=np.int8)
+
+    # Sequential version:
+    # for i, subrule in enumerate(rule):
+    #     sr_activs, sr_out_map, sr_reward, sr_done = apply_subrule(map, subrule, rule_reward, rule_done)
+    #     r_activs = r_activs.at[i].set(sr_activs)
+    #     r_out_maps = r_out_maps.at[i].set(sr_out_map)
+    #     r_rewards = r_rewards.at[i].set(sr_reward)
+    #     r_dones = r_dones.at[i].set(sr_done)
+
+    # As above, but using jax.fori:
+    # def body_fn(i, val):
+    #     sr_activs, sr_out_map, sr_reward, sr_done = apply_subrule(map, rule[i], rule_reward, rule_done)
+    #     r_activs, r_out_maps, r_rewards, r_dones = val
+    #     r_activs = r_activs.at[i].set(sr_activs)
+    #     r_out_maps = r_out_maps.at[i].set(sr_out_map)
+    #     r_rewards = r_rewards.at[i].set(sr_reward)
+    #     r_dones = r_dones.at[i].set(sr_done)
+    #     return r_activs, r_out_maps, r_rewards, r_dones
+    # r_activs, r_out_maps, r_rewards, r_dones = jax.lax.fori_loop(0, rule.shape[0], body_fn, (r_activs, r_out_maps, r_rewards, r_dones))
+
+    # As above, but using vmap:
+    r_activs, r_out_maps, r_rewards, r_dones = jax.vmap(apply_subrule, in_axes=(None, 0, None, None))(map, rule, rule_reward, rule_done)
+
+    r_out_map = jnp.sum(r_out_maps, axis=0)
+    r_reward = jnp.sum(r_rewards)
+    r_done = jnp.any(r_dones)
+
+    return r_out_map, r_reward, r_done
+
+def apply_subrule(map, subrule, rule_reward, rule_done):
+        map = map.copy()
+        subrule = rearrange(subrule, 'iop (o i) h w -> iop o i h w', o=1)
+
+        inp, outp = subrule
+
+        # Use jax to apply a convolution to the map
+        sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
+        # How many tiles are expected in the input pattern
+        n_constraints = inp.sum()
+        # Identify positions at which all constraints were met
+        sr_activs = (sr_activs == n_constraints).astype(jnp.float32)
+
+        # if sr_activs.sum() > 0 and rule.reward > 0:
+        #     breakpoint()
+        # Note that this can have values of `-1` to remove tiles
+        outp = rearrange(outp, 'o i h w -> i o h w')
+
+        # Need to flip along height/width dimensions for transposed convolution to work as expected
+        outp = jnp.flip(outp, 2)
+        outp = jnp.flip(outp, 3)
+
+        # Now paste the output pattern wherever input is active
+        out_map = jax.lax.conv_transpose(sr_activs, outp, (1, 1), 'SAME',
+                                            dimension_numbers=('NCHW', 'OIHW', 'NCHW'))
+        sr_reward = rule_reward * sr_activs.sum()
+        sr_done = jnp.any(sr_activs * rule_done)
+        sr_activs = sr_activs[0, 0]
+        return sr_activs, out_map, sr_reward, sr_done
 
 def hash_rules(rules):
     """Hash a list of rules to a unique value.
