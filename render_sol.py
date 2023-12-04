@@ -19,7 +19,7 @@ def render_sol(cfg: Config):
     state, obs = env.reset_env(key=key, params=params)
     best_state_actions, best_reward, n_iter_best, n_iter = \
         solve(env, state, max_steps=50_000, params=params)
-    print(f"Found best solution afger {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
+    print(f"Found best solution after {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
     # Render the solution
     frames = []
     if best_state_actions is not None:
