@@ -103,7 +103,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
         # Apply pmap
         vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, None))
         # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
-        obsv, env_state = vmap_reset_fn(reset_rng, env_params)
+        env_state, obsv = vmap_reset_fn(reset_rng, env_params)
 
         # INIT ENV FOR RENDER
         rng_r, _rng_r = jax.random.split(rng)
@@ -113,7 +113,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
         # reset_rng_r = reset_rng_r.reshape((config.n_gpus, -1) + reset_rng_r.shape[1:])
         vmap_reset_fn = jax.vmap(env_r.reset, in_axes=(0, None))
         # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
-        obsv_r, env_state_r = vmap_reset_fn(reset_rng_r, env_params)  # Replace None with your env_params if any
+        env_state_r, obsv_r = vmap_reset_fn(reset_rng_r, env_params)  # Replace None with your env_params if any
         
         # obsv_r, env_state_r = jax.vmap(
         #     env_r.reset, in_axes=(0, None))(reset_rng_r, env_params)
@@ -532,7 +532,7 @@ def init_checkpointer(config: RLConfig):
     # reset_rng_r = reset_rng.reshape((config.n_gpus, -1) + reset_rng.shape[1:])
     vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, None))
     # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
-    obsv, env_state = vmap_reset_fn(
+    env_state, obsv = vmap_reset_fn(
         reset_rng, 
         env_params, 
     )
