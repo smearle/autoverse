@@ -1,9 +1,13 @@
 opencv-python
 hydra-core
 hydra-submitit-launcher
+distrax
 einops
 flax
+gym
+gymnax
 networkx
 imageio
 pygame
 fire
+tensorboardX

@@ -10,13 +10,13 @@ from jax import numpy as jnp
 import numpy as np
 
 from gen_env.envs.play_env import PlayEnv
-from gen_env.configs.config import Config
+from gen_env.configs.config import GenEnvConfig
 from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TileType, TileSet
 
 
 class Individual():
-    def __init__(self, cfg: Config, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
+    def __init__(self, cfg: GenEnvConfig, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
         self.cfg = cfg
         self.tiles = tiles
         self.rules = rules

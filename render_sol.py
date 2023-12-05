@@ -4,12 +4,12 @@ import hydra
 import jax
 
 from gen_env.utils import init_base_env, validate_config
-from gen_env.configs.config import Config
-from search_agent import solve
+from gen_env.configs.config import GenEnvConfig
+from search_agent import bfs, batched_bfs
 
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
-def render_sol(cfg: Config):
+def render_sol(cfg: GenEnvConfig):
     key = jax.random.PRNGKey(1)
     env, params = init_base_env(cfg)
     best_state_actions = None
@@ -18,7 +18,7 @@ def render_sol(cfg: Config):
     env, params = init_base_env(cfg)
     state, obs = env.reset_env(key=key, params=params)
     best_state_actions, best_reward, n_iter_best, n_iter = \
-        solve(env, state, max_steps=50_000, params=params)
+        batched_bfs(env, state, max_steps=50_000, params=params)
     print(f"Found best solution after {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
     # Render the solution
     frames = []

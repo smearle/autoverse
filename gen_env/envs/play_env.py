@@ -18,7 +18,7 @@ from jax import numpy as jnp
 import numpy as np
 from PIL import ImageFont, ImageDraw, Image
 
-from gen_env.configs.config import Config
+from gen_env.configs.config import GenEnvConfig
 from gen_env.events import Event, EventGraph
 from gen_env.objects import ObjectType
 from gen_env.rules import Rule, RuleSet
@@ -40,7 +40,7 @@ class GameDef:
 
 
 @struct.dataclass
-class EnvState(struct.PyTreeNode):
+class GenEnvState(struct.PyTreeNode):
     n_step: int
     map: chex.Array
     # obj_set: Iterable
@@ -50,12 +50,18 @@ class EnvState(struct.PyTreeNode):
 
 
 @struct.dataclass
-class EnvParams:
+class GenEnvParams:
     rules: chex.Array
     rule_rewards: chex.Array
     rule_dones: chex.Array
     map: chex.Array
     player_placeable_tiles: chex.Array
+
+
+@struct.dataclass
+class GenEnvObs:
+    map: chex.Array
+    flat: chex.Array
 
 
 class PlayEnv(gym.Env):
@@ -66,7 +72,7 @@ class PlayEnv(gym.Env):
     def __init__(self, width: int, height: int,
             game_def: GameDef,
             # tiles: Iterable[TileType], 
-            params: EnvParams,
+            params: GenEnvParams,
             # player_placeable_tiles: List[Tuple[TileType, TilePlacement]], 
             object_types: List[ObjectType] = [],
             # search_tiles: List[TileType] = None,
@@ -74,7 +80,7 @@ class PlayEnv(gym.Env):
             variables: Iterable[Variable] = [],
             done_at_reward: int = None,
             max_episode_steps: int = 100,
-            cfg: Config = None,
+            cfg: GenEnvConfig = None,
         ):
         """_summary_
 
@@ -98,7 +104,7 @@ class PlayEnv(gym.Env):
         rules_int = params.rules
         # self.default_params = EnvParams(rules=rules_int)
         self._rot_dirs = jnp.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
-        self.map_shape = jnp.array([len(tiles), width, height])
+        self.map_shape = np.array([len(tiles), width, height])
 
         # Which game in the game_archive are we loading next?
         self._game_idx = 0
@@ -155,6 +161,7 @@ class PlayEnv(gym.Env):
                 self._actions += [tile.idx]
             else:
                 raise Exception
+        self.num_actions = len(self._actions)
         self._done_at_reward = done_at_reward
         self._map_queue = []
         self._rule_queue = []
@@ -165,7 +172,7 @@ class PlayEnv(gym.Env):
         max_rule_shape = max(params.rules.shape[-2:])
         self.map_padding = (max_rule_shape + 1) // 2
 
-    def init_obs_space(self, params: EnvParams):
+    def init_obs_space(self, params: GenEnvParams):
         # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
         # Dictionary observation space containing box 2d map and flat list of rules
         # Note that we assume rule in/outs are fixed in size
@@ -184,7 +191,7 @@ class PlayEnv(gym.Env):
         self._map_queue = maps
         self._rule_queue = rules
 
-    def _update_player_pos(self, state: EnvState):
+    def _update_player_pos(self, state: GenEnvState):
         player_pos = jnp.argwhere(state.map[self.player_idx] == 1)
         return state.replace(player_pos=player_pos)
         # if self.player_pos.shape[0] < 1:
@@ -212,7 +219,7 @@ class PlayEnv(gym.Env):
                     map_arr[inhibit.idx, map_arr[tile_type.idx] == 1] = 0
 
     @partial(jax.jit, static_argnums=(0,))
-    def reset_env(self, key: chex.PRNGKey, params: EnvParams):
+    def reset_env(self, key: chex.PRNGKey, params: GenEnvParams):
         self._done = False
         self.unwrapped._done = False
         rules, map_arr = params.rules, jnp.array(params.map, dtype=jnp.int16)
@@ -243,7 +250,7 @@ class PlayEnv(gym.Env):
         # feeld mouse    self._map_id = (self._map_id + 1) % len(self._map_queue)
         self.player_rot = 0
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
-        state = EnvState(
+        state = GenEnvState(
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
             player_rot=0, ep_rew=0.0,
             player_pos=player_pos,
@@ -256,10 +263,10 @@ class PlayEnv(gym.Env):
     def step(
         self,
         key: chex.PRNGKey,
-        state: EnvState,
+        state: GenEnvState,
         action: Union[int, float],
-        params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
+        params: Optional[GenEnvParams] = None,
+    ) -> Tuple[chex.Array, GenEnvState, float, bool, dict]:
         """Performs step transitions in the environment."""
         # Use default env parameters if no others specified
         # if params is None:
@@ -284,8 +291,8 @@ class PlayEnv(gym.Env):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState]:
+        self, key: chex.PRNGKey, params: Optional[GenEnvParams] = None,
+    ) -> Tuple[chex.Array, GenEnvState]:
         """Performs resetting of environment."""
         obs, state = self.reset_env(key, params)
         return obs, state
@@ -294,9 +301,9 @@ class PlayEnv(gym.Env):
     @partial(jax.jit, static_argnums=(0,))
     def step_env(self,
             key: chex.PRNGKey,
-            state: EnvState,
+            state: GenEnvState,
             action: int,
-            params: EnvParams
+            params: GenEnvParams
         ):
         # TODO: Only pass global variable object to event graph.
         # self.event_graph.tick(self)
@@ -309,7 +316,7 @@ class PlayEnv(gym.Env):
         info = {}
         return state, obs, reward, done, info
 
-    def step_classic(self, action: chex.Array, state: EnvState):
+    def step_classic(self, action: chex.Array, state: GenEnvState):
         # TODO: Only pass global variable object to event graph.
         self.event_graph.tick(self)
         self.act(action)
@@ -321,7 +328,7 @@ class PlayEnv(gym.Env):
         ep_rew = state.ep_rew + reward
         self.ep_rew = ep_rew
         self.n_step = n_step
-        state = EnvState(
+        state = GenEnvState(
             n_step=n_step,
             map_arr=self.map,
             # obj_set=self.objects,
@@ -330,7 +337,7 @@ class PlayEnv(gym.Env):
         )
         return state, self.get_obs(), reward, self._done, {}
 
-    def act(self, action: int, state: EnvState, params: EnvParams):
+    def act(self, action: int, state: GenEnvState, params: GenEnvParams):
         # If action is 0 or 1, rotate player.
         # Otherwise, move player to adjacent tile according to rotation.
         # move_coeff = jnp.where(jnp.where(action < 2, 0, action) == 2, -1, 1)
@@ -374,21 +381,25 @@ class PlayEnv(gym.Env):
                               map=new_map)
         return state
 
-    def get_obs(self, state: EnvState, params: EnvParams):
+    def get_obs(self, state: GenEnvState, params: GenEnvParams):
         # return self.observe_map()
         # return {
         #     'map': self.observe_map(),
         #     'rules': self.observe_rules(),
         #     'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
         # }
-        return jnp.concatenate((
-            self.observe_map(map_arr=state.map, player_pos=state.player_pos).flatten(),
-            jnp.eye(4)[self.player_rot].astype(jnp.float32),
+        map_obs = self.observe_map(state.map, state.player_pos)
+        flat_obs = jnp.concatenate((
+            jnp.eye(4)[state.player_rot].astype(jnp.float32).flatten(),
             self.observe_rules(params).flatten()))
-
-    # # TODO: move this inside env??
-    # def flatten_obs(obs):
-    #     return np.concatenate((obs['map'].flatten(), obs['player_rot'].flatten(), obs['rules'].flatten()))
+        return GenEnvObs(map_obs, flat_obs)
+        
+    def gen_dummy_obs(self, params: GenEnvParams):
+        map_obs = self.observe_map(jnp.zeros(self.map_shape), (0, 0))
+        flat_obs = jnp.concatenate((
+            jnp.eye(4)[0].astype(jnp.float32),
+            self.observe_rules(params).flatten()))
+        return GenEnvObs(map_obs[None], flat_obs[None])
 
     def repair_map(key, map: chex.Array, fixed_tile_nums: chex.Array):
         # map is (n_tiles, w, h)
@@ -496,7 +507,7 @@ class PlayEnv(gym.Env):
         assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles))
         return obs.astype(np.float32)
 
-    def observe_rules(self, params: EnvParams):
+    def observe_rules(self, params: GenEnvParams):
         # Hardcoded for maze_for_evo to ignore first 2 (unchanging) rules
         # if self._n_fixed_rules == len(self.rules):
         #     return np.zeros((0,), dtype=np.float32)
@@ -514,7 +525,7 @@ class PlayEnv(gym.Env):
         
         return rule_obs.astype(np.float32)
     
-    def render(self, state: EnvState, params: EnvParams, mode='human'):
+    def render(self, state: GenEnvState, params: GenEnvParams, mode='human'):
         font = ImageFont.load_default()
         tile_size = self.tile_size
         # self.rend_im = np.zeros_like(self.int_map)
@@ -729,13 +740,13 @@ class PlayEnv(gym.Env):
             cv2.waitKey(1)
             # return self.rend_im
 
-    def tick(self, state: EnvState, params: EnvParams):
+    def tick(self, state: GenEnvState, params: GenEnvParams):
         # self._last_reward = self._reward
         # for obj in self.objects:
         #     obj.tick(self)
         map_arr, reward, done, has_applied_rule, rule_time_ms\
             = apply_rules(state.map, params, self.map_padding)
-        map_arr = map_arr.astype(jnp.float32)
+        map_arr = map_arr.astype(jnp.int16)
         # if self._done_at_reward is not None:
         #     done = done or reward == self._done_at_reward
         done = done | (state.n_step >= self.max_episode_steps) | \
@@ -774,7 +785,7 @@ class PlayEnv(gym.Env):
         map_arr = self._update_inhibits(map_arr)
         return map_arr
 
-    def tick_human(self, key: jax.random.PRNGKey, state: EnvState, params: EnvParams):
+    def tick_human(self, key: jax.random.PRNGKey, state: GenEnvState, params: GenEnvParams):
         import pygame
         done = False
         # If there is no player, take any action to tick the environment (e.g. during level-generation).
@@ -794,7 +805,7 @@ class PlayEnv(gym.Env):
                         self.step_env(key=key, action=action, state=state, params=params)
                         # self.step(key=key, action=action, state=state,
                         #           params=params)
-                    state: EnvState
+                    state: GenEnvState
 
                     self.render(mode='pygame', state=state, params=params)
                     # if self._last_reward != self._reward:
@@ -811,16 +822,16 @@ class PlayEnv(gym.Env):
 
 
     def get_state(self):
-        return EnvState(n_step=self.n_step, map_arr=self.map.copy(),
+        return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(),
                         # obj_set=self.objects,
             player_rot=self.player_rot, ep_rew=self.ep_rew)
 
-    def set_state(self, state: EnvState):
+    def set_state(self, state: GenEnvState):
         state = copy.deepcopy(state)
         self._set_state(state)
         # TODO: setting variables and event graph.
 
-    def hashable(self, state: EnvState):
+    def hashable(self, state: GenEnvState):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
         search_state = state.map[self._search_tile_idxs]
         player_rot = state.player_rot
@@ -828,7 +839,7 @@ class PlayEnv(gym.Env):
         return hash((player_rot.item(), search_state.tobytes()))
 
 
-    def _set_state(self, state: EnvState):
+    def _set_state(self, state: GenEnvState):
         map_arr = state.map
         self.n_step = state.n_step
         self.map = map_arr
@@ -1007,7 +1018,7 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, rule_reward: float, do
     return out_map, done, reward, has_applied_rule
 
 
-def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
+def apply_rules(map: np.ndarray, params: GenEnvParams, map_padding: int):
     """Apply rules to a one-hot encoded map state, to return a mutated map.
 
     Args:
