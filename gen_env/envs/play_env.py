@@ -142,7 +142,9 @@ class PlayEnv(gym.Env):
         # No rotation
         # self.action_space = spaces.Discrete(4)
         # Rotation
-        self.action_space = spaces.Discrete(5)
+        N_ACTIONS = 5
+        self.action_space = spaces.Discrete(N_ACTIONS)
+        self.num_actions = N_ACTIONS
         self.build_hist: list = []
         # self.static_builds: np.ndarray = None
         self.variables = variables
@@ -161,7 +163,6 @@ class PlayEnv(gym.Env):
                 self._actions += [tile.idx]
             else:
                 raise Exception
-        self.num_actions = len(self._actions)
         self._done_at_reward = done_at_reward
         self._map_queue = []
         self._rule_queue = []
@@ -257,7 +258,7 @@ class PlayEnv(gym.Env):
         )
         # self._set_state(env_state)
         obs = self.get_obs(state, params)
-        return state, obs
+        return obs, state
 
     @partial(jax.jit, static_argnums=(0,))
     def step(
@@ -286,6 +287,9 @@ class PlayEnv(gym.Env):
         obs = jax.tree_map(
             lambda x, y: jax.lax.select(done, x, y), obs_re, obs_st
         )
+
+        # Print action and donw
+        # jax.debug.print("action {action} done {done}", action=action, done=done)
         return obs, state, reward, done, info
 
 
@@ -314,7 +318,7 @@ class PlayEnv(gym.Env):
         state = state.replace(n_step=n_step, ep_rew=ep_rew)
         obs = self.get_obs(state, params)
         info = {}
-        return state, obs, reward, done, info
+        return obs, state, reward, done, info
 
     def step_classic(self, action: chex.Array, state: GenEnvState):
         # TODO: Only pass global variable object to event graph.

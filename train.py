@@ -103,7 +103,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
         # Apply pmap
         vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, None))
         # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
-        env_state, obsv = vmap_reset_fn(reset_rng, env_params)
+        obsv, env_state = vmap_reset_fn(reset_rng, env_params)
 
         # INIT ENV FOR RENDER
         rng_r, _rng_r = jax.random.split(rng)
@@ -113,7 +113,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
         # reset_rng_r = reset_rng_r.reshape((config.n_gpus, -1) + reset_rng_r.shape[1:])
         vmap_reset_fn = jax.vmap(env_r.reset, in_axes=(0, None))
         # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
-        env_state_r, obsv_r = vmap_reset_fn(reset_rng_r, env_params)  # Replace None with your env_params if any
+        obsv_r, env_state_r = vmap_reset_fn(reset_rng_r, env_params)  # Replace None with your env_params if any
         
         # obsv_r, env_state_r = jax.vmap(
         #     env_r.reset, in_axes=(0, None))(reset_rng_r, env_params)
@@ -124,7 +124,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
 #                             fill_value=jnp.nan, dtype=jnp.float32)
         steps_prev_complete = 0
         runner_state = RunnerState(
-            train_state, env_state, obsv, rng,
+            train_state=train_state, env_state=env_state, last_obs=obsv, rng=rng,
             update_i=0)
 
         # exp_dir = get_exp_dir(config)
@@ -140,7 +140,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
 
         def render_frames_np(i):
             frames, states = render_episodes_np(train_state.params)
-            return render_frames(frames, i, states)
+            return render_frames_np(frames, i, states)
 
         def render_frames(frames, i, env_states=None):
             if i % config.render_freq != 0:
@@ -183,19 +183,28 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                 None, 1*env.max_episode_steps)
 
         def render_episodes_np(network_params):
+            state_r = None
             for env_idx in range(rng_r.shape[0]):
                 key = jax.random.PRNGKey(0)
-                state_r, obs_r = env_r.reset_env(key, env_params)
-                state = jax.tree_util.tree_map(lambda x: x[env_idx], env_state_r)
+                obs_r, state_rr = env_r.reset_env(key, env_params)
+                if state_r is None:
+                    state_r = state_rr
+                else:
+                    state_r = jax.tree_util.tree_map(lambda x, y: jnp.concatenate((x, y)), state_r, state_rr)
                 frames = []
                 for _ in range(env.max_episode_steps):
                     obs_r = jax.tree_util.tree_map(lambda x: x[None], obs_r)
                     pi, value = network.apply(network_params, obs_r)
                     action = pi.sample(seed=key)
                     key = jax.random.split(key)[0]
-                    state_r, obs_r, reward, done, info = env_r.step(key, state_r, action[0], env_params)
+                    obs_r, state_rr, reward, done, info = env_r.step_env(key, state_r, action[0], env_params)
+                    # Concatenate the gpu dimension
+                    state_r = jax.tree_util.tree_map(lambda x, y: jnp.concatenate((x, y)), state_r, state_rr)
                     frame = env_r.render(state_r, env_params)
                     frames.append(frame)
+
+
+                states = state_r
 
             frames = jnp.concatenate(jnp.stack(frames, 1))
             return frames, states
@@ -245,7 +254,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
 
         # frames, states_r = render_episodes(train_state.params)
         # jax.debug.callback(render_frames, frames, runner_state.update_i, states_r)
-        jax.debug.callback(render_frames, runner_state.update_i)
+        # jax.debug.callback(render_frames_np, runner_state.update_i)
         # old_render_results = (frames, states)
 
         # jax.debug.print(f'Rendering episode gifs took {timer() - start_time} seconds')
@@ -281,7 +290,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                     done, action, value, reward, log_prob, last_obs, info
                 )
                 runner_state = RunnerState(
-                    train_state, env_state, obsv, rng,
+                    train_state=train_state, env_state=env_state, last_obs=obsv, rng=rng,
                     update_i=update_i)
                 return runner_state, transition
 
@@ -426,8 +435,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                             f"global step={timesteps[t]}, episodic return={return_values[t]}")
                 jax.debug.callback(callback, metric, steps_prev_complete)
 
-            jax.debug.callback(save_checkpoint, runner_state,
-                               metric, steps_prev_complete)
+            # jax.debug.callback(save_checkpoint, runner_state,
+            #                    metric, steps_prev_complete)
 
             # Create a tensorboard writer
             writer = SummaryWriter(get_exp_dir(config))
@@ -454,7 +463,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                     #     writer.add_scalar(k, v, t)
 
             # FIXME: shouldn't assume size of render map.
-            frames_shape = (config.n_render_eps * 1 * env.max_steps, 
+            frames_shape = (config.n_render_eps * 1 * env.max_episode_steps, 
                             env.tile_size * (env.map_shape[0] + 2),
                             env.tile_size * (env.map_shape[1] + 2), 4)
 
@@ -466,17 +475,16 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             #     lambda: render_episodes(train_state.params),
             #     lambda: old_render_results,)
             # jax.debug.callback(render_frames, frames, runner_state.update_i, states)
-            if runner_state.update_i % config.render_freq == 0:
-                frames, states = render_episodes(train_state.params)
-                jax.debug.callback(render_frames, frames, runner_state.update_i, states)
-                old_render_results = (frames, states)
+            # if runner_state.update_i % config.render_freq == 0:
+            # jax.debug.callback(render_frames_np, runner_state.update_i)
+            # old_render_results = (frames, states)
             # jax.debug.print(f'Rendering episode gifs took {timer() - start_time} seconds')
 
             jax.debug.callback(log_callback, metric,
                                steps_prev_complete)
 
             runner_state = RunnerState(
-                train_state, env_state, last_obs, rng,
+                train_state=train_state, env_state=env_state, last_obs=last_obs, rng=rng,
                 update_i=runner_state.update_i+1)
 
             return runner_state, metric
@@ -485,8 +493,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             _update_step, runner_state, None, config.NUM_UPDATES
         )
 
-        jax.debug.callback(save_checkpoint, runner_state,
-                           metric, steps_prev_complete)
+        # jax.debug.callback(save_checkpoint, runner_state,
+        #                    metric, steps_prev_complete)
 
         return {"runner_state": runner_state, "metrics": metric}
 
@@ -532,7 +540,7 @@ def init_checkpointer(config: RLConfig):
     # reset_rng_r = reset_rng.reshape((config.n_gpus, -1) + reset_rng.shape[1:])
     vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, None))
     # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
-    env_state, obsv = vmap_reset_fn(
+    obsv, env_state = vmap_reset_fn(
         reset_rng, 
         env_params, 
     )
