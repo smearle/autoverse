@@ -4,15 +4,15 @@ import hydra
 import jax
 
 from gen_env.utils import init_base_env, validate_config
-from gen_env.configs.config import Config
-from search_agent import solve
+from gen_env.configs.config import GenEnvConfig
+from search_agent import batched_bfs
 
 n_episodes = 10
 n_steps = 100
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
-def profile(cfg: Config):
+def profile(cfg: GenEnvConfig):
     validate_config(cfg)
     env, params = init_base_env(cfg)
     start_time = timer()
