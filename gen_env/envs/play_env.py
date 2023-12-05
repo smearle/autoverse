@@ -962,7 +962,7 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
 
 VMAP = True
     
-def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: bool, random: bool,
+def apply_rule(map: chex.Array, subrules_int: chex.Array, rule_reward: float, done: bool, random: bool,
                map_padding: int):
     map = map.astype(jnp.float32)
     subrules_int = subrules_int.astype(jnp.float32)
@@ -990,9 +990,19 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, reward: float, done: b
     #         # next_map += out_map
     # else:
     out_maps, sr_activs = jax.vmap(apply_subrule, (None, 0))(map, subrules_int)
+
+    # For computing reward, zero out the right/bottom most columns/rows of the map
+    # so that rule applications applied to the ``repeated'' edges are not counted
+    # twice.
+    sr_activs_empty = jnp.zeros_like(sr_activs)
+    sr_activs = sr_activs.at[:, :, :, :map_padding].set(0)
+    sr_activs = sr_activs.at[:, :, :, -map_padding:].set(0)
+    sr_activs = sr_activs.at[:, :, :, :, :map_padding].set(0)
+    sr_activs = sr_activs.at[:, :, :, :, -map_padding:].set(0)
+
     out_map = out_maps.sum(axis=0)
     done = jnp.any(sr_activs * done)
-    reward = reward * sr_activs.sum()
+    reward = rule_reward * sr_activs.sum()
     has_applied_rule = sr_activs.sum() > 0
     return out_map, done, reward, has_applied_rule
 
@@ -1027,7 +1037,7 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
 
     # subrules_ints = np.array([r.subrules_int for r in rules])
     subrules_ints = params.rules
-    rewards = params.rule_rewards
+    rule_rewards = params.rule_rewards
     dones = params.rule_dones
 
     # if not VMAP:
@@ -1042,7 +1052,8 @@ def apply_rules(map: np.ndarray, params: EnvParams, map_padding: int):
     #         has_applied_rule = has_applied_rule or r_has_applied_rule
     # else:
     out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0, None, None))(
-        map, subrules_ints, rewards, dones, False, map_padding)
+        map, subrules_ints, rule_rewards, dones, False, map_padding)
+    # jax.debug.print('r_rewards {r_rewards}', r_rewards=r_rewards)
     next_map += out_maps.sum(axis=0)
     next_map = jnp.clip(next_map, 0, 1)
     done = jnp.any(r_dones)
