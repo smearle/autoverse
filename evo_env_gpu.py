@@ -184,11 +184,11 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
             print('Replaying again, rendering this time')
             return replay_episode(cfg, env, elite, record=True)
         # breakpoint()
-    elite.obs_seq = obs_seq
-    elite.rew_seq = rew_seq
+    playtrace = Playtrace(obs_seq=obs_seq, action_seq=elite.action_seq,
+                          reward_seq=rew_seq)
     if record:
-        return obs_seq, frames
-    return obs_seq
+        return playtrace, frames
+    return playtrace
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
@@ -390,14 +390,14 @@ def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData
     # Sort elites by fitness.
     elites = sorted(elites, key=lambda e: e.fitness, reverse=True)
     for e_idx, e in enumerate(elites[:10]):
-        frames = replay_episode(cfg, env, e, record=cfg.record)
+        playtraces, frames = replay_episode(cfg, env, e, record=cfg.record)
         if cfg.record:
             # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
             # Save as mp4
             # imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
             imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
             # Save elite as yaml
-            e.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
+            # ind.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
 
 
 if __name__ == '__main__':

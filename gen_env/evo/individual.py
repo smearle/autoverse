@@ -82,7 +82,7 @@ class Individual():
         bit_flips = jax.random.bernoulli(key, p=flip_pct, shape=map.shape)
 
         # Mask out bit flips at `player_idx`        
-        bit_flips = bit_flips.at[..., self.player_idx].set(0)
+        bit_flips = bit_flips.at[self.player_idx].set(0)
 
         map = map.astype(jnp.int32)
         map = jnp.bitwise_xor(map, bit_flips)

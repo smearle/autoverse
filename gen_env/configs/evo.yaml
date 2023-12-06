@@ -15,7 +15,7 @@ evaluate: false
 save_freq: 1
 eval_freq: 5
 render: false
-workspace: ../gen-game-runs
+workspace: saves_evo
 runs_dir_evo: evo_env
 runs_dir_rl: rl_player
 runs_dir_il: il_player
