@@ -7,7 +7,7 @@ import numpy as np
 import pygame
 
 from gen_env.configs.config import GenEnvConfig
-from gen_env.evo.individual import Individual
+from gen_env.evo.individual import IndividualData
 from gen_env.utils import init_base_env, load_game_to_env
 from gen_env.envs.play_env import PlayEnv, Rule, TileType
 from gen_env.games import *
@@ -22,7 +22,7 @@ def main(cfg: GenEnvConfig):
             # Then it's a filepath, so we are loading up an evolved game, saved to a yaml.
             fname = cfg.load_game
             env, params = init_base_env(cfg)
-            individual = Individual.load(fname, cfg)
+            individual = IndividualData.load(fname, cfg)
             load_game_to_env(env, individual)
         else:
             env, params = init_base_env(cfg)

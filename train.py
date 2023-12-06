@@ -5,6 +5,8 @@ from typing import NamedTuple
 
 import hydra
 import jax
+import logging
+logging.getLogger('jax').setLevel(logging.INFO)
 import jax.numpy as jnp
 from flax import struct
 import imageio
@@ -138,16 +140,16 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             # TODO: Overwrite certain config values
 
 
-        def render_frames_np(i):
-            frames, states = render_episodes_np(train_state.params)
-            return render_frames_np(frames, i, states)
+        def render_frames_np(i, network_params):
+            frames, states = render_episodes_np(network_params)
+            return render_frames_gif(frames, i, states)
 
-        def render_frames(frames, i, env_states=None):
+        def render_frames_gif(frames, i, env_states=None):
             if i % config.render_freq != 0:
             # if jnp.all(frames == 0):
                 return
             print(f"Rendering episode gifs at update {i}")
-            assert len(frames) == config.n_render_eps * 1 * env.max_steps,\
+            assert len(frames) == config.n_render_eps * 1 * env.max_episode_steps,\
                 "Not enough frames collected"
 
             if config.env_name == 'Candy':
@@ -157,7 +159,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             # Save gifs.
             for ep_is in range(config.n_render_eps):
                 gif_name = f"{config.exp_dir}/update-{i}_ep-{ep_is}.gif"
-                ep_frames = frames[ep_is*env.max_steps:(ep_is+1)*env.max_steps]
+                ep_frames = frames[ep_is*env.max_episode_steps:(ep_is+1)*env.max_episode_steps]
 
                 # new_frames = []
                 # for i, frame in enumerate(frames):
@@ -184,29 +186,24 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
 
         def render_episodes_np(network_params):
             state_r = None
-            for env_idx in range(rng_r.shape[0]):
-                key = jax.random.PRNGKey(0)
-                obs_r, state_rr = env_r.reset_env(key, env_params)
-                if state_r is None:
-                    state_r = state_rr
-                else:
-                    state_r = jax.tree_util.tree_map(lambda x, y: jnp.concatenate((x, y)), state_r, state_rr)
-                frames = []
+            key = jax.random.PRNGKey(0)
+            frames = []
+            for ep_idx in range(config.n_render_eps):
+                obs_r, state_r = env_r.reset_env(key, env_params)
                 for _ in range(env.max_episode_steps):
                     obs_r = jax.tree_util.tree_map(lambda x: x[None], obs_r)
                     pi, value = network.apply(network_params, obs_r)
                     action = pi.sample(seed=key)
                     key = jax.random.split(key)[0]
-                    obs_r, state_rr, reward, done, info = env_r.step_env(key, state_r, action[0], env_params)
+                    obs_r, state_r, reward, done, info = env_r.step_env(key, state_r, action[0], env_params)
                     # Concatenate the gpu dimension
-                    state_r = jax.tree_util.tree_map(lambda x, y: jnp.concatenate((x, y)), state_r, state_rr)
-                    frame = env_r.render(state_r, env_params)
+                    frame = env_r.render(state_r, env_params, mode='rgb_array')
                     frames.append(frame)
 
 
                 states = state_r
 
-            frames = jnp.concatenate(jnp.stack(frames, 1))
+            frames = jnp.stack(frames, 0)
             return frames, states
 
         def step_env_render(carry, _):
@@ -254,7 +251,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
 
         # frames, states_r = render_episodes(train_state.params)
         # jax.debug.callback(render_frames, frames, runner_state.update_i, states_r)
-        # jax.debug.callback(render_frames_np, runner_state.update_i)
+        jax.debug.callback(render_frames_np, runner_state.update_i,
+                           train_state.params)
         # old_render_results = (frames, states)
 
         # jax.debug.print(f'Rendering episode gifs took {timer() - start_time} seconds')
@@ -435,8 +433,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                             f"global step={timesteps[t]}, episodic return={return_values[t]}")
                 jax.debug.callback(callback, metric, steps_prev_complete)
 
-            # jax.debug.callback(save_checkpoint, runner_state,
-            #                    metric, steps_prev_complete)
+            jax.debug.callback(save_checkpoint, runner_state,
+                               metric, steps_prev_complete)
 
             # Create a tensorboard writer
             writer = SummaryWriter(get_exp_dir(config))
@@ -476,7 +474,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             #     lambda: old_render_results,)
             # jax.debug.callback(render_frames, frames, runner_state.update_i, states)
             # if runner_state.update_i % config.render_freq == 0:
-            # jax.debug.callback(render_frames_np, runner_state.update_i)
+            jax.debug.callback(render_frames_np, runner_state.update_i,
+                               train_state.params)
             # old_render_results = (frames, states)
             # jax.debug.print(f'Rendering episode gifs took {timer() - start_time} seconds')
 
@@ -514,6 +513,8 @@ def init_checkpointer(config: RLConfig):
     rng = jax.random.PRNGKey(30)
     # Set up checkpointing
     ckpt_dir = get_ckpt_dir(config)
+    # Get absolute path
+    ckpt_dir = os.path.join(os.getcwd(), ckpt_dir)
 
     # Create a dummy checkpoint so we can restore it to the correct dataclasses
     # env, env_params = gymnax_pcgrl_make(config.env_name, config=config)

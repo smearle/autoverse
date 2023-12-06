@@ -22,7 +22,7 @@ from gen_env.configs.config import GenEnvConfig
 from gen_env.games import GAMES
 from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
-from gen_env.evo.individual import Individual
+from gen_env.evo.individual import IndividualData
 from gen_env.rules import is_valid
 from gen_env.utils import init_base_env, load_game_to_env, validate_config
 
@@ -98,7 +98,7 @@ def collect_elites(cfg: GenEnvConfig):
     # Additionally save elites to workspace directory for easy access for imitation learning
     # np.savez(unique_elites_path, elites)
 
-def split_elites(cfg: GenEnvConfig, elites: Iterable[Individual]):
+def split_elites(cfg: GenEnvConfig, elites: Iterable[IndividualData]):
     """ Split elites into train, val and test sets."""
     elites.sort(key=lambda x: x.fitness, reverse=True)
 
@@ -131,7 +131,7 @@ def split_elites(cfg: GenEnvConfig, elites: Iterable[Individual]):
     return train_elites, val_elites, test_elites
 
 
-def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: Individual, 
+def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData, 
                    record: bool = False):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
@@ -251,7 +251,7 @@ def main(cfg: GenEnvConfig):
         else:
             shutil.rmtree(cfg._log_dir_il, ignore_errors=True)
     if not loaded:
-        pop_size = cfg.batch_size
+        pop_size = cfg.evo_batch_size
         trg_n_iter = 100 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
@@ -282,7 +282,7 @@ def main(cfg: GenEnvConfig):
         tiles = env.tiles
         rules = env.rules
         map = env.map
-        ind = Individual(cfg, tiles, rules, map)
+        ind = IndividualData(cfg, tiles, rules, map)
         offspring = []
         for _ in range(pop_size):
             o = copy.deepcopy(ind)
@@ -300,10 +300,10 @@ def main(cfg: GenEnvConfig):
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
-        parents = np.random.choice(elites, size=cfg.batch_size, replace=True)
+        parents = np.random.choice(elites, size=cfg.evo_batch_size, replace=True)
         offspring = []
         for p in parents:
-            o: Individual = copy.deepcopy(p)
+            o: IndividualData = copy.deepcopy(p)
             o.mutate()
             offspring.append(o)
             for rule in o.rules:
@@ -321,7 +321,7 @@ def main(cfg: GenEnvConfig):
         for e in elites:
             if o.fitness is None:
                 raise ValueError("Fitness is None.")
-        elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.batch_size)[:cfg.batch_size]
+        elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.evo_batch_size)[:cfg.evo_batch_size]
         elites = np.delete(elites, elite_idxs)
         fits = [e.fitness for e in elites]
         max_fit = max(fits)
@@ -363,7 +363,7 @@ def main(cfg: GenEnvConfig):
         if n_gen % cfg.eval_freq == 0:
             eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
 
-def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[Individual], n_gen: int, vid_dir: str):
+def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):
     """ Evaluate elites."""
     # Sort elites by fitness.
     elites = sorted(elites, key=lambda e: e.fitness, reverse=True)

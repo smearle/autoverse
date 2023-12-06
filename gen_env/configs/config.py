@@ -12,7 +12,7 @@ class GenEnvConfig:
     player_exp_id: int = 0
     overwrite: bool = False
     n_proc: int = 4
-    batch_size: int = 40
+    evo_batch_size: int = 40
     game: str = "blank_for_evo"
     mutate_rules: bool = True
     fix_map: bool = False

@@ -10,3 +10,4 @@ multirun
 *.egg-info
 sol_*.mp4
 *workspace
+saves/*

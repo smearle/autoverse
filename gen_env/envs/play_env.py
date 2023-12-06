@@ -21,7 +21,7 @@ from PIL import ImageFont, ImageDraw, Image
 from gen_env.configs.config import GenEnvConfig
 from gen_env.events import Event, EventGraph
 from gen_env.objects import ObjectType
-from gen_env.rules import Rule, RuleSet
+from gen_env.rules import Rule, RuleData, RuleSet
 from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
 from gen_env.envs.utils import draw_triangle
 from gen_env.variables import Variable
@@ -51,8 +51,7 @@ class GenEnvState(struct.PyTreeNode):
 
 @struct.dataclass
 class GenEnvParams:
-    rules: chex.Array
-    rule_rewards: chex.Array
+    rules: RuleData
     rule_dones: chex.Array
     map: chex.Array
     player_placeable_tiles: chex.Array
@@ -170,7 +169,7 @@ class PlayEnv(gym.Env):
         self.init_obs_space(params)
 
         # max_rule_shape = max([r._in_out.shape for r in self.rules])
-        max_rule_shape = max(params.rules.shape[-2:])
+        max_rule_shape = max(params.rules.rule.shape[-2:])
         self.map_padding = (max_rule_shape + 1) // 2
 
     def init_obs_space(self, params: GenEnvParams):
@@ -178,7 +177,7 @@ class PlayEnv(gym.Env):
         # Dictionary observation space containing box 2d map and flat list of rules
         # Note that we assume rule in/outs are fixed in size
         # len_rule_obs = sum([len(rule.observe(len(self.tiles))) for rule in params.rules[self._n_fixed_rules:]])
-        len_rule_obs = np.prod(params.rules.shape)
+        len_rule_obs = np.prod(params.rules.rule.shape)
         # Lazily flattening observations for now. It is a binary array
         # Only observe player patch and rotation for now
         # self.observation_space = spaces.Dict({
@@ -516,7 +515,9 @@ class PlayEnv(gym.Env):
         # if self._n_fixed_rules == len(self.rules):
         #     return np.zeros((0,), dtype=np.float32)
         # rule_obs = np.concatenate([r.observe(n_tiles=len(self.tiles)) for r in self.rules[self._n_fixed_rules:]])
-        rule_obs = params.rules
+        rule_obs = params.rules.rule
+        rule_reward_obs = params.rules.reward
+        rule_obs = jnp.concatenate((rule_obs.flatten(), rule_reward_obs), axis=-1)
         rule_obs = jax.lax.select(
             self.cfg.hide_rules,
             jnp.zeros_like(rule_obs),
@@ -607,7 +608,7 @@ class PlayEnv(gym.Env):
 
         rule_ims = []
         # for rule in self.rules:
-        for rule_int, rule in zip(params.rules, self.rules):
+        for i, (rule_int, rule) in enumerate(zip(params.rules.rule, self.rules)):
             # Select the first rotation-variant (subrule) of the rule
             in_out = rule_int[0]
             # Get the tile images corresponding to the in_out pattern
@@ -655,7 +656,8 @@ class PlayEnv(gym.Env):
             text = f'Rule {rule.name}'
             # If the rule has non-zero reward, add the reward to the text
             if rule.reward != 0:
-                text += f'\nReward: {rule.reward}'
+                r_reward = params.rules.reward[i]
+                text += f'\nReward: {r_reward}'
             img_pil = Image.fromarray(p_ims)
             draw = ImageDraw.Draw(img_pil)
             draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
@@ -1051,8 +1053,8 @@ def apply_rules(map: np.ndarray, params: GenEnvParams, map_padding: int):
     done = False
 
     # subrules_ints = np.array([r.subrules_int for r in rules])
-    subrules_ints = params.rules
-    rule_rewards = params.rule_rewards
+    subrules_ints = params.rules.rule
+    rule_rewards = params.rules.reward
     dones = params.rule_dones
 
     # if not VMAP:
