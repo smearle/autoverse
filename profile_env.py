@@ -8,7 +8,7 @@ from gen_env.configs.config import GenEnvConfig
 from search_agent import batched_bfs
 
 n_episodes = 10
-n_steps = 100
+n_steps = 10000
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
@@ -21,11 +21,11 @@ def profile(cfg: GenEnvConfig):
     for i in range(n_episodes):
         reset_start = timer()
         key = jax.random.split(key)[0]
-        state, obs = env.reset(key=key, params=params)
+        obs, state = env.reset(key=key, params=params)
         total_reset_time = timer() - reset_start
         for i in range(n_steps):
             key = jax.random.split(key)[0]
-            state, obs, reward, done, info = \
+            obs, state, reward, done, info = \
                 env.step(key, action=env.action_space.sample(), state=state,
                          params=params)
             if cfg.render:
