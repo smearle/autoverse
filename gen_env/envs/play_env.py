@@ -807,7 +807,7 @@ class PlayEnv(gym.Env):
             if event.type == pygame.KEYDOWN:
                 if event.key in self.keys_to_acts:
                     action = self.keys_to_acts[event.key]
-                    state, obs, rew, done, info = \
+                    obs, state, rew, done, info = \
                         self.step_env(key=key, action=action, state=state, params=params)
                         # self.step(key=key, action=action, state=state,
                         #           params=params)
@@ -821,7 +821,7 @@ class PlayEnv(gym.Env):
             if done:
                 map_arr = gen_random_map(self.game_def, self.cfg.map_shape)
                 params = params.replace(map=map_arr)
-                state, obs = self.reset_env(key=key, params=params)
+                obs, state = self.reset_env(key=key, params=params)
                 done = False
                 self.render(mode='pygame', state=state, params=params)
         return state
