@@ -30,3 +30,9 @@ To render in blender:
 ```bash
 blender render_scene.blend --python enjoy_blender.py
 ```
+
+# Notes
+
+Because jax allocates gpu memory in advance, making `total_timesteps` too large will cause an out-of-memory error.
+However, complete jobs can be resumed with increased `total_timesteps` where jax will only allocate the difference between 
+completed and pending timesteps in advance.

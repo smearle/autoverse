@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 
 @dataclass
 class GenEnvConfig:
+    map_width: int = 10
     env_exp_id: int = 0
     player_exp_id: int = 0
     overwrite: bool = False
@@ -73,7 +74,6 @@ class RLConfig(GenEnvConfig):
     representation: str = "narrow"
     model: str = "conv"
 
-    map_width: int = 16
     # Size of the receptive field to be fed to the action subnetwork.
     vrf_size: Optional[int] = 31
     # Size of the receptive field to be fed to the value subnetwork.
