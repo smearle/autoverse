@@ -37,6 +37,7 @@ class GameDef:
     player_placeable_tiles: list
     search_tiles: Iterable[TileType]
     map: Optional[np.ndarray] = None
+    done_at_reward: Optional[int] = None
 
 
 @struct.dataclass
@@ -825,7 +826,7 @@ class PlayEnv(gym.Env):
                 elif event.key == pygame.K_x:
                     done = True
             if done:
-                map_arr = gen_random_map(self.game_def, self.cfg.map_shape)
+                map_arr = gen_random_map(key, self.game_def, self.cfg.map_shape)
                 params = params.replace(map=map_arr)
                 obs, state = self.reset_env(key=key, params=params)
                 done = False
@@ -1111,21 +1112,24 @@ def pygame_render_im(screen, img):
     pygame.display.flip()
 
 
-def gen_random_map(game_def: GameDef, map_shape):
+def gen_random_map(key: jax.random.PRNGKey, game_def: GameDef, map_shape):
     """Generate frequency-based tiles with certain probabilities."""
     tile_probs = [tile.prob for tile in game_def.tiles]
-    int_map = np.random.choice(len(game_def.tiles), size=map_shape, p=tile_probs)
-    map_coords = np.argwhere(int_map != -1)
+    # int_map = np.random.choice(len(game_def.tiles), size=map_shape, p=tile_probs)
+    int_map = jax.random.choice(key, len(game_def.tiles), shape=map_shape, p=jnp.array(tile_probs))
+    # map_coords = np.argwhere(int_map != -1)
+    map_coords = jnp.argwhere(int_map != -1)
     # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
     n_fixed = sum([tile.num for tile in game_def.tiles if tile.num is not None])
-    fixed_coords = map_coords[np.random.choice(map_coords.shape[0], size=n_fixed, replace=False)]
+    fixed_coords = map_coords[jax.random.choice(key, map_coords.shape[0], shape=(n_fixed,), replace=False)]
     i = 0
     for tile in game_def.tiles:
         if tile.prob == 0 and tile.num is not None:
             coord_list = fixed_coords[i: i + tile.num]
-            int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
+            # int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
+            int_map = int_map.at[coord_list[:, 0], coord_list[:, 1]].set(tile.idx)
             i += tile.num
-    map_arr = np.eye(len(game_def.tiles), dtype=np.int16)[int_map]
+    map_arr = jnp.eye(len(game_def.tiles), dtype=np.int16)[int_map]
     map_arr = rearrange(map_arr, "h w c -> c h w")
     # self._update_player_pos(map_arr)
     # Activate parent/co-occuring tiles.
@@ -1134,7 +1138,8 @@ def gen_random_map(game_def: GameDef, map_shape):
         if len(coactive_tiles) > 0:
             for cotile in coactive_tiles:
                 # Activate parent channels of any child tiles wherever the latter are active.
-                map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
+                # map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
+                map_arr = map_arr.at[cotile.idx, map_arr[tile.idx] == 1].set(1)
     # obj_set = {}
     return map_arr.astype(jnp.int16)
 

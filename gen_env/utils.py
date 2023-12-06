@@ -4,6 +4,7 @@ import os
 import cv2
 import imageio
 from jax import numpy as jnp
+import jax
 import numpy as np
 
 from gen_env.configs.config import GenEnvConfig
@@ -45,9 +46,20 @@ def init_base_env(cfg: GenEnvConfig, sb3=False):
         rule.n_tile_types = len(game_def.tiles)
         rule = compile(rule)
     if game_def.map is None:
-        map_arr = gen_random_map(game_def, cfg.map_shape).astype(jnp.int16)
+        key = jax.random.PRNGKey(cfg.seed)
+        map_arr = gen_random_map(key, game_def, cfg.map_shape).astype(jnp.int16)
     # TODO: Flatten rule and subrule dimensions!
-    rules_int = jnp.array([rule.subrules_int for rule in game_def.rules])
+    rules_int = [rule.subrules_int for rule in game_def.rules]
+
+    # FIXME: Below is misplaced. Needs to happen before subrules get rotated!
+    # Find largest rule dimensions
+    # max_rule_dims = np.max([rule.subrules_int.shape[-2:] for rule in game_def.rules], axis=0)
+    # Pad rules with -1s to make them all the same size
+    # rules_int = [np.pad(rule_int, ((0, 0), (0, 0), (0, 0), (0, max_rule_dims[0] - rule_int.shape[-2]), (0, max_rule_dims[1] - rule_int.shape[-1])), constant_values=-1) for rule_int in rules_int]
+
+    # TODO: Deal with non-rotate/rotated mix of rules. Gotta flatten along subrule dimension basically
+    rules_int = jnp.array(rules_int, dtype=jnp.int16)
+
     rule_rewards = jnp.array([rule.reward for rule in game_def.rules])
     rules = RuleData(rule=rules_int, reward=rule_rewards)
     rule_dones = jnp.array([rule.done for rule in game_def.rules], dtype=bool)
