@@ -66,7 +66,7 @@ class GenEnvObs:
 class PlayEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 16
-    view_size = 3
+    view_size = 9
     
     def __init__(self, width: int, height: int,
             game_def: GameDef,
@@ -317,7 +317,13 @@ class PlayEnv(gym.Env):
         state = state.replace(n_step=n_step, ep_rew=ep_rew)
         obs = self.get_obs(state, params)
         info = {}
-        return obs, state, reward, done, info
+        return (
+            jax.lax.stop_gradient(obs), 
+            jax.lax.stop_gradient(state),
+            reward,
+            done,
+            info
+        )
 
     def step_classic(self, action: chex.Array, state: GenEnvState):
         # TODO: Only pass global variable object to event graph.
@@ -400,7 +406,7 @@ class PlayEnv(gym.Env):
     def gen_dummy_obs(self, params: GenEnvParams):
         map_obs = self.observe_map(jnp.zeros(self.map_shape), (0, 0))
         flat_obs = jnp.concatenate((
-            jnp.eye(4)[0].astype(jnp.float32),
+            jnp.eye(4)[0].astype(jnp.float32).flatten(),
             self.observe_rules(params).flatten()))
         return GenEnvObs(map_obs[None], flat_obs[None])
 
