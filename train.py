@@ -251,8 +251,10 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
 
         # frames, states_r = render_episodes(train_state.params)
         # jax.debug.callback(render_frames, frames, runner_state.update_i, states_r)
-        jax.debug.callback(render_frames_np, runner_state.update_i,
-                           train_state.params)
+        # jax.debug.print("Rendering episode gifs at update 0")
+        # jax.debug.callback(render_frames_np, runner_state.update_i,
+        #                    train_state.params)
+        # jax.debug.print(f"Done rendering episode gifs at update 0")
         # old_render_results = (frames, states)
 
         # jax.debug.print(f'Rendering episode gifs took {timer() - start_time} seconds')
@@ -357,9 +359,6 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                         ratio = jnp.exp(log_prob - traj_batch.log_prob)
                         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
 
-                        # Some reshaping to accomodate player, x, and y dimensions to action output. (Not used often...)
-                        gae = gae[..., None, None, None]
-
                         loss_actor1 = ratio * gae
                         loss_actor2 = (
                             jnp.clip(
@@ -384,6 +383,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                     total_loss, grads = grad_fn(
                         train_state.params, traj_batch, advantages, targets
                     )
+                    # jax.debug.print("total_loss={total_loss}", total_loss=total_loss)
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
@@ -474,8 +474,10 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             #     lambda: old_render_results,)
             # jax.debug.callback(render_frames, frames, runner_state.update_i, states)
             # if runner_state.update_i % config.render_freq == 0:
-            jax.debug.callback(render_frames_np, runner_state.update_i,
-                               train_state.params)
+            # jax.debug.print("Rendering episode gifs at update 0")
+            # jax.debug.callback(render_frames_np, runner_state.update_i,
+            #                 train_state.params)
+            # jax.debug.print(f"Done rendering episode gifs at update 0")
             # old_render_results = (frames, states)
             # jax.debug.print(f'Rendering episode gifs took {timer() - start_time} seconds')
 
