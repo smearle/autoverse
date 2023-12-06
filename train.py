@@ -242,7 +242,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                             t - latest_ckpt_step >= config.ckpt_freq):
                         print(f"Saving checkpoint at step {t}")
                         ckpt = {'runner_state': runner_state,
-                                'config': config, 'step_i': t}
+                                'config': config, 
+                                'step_i': t}
                         # ckpt = {'step_i': t}
                         save_args = orbax_utils.save_args_from_target(ckpt)
                         checkpoint_manager.save(t, ckpt, save_kwargs={
@@ -494,8 +495,8 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
             _update_step, runner_state, None, config.NUM_UPDATES
         )
 
-        # jax.debug.callback(save_checkpoint, runner_state,
-        #                    metric, steps_prev_complete)
+        jax.debug.callback(save_checkpoint, runner_state,
+                           metric, steps_prev_complete)
 
         return {"runner_state": runner_state, "metrics": metric}
 
@@ -550,7 +551,7 @@ def init_checkpointer(config: RLConfig):
     runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv,
                                # ep_returns=jnp.full(config.num_envs, jnp.nan), 
                                rng=rng, update_i=0)
-    target = {'runner_state': runner_state, 'step_i': 0}
+    target = {'runner_state': runner_state, 'config': config, 'step_i': 0}
     options = orbax.checkpoint.CheckpointManagerOptions(
         max_to_keep=2, create=True)
     checkpoint_manager = orbax.checkpoint.CheckpointManager(

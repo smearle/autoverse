@@ -1,4 +1,4 @@
-opencv-python
+fire
 hydra-core
 hydra-submitit-launcher
 distrax
@@ -6,8 +6,8 @@ einops
 flax
 gym
 gymnax
+imageio[ffmpeg]
 networkx
-imageio
+opencv-python
 pygame
-fire
 tensorboardX

@@ -91,6 +91,8 @@ def main_enjoy(config: EnjoyConfig):
             state_i = jax.tree_map(lambda x: x[step_i, ep_i], states)
             ep_frames.append(env.render(state_i, env_params, mode='rgb_array'))
         frames.append(ep_frames)
+        # Print reward
+        print(f'Ep {ep_i}: {states.ep_rew[:, ep_i].sum()}')
 
     frames = np.array(frames)
 
