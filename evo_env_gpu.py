@@ -309,7 +309,7 @@ def main(cfg: GenEnvConfig):
                 offspring_inds.append(o_ind)
         else:
             with Pool(processes=n_proc) as pool:
-                offspring_fits = multiproc_eval_offspring(offspring_inds)
+                offspring_fits = multiproc_eval_offspring(offspring_params)
             for o_params, fit in zip(offspring_params, offspring_fits):
                 o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
                 offspring_inds.append(o_ind)
@@ -323,20 +323,18 @@ def main(cfg: GenEnvConfig):
         # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
         parents = np.random.choice(elite_inds, size=cfg.evo_batch_size, replace=True)
         offspring_inds = []
-        for p_ind in parents:
-            p_params = p_ind.env_params
-            # o: Individual = copy.deepcopy(p)
-            map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
-            o_params = p_params.replace(map=map, rules=rules)
-            fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)
-            o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
-            offspring_inds.append(o_ind)
-        # if n_proc == 1:
-        # for o_params in offspring_inds:
-            # o_params, o_fitness = evaluate(key, env, o_params, render, trg_n_iter)
-        # else:
-        #     with Pool(processes=n_proc) as pool:
-        #         offspring = multiproc_eval_offspring(offspring)
+        if n_proc == 1:
+            for p_ind in parents:
+                p_params = p_ind.env_params
+                # o: Individual = copy.deepcopy(p)
+                map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
+                o_params = p_params.replace(map=map, rules=rules)
+                fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)
+                o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
+                offspring_inds.append(o_ind)
+        else:
+            with Pool(processes=n_proc) as pool:
+                offspring_inds = multiproc_eval_offspring(p_params, env.tiles)
 
         elite_inds = np.concatenate((elite_inds, offspring_inds))
         # Discard the weakest.

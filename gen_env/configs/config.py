@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 
 @dataclass
 class GenEnvConfig:
+    seed: int = 0
     map_width: int = 10
     env_exp_id: int = 0
     player_exp_id: int = 0
@@ -69,7 +70,6 @@ class RLConfig(GenEnvConfig):
     ANNEAL_LR: bool = False
     DEBUG: bool = True
     exp_name: str = "0"
-    seed: int = 0
     problem: str = "binary"
     representation: str = "narrow"
     model: str = "conv"
