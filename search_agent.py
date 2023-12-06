@@ -209,7 +209,7 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
         for action in possible_actions:
             # env.set_state(parent_state)
             # print('set frontier state')
-            state, obs, rew, done, info = \
+            obs, state, rew, done, info = \
                 env.step_env(key=key, action=action, state=parent_state, params=params)
             child_rew = state.ep_rew
             if render:
@@ -239,7 +239,7 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
                 best_state_actions = (state, action_seq)
                 best_reward = child_rew
                 n_iter_best = n_iter
-                print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+                # print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
             if not jnp.all(done):
                 # Add this state to the frontier so can we can continue searching from it later
                 frontier.append((state, action_seq, child_rew))

@@ -22,9 +22,9 @@ from gen_env.configs.config import GenEnvConfig
 from gen_env.games import GAMES
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
-from gen_env.evo.individual import Individual
+from gen_env.evo.individual import Individual, IndividualData
 from gen_env.rules import is_valid
-from gen_env.utils import get_params_from_individual, init_base_env, load_game_to_env, validate_config
+from gen_env.utils import init_base_env, load_game_to_env, validate_config
 
 
 
@@ -98,7 +98,7 @@ def collect_elites(cfg: GenEnvConfig):
     # Additionally save elites to workspace directory for easy access for imitation learning
     # np.savez(unique_elites_path, elites)
 
-def split_elites(cfg: GenEnvConfig, elites: Iterable[Individual]):
+def split_elites(cfg: GenEnvConfig, elites: Iterable[IndividualData]):
     """ Split elites into train, val and test sets."""
     elites.sort(key=lambda x: x.fitness, reverse=True)
 
@@ -131,11 +131,11 @@ def split_elites(cfg: GenEnvConfig, elites: Iterable[Individual]):
     return train_elites, val_elites, test_elites
 
 
-def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: Individual, 
+def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData, 
                    record: bool = False):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
-    params = get_params_from_individual(env, elite)
+    params = elite.env_params
     load_game_to_env(env, elite)
     obs_seq = []
     rew_seq = []
@@ -241,24 +241,26 @@ def main(cfg: GenEnvConfig):
 
             save_dict = np.load(save_file, allow_pickle=True)['arr_0'].item()
             n_gen = save_dict['n_gen']
-            elites = save_dict['elites']
+            elite_inds = save_dict['elites']
             trg_n_iter = save_dict['trg_n_iter']
-            pop_size = len(elites)
+            pop_size = len(elite_inds)
             loaded = True
-            print(f"Loaded {len(elites)} elites from {save_file} at generation {n_gen}.")
+            print(f"Loaded {len(elite_inds)} elites from {save_file} at generation {n_gen}.")
         elif not overwrite:
             print(f"Directory {cfg._log_dir_evo} already exists. Use `--overwrite=True` to overwrite.")
             return
         else:
             shutil.rmtree(cfg._log_dir_il, ignore_errors=True)
     if not loaded:
-        pop_size = cfg.batch_size
+        pop_size = cfg.evo_batch_size
         trg_n_iter = 200 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
-    env, params = init_base_env(cfg)
+    env, base_params = init_base_env(cfg)
+    env.tiles
+    ind = Individual(cfg, env.tiles, base_params.rules, base_params.map)
     key = jax.random.PRNGKey(0)
-    env_state, obs = env.reset(key=key, params=params)
+    env_state, obs = env.reset(key=key, params=base_params)
     # if num_proc > 1:
     #     envs, params = zip(*[init_base_env(cfg) for _ in range(num_proc)])
     #     breakpoint()
@@ -267,7 +269,7 @@ def main(cfg: GenEnvConfig):
     if cfg.evaluate:
         # breakpoint()
         print(f"Elites at generation {n_gen}:")
-        eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
+        eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
         return
 
     def multiproc_eval_offspring(offspring):
@@ -284,50 +286,66 @@ def main(cfg: GenEnvConfig):
     if not loaded:
         n_gen = 0
         tiles = env.tiles
-        rules = env.rules
-        map = env_state.map
-        ind = Individual(cfg, tiles, rules, map)
-        offspring = []
+        rules = base_params.rules
+        # rule_rewards = base_params.rules.reward
+        map = base_params.map
+
+        offspring_params = []
         for _ in range(pop_size):
-            o = copy.deepcopy(ind)
-            key, subkey = jax.random.split(key)
-            o.mutate(key=key, fixed_tile_nums=fixed_tile_nums)
-            offspring.append(o)
+            key, _ = jax.random.split(key)
+            o_map, o_rules = ind.mutate(key=key, map=map, rules=rules, 
+                                    tiles=tiles)
+            o_params = base_params.replace(map=o_map, rules=o_rules)
+            offspring_params.append(o_params)
+
+        offspring_inds = []
         if n_proc == 1:
-            for o in offspring:
-                o = evaluate(key, env, o, render, trg_n_iter)
+            for o_params in offspring_params:
+                fit = evaluate(key, env, o_params, render, trg_n_iter)
+                o_ind = IndividualData(env_params=o_params, fitness=fit)
+                offspring_inds.append(o_ind)
         else:
             with Pool(processes=n_proc) as pool:
-                offspring = multiproc_eval_offspring(offspring)
-        elites = offspring
+                offspring_fits = multiproc_eval_offspring(offspring_inds)
+            for o_params, fit in zip(offspring_params, offspring_fits):
+                o_ind = IndividualData(env_params=o_params, fitness=fit)
+                offspring_inds.append(o_ind)
+
+        elite_inds = offspring_inds
 
     # Training loop
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
-        parents = np.random.choice(elites, size=cfg.batch_size, replace=True)
-        offspring = []
-        for p in parents:
-            o: Individual = copy.deepcopy(p)
-            offspring.append(o)
-            for rule in o.rules:
-                if not is_valid(rule._in_out):
-                    breakpoint()
+        # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
+        parents = np.random.choice(elite_inds, size=cfg.evo_batch_size, replace=True)
+        offspring_inds = []
+        for p_ind in parents:
+            p_params = p_ind.env_params
+            # o: Individual = copy.deepcopy(p)
+            map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
+            o_params = p_params.replace(map=map, rules=rules)
+            o_ind = IndividualData(env_params=o_params)
+            offspring_inds.append(o_ind)
         # if n_proc == 1:
-        for o in offspring:
-            o = evaluate(key, env, o, render, trg_n_iter)
+        for o_params in offspring_inds:
+            o_params, o_fitness = evaluate(key, env, o_params, render, trg_n_iter)
         # else:
         #     with Pool(processes=n_proc) as pool:
         #         offspring = multiproc_eval_offspring(offspring)
 
-        elites = np.concatenate((elites, offspring))
+        offspring_inds = [
+            IndividualData(env_params=o_params, )
+        ]
+
+        elite_inds = np.concatenate((elite_inds, offspring_inds))
         # Discard the weakest.
-        for e in elites:
-            if o.fitness is None:
+        for e in elite_inds:
+            if e.fitness is None:
                 raise ValueError("Fitness is None.")
-        elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.batch_size)[:cfg.batch_size]
-        elites = np.delete(elites, elite_idxs)
-        fits = [e.fitness for e in elites]
+        elite_idxs = np.argpartition(np.array([o.fitness for o in elite_inds]), cfg.evo_batch_size)[:cfg.evo_batch_size]
+        elite_inds = np.delete(elite_inds, elite_idxs)
+        fits = [e.fitness for e in elite_inds]
         max_fit = max(fits)
         mean_fit = np.mean(fits)
         min_fit = min(fits) 
@@ -354,20 +372,20 @@ def main(cfg: GenEnvConfig):
             # np.savez(os.path.join(log_dir, "elites"), 
                 {
                     'n_gen': n_gen,
-                    'elites': elites,
+                    'elites': elite_inds,
                     'trg_n_iter': trg_n_iter
                 })
             # Save the elite's game mechanics to a yaml
             elite_games_dir = os.path.join(cfg._log_dir_evo, "elite_games")
             if not os.path.isdir(elite_games_dir):
                 os.mkdir(os.path.join(cfg._log_dir_evo, "elite_games"))
-            for i, e in enumerate(elites):
+            for i, e in enumerate(elite_inds):
                 e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
 
         if n_gen % cfg.eval_freq == 0:
-            eval_elites(cfg, env, elites, n_gen=n_gen, vid_dir=vid_dir)
+            eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
 
-def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[Individual], n_gen: int, vid_dir: str):
+def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):
     """ Evaluate elites."""
     # Sort elites by fitness.
     elites = sorted(elites, key=lambda e: e.fitness, reverse=True)

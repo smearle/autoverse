@@ -8,8 +8,9 @@ import numpy as np
 
 from gen_env.configs.config import GenEnvConfig
 from gen_env.envs.play_env import GameDef, PlayEnv, SB3PlayEnv, GenEnvParams, gen_random_map
-from gen_env.evo.individual import Individual
+from gen_env.evo.individual import IndividualData
 from gen_env.games import GAMES
+from gen_env.rules import RuleData, compile
 
 
 def validate_config(cfg: GenEnvConfig):
@@ -42,16 +43,17 @@ def init_base_env(cfg: GenEnvConfig, sb3=False):
     game_def: GameDef = GAMES[cfg.game].make_env()
     for rule in game_def.rules:
         rule.n_tile_types = len(game_def.tiles)
-        rule.compile()
+        rule = compile(rule)
     if game_def.map is None:
         map_arr = gen_random_map(game_def, cfg.map_shape).astype(jnp.int16)
     # TODO: Flatten rule and subrule dimensions!
     rules_int = jnp.array([rule.subrules_int for rule in game_def.rules])
     rule_rewards = jnp.array([rule.reward for rule in game_def.rules])
+    rules = RuleData(rule=rules_int, reward=rule_rewards)
     rule_dones = jnp.array([rule.done for rule in game_def.rules], dtype=bool)
     player_placeable_tiles = \
         jnp.array([tile.idx for tile, placement_rule in game_def.player_placeable_tiles], dtype=int)
-    params = GenEnvParams(rules=rules_int, map=map_arr, rule_rewards=rule_rewards,
+    params = GenEnvParams(rules=rules, map=map_arr,
                        rule_dones=rule_dones,
                        player_placeable_tiles=player_placeable_tiles)
     if not sb3:
@@ -73,7 +75,7 @@ def init_base_env(cfg: GenEnvConfig, sb3=False):
     return env, params
 
 
-def load_game_to_env(env: PlayEnv, individual: Individual):
+def load_game_to_env(env: PlayEnv, individual: IndividualData):
     env._map_queue = [individual.map,]
     env.rules = individual.rules
     env.tiles = individual.tiles
@@ -84,10 +86,10 @@ def load_game_to_env(env: PlayEnv, individual: Individual):
 
 
 # TODO: individual should basically be its own dataclass
-def get_params_from_individual(env: PlayEnv, individual: Individual):
-    params = GenEnvParams(rules=jnp.array([rule.subrules_int for rule in individual.rules], dtype=jnp.int16),
-                       map=individual.map,
-                       rule_rewards=jnp.array([rule.reward for rule in individual.rules]),
-                       rule_dones=jnp.array([rule.done for rule in individual.rules], dtype=bool),
-                       player_placeable_tiles=jnp.array([tile.idx for tile, placement_rule in env.game_def.player_placeable_tiles]))
-    return params
+# def get_params_from_individual(env: PlayEnv, individual: IndividualData):
+#     params = GenEnvParams(rules=jnp.array([rule.subrules_int for rule in individual.rules], dtype=jnp.int16),
+#                        map=individual.map,
+#                        rule_rewards=jnp.array([rule.reward for rule in individual.rules]),
+#                        rule_dones=jnp.array([rule.done for rule in individual.rules], dtype=bool),
+#                        player_placeable_tiles=jnp.array([tile.idx for tile, placement_rule in env.game_def.player_placeable_tiles]))
+#     return params

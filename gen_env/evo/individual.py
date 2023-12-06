@@ -9,10 +9,18 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 
-from gen_env.envs.play_env import PlayEnv
+from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.configs.config import GenEnvConfig
-from gen_env.rules import Rule, RuleSet
+from gen_env.rules import Rule, RuleData, RuleSet, mutate_rule
 from gen_env.tiles import TileType, TileSet
+
+
+@struct.dataclass
+class IndividualData:
+    env_params: GenEnvParams
+    fitness: float
+    # bc_0: float
+    # bc_1: float
 
 
 class Individual():
@@ -20,9 +28,9 @@ class Individual():
         self.cfg = cfg
         self.tiles = tiles
         self.rules = rules
-        for rule in self.rules:
-            rule.n_tile_types = len(self.tiles)
-            rule.compile()
+        # for rule in self.rules:
+        #     rule.n_tile_types = len(self.tiles)
+        #     rule.compile()
         self.map = map
         self.fitness = None
 
@@ -30,14 +38,23 @@ class Individual():
         self.action_seq = None
         self.reward_seq = None
 
-    def mutate(self, key, fixed_tile_nums):
+        self.player_idx = None
+        for t in tiles:
+            if t.is_player:
+                self.player_idx = t.idx
+        assert self.player_idx == 0
+
+    def mutate(self, key, map, rules, tiles):
         if self.cfg.mutate_rules:
             # Mutate between 1 and 3 random rules
-            i_arr = np.random.randint(0, len(self.rules), random.randint(1, 3))
-            for i in i_arr:
-                rule: Rule = self.rules[i]
-                rule.mutate(self.tiles, self.rules[:i] + self.rules[i+1:])
-                self.rules[i] = rule
+            r_idx = np.random.randint(0, rules.reward.shape[0], random.randint(1, 3))
+            for i in r_idx:
+                rule = rules.rule[i]
+                rule_reward = rules.reward[i]
+                rule, rule_reward = mutate_rule(key, rule, rule_reward, tiles)
+                rules_int = rules.rule.at[i].set(rule)
+                rules_reward = rules.reward.at[i].set(rule_reward)
+                rules = RuleData(rule=rules_int, reward=rules_reward)
 
         # if not hasattr(self.cfg, 'fix_map') or not self.cfg.fix_map:
         # if not self.cfg.fix_map:
@@ -56,21 +73,27 @@ class Individual():
 
         # Mutate onehot map by randomly changing some tile types
         # Pick number of tiles to sample from gaussian
-        n_mut_tiles = abs(int(np.random.normal(0, 10)))
+        # n_mut_tiles = abs(int(np.random.normal(0, 10)))
         # disc_map = self.map.argmax(axis=0)
         # k_arr = np.random.randint(0, disc_map.size - 1, n_mut_tiles)
+
         flip_pct = jax.random.uniform(key, shape=(), minval=0.0, maxval=0.5)
-        bit_flips = jax.random.bernoulli(key, p=flip_pct, shape=self.map.shape)
-        map = jnp.bitwise_xor(self.map, bit_flips)
+        bit_flips = jax.random.bernoulli(key, p=flip_pct, shape=map.shape)
+
+        # Mask out bit flips at `player_idx`        
+        bit_flips = bit_flips.at[..., self.player_idx].set(0)
+
+        map = map.astype(jnp.int32)
+        map = jnp.bitwise_xor(map, bit_flips)
+
         # for k in k_arr:
             # breakpoint()
             # disc_map.flat[k] = np.random.randint(0, len(self.tiles))
         
         # self.map = PlayEnv.repair_map(disc_map, self.tiles)
-        self.map = PlayEnv.repair_map(key, map, fixed_tile_nums=fixed_tile_nums)
+        # self.map = PlayEnv.repair_map(key, map, fixed_tile_nums=fixed_tile_nums)
 
-        if self.map is None:
-            breakpoint()
+        return map, rules
 
 
     def save(self, filename):
@@ -103,7 +126,7 @@ class Individual():
                 r.inhibits = [names_to_rules[i] for i in r.inhibits]
             rules = RuleSet(rules)
             map = np.array(d['map'])
-        return Individual(tiles=tiles, rules=rules, cfg=cfg, map=map)
+        return IndividualData(tiles=tiles, rules=rules, cfg=cfg, map=map)
 
     def hashable(self):
         rule_hashes = [r.hashable() for r in self.rules]

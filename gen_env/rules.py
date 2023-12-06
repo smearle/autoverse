@@ -41,7 +41,11 @@ from pdb import set_trace as TT
 import random
 from typing import Dict, Iterable
 
+import chex
 from einops import rearrange, reduce
+from flax import struct
+from jax import numpy as jnp
+import jax
 import numpy as np
 
 from gen_env.objects import ObjectType
@@ -53,6 +57,12 @@ def tile_to_str(tile: TileType) -> str:
 
 def tile_from_str(name: str, names_to_tiles: Dict[str, TileType]) -> TileType:
     return names_to_tiles[name] if not (name is None or name == 'None') else None
+
+    
+@struct.dataclass
+class RuleData:
+    rule: chex.Array
+    reward: float
 
 
 class Rule():
@@ -116,57 +126,6 @@ class Rule():
             }
         }
 
-    def compile(self):
-        # List of subrules resulting from rule (i.e. if applying rotation).
-        # in_out = np.vectorize(TileType.get_idx)(self._in_out)
-        # subrules = [in_out]
-        # (in_out, subpatterns, height, width)
-        in_out = self._in_out
-        subrules = [in_out]
-        # Only rotate if necessary.
-        if self._rotate and self._in_out[0].shape != (1, 1):
-            subrules += [np.rot90(in_out, k=1, axes=(2, 3)), np.rot90(in_out, k=2, axes=(2,3)), 
-                np.rot90(in_out, k=3, axes=(2,3))]
-        max_subrule_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
-        self.subrules = subrules
-        self.subrules_int = [np.vectorize(TileType.get_idx)(sr) for sr in subrules]
-        self.subrules_int = \
-            [np.pad(sr, [(0, max_subrule_shape[i] - sr.shape[i]) for i in range(len(max_subrule_shape))], constant_values=-1)
-            for sr in self.subrules_int]
-        # Now shape: (n_subrules, in_out, rule_channels, height, width)
-
-        # To convert to onehot, make Nones (-1) equal to 0. We'll give them their
-        # own onehot channel for now (then remove it later).
-        self.subrules_int = (np.array(self.subrules_int) + 1).astype(np.int8)
-
-        # Take one-hot over channels
-        # (n_subrules, in_out, rule_channels, height, width, tile_channels)
-        self.subrules_int = np.eye(self.n_tile_types + 1)[self.subrules_int][..., 1:]
-        self.subrules_int = rearrange(self.subrules_int, 'n_subrules in_out rule_channels height width tile_channels -> ' +
-                                      'n_subrules in_out rule_channels tile_channels height width')
-        # Sum over rule channels.
-        # NOTE: This is assumes the rule int array is binary.
-        self.subrules_int = reduce(self.subrules_int,
-                                   'n_subrules in_out rule_channels tile_channels height width -> ' +
-                                   'n_subrules in_out tile_channels height width', 'sum').astype(np.int8)
-        
-        # We may have redundant tiles in different rule channels in input or output pattern, so clip
-        self.subrules_int = np.clip(self.subrules_int, 0, 1)
-
-        # Always remove whatever was detected in the input pattern when
-        # it is activated.
-        # outp -= inp
-        self.subrules_int[:, 1] -= self.subrules_int[:, 0]
-
-        # Get max shape over subrules
-        max_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
-        # Pad subrules to max shape
-        padded_subrules = []
-        # for sr in subrules:
-        #     padded_sr_shape = [(0, max_shape[i] - sr.shape[i]) for i in range(len(max_shape))]
-        #     padded_subrule = [np.pad(sr, padded_sr_shape) for sr in self.subrules_int]
-        #     padded_subrules.append(padded_subrule)
-
     def observe(self, n_tiles):
         # FIXME: Need to observe reward, rotation, etc.
         # return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
@@ -184,7 +143,34 @@ class Rule():
         # TODO: User GenEnv actions to modify map and rules (need to factor this out of GenEnv to be a static method)
         pass
 
-    def mutate(self, tiles, other_rules):
+
+    def hashable(self):
+        int_in_out = np.vectorize(lambda x: x.get_idx() if x is not None else -1)(self._in_out)
+        return hash(int_in_out.tobytes())
+
+
+def mutate_rule(key, rule, reward, tiles):
+    # n_muts = 1
+    x = random.random()
+    if False:
+        pass
+    # if x < 1 / n_muts:
+    #     return
+    # elif x < 2 / n_muts:
+    #     self.random = not self.random
+    # elif x < 3 / n_muts:
+    #     self.done = not self.done
+    # elif x < 1 / n_muts:
+    if x < 0.2:
+        reward = random.randint(-1, 1)
+    # elif x < 5 / n_muts:
+    #     self.max_applications = random.randint(0, 11)
+    #     self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
+    # elif x < 6 / n_muts:
+    #     self._rotate = not self._rotate
+    # elif x < 7 / n_muts:
+    #     self.inhibits = random.sample(other_rules, random.randint(0, len(other_rules)))
+    # elif x < 8 / n_muts    def mutate(rule, reward, tiles):
         # n_muts = 1
         x = random.random()
         if False:
@@ -197,7 +183,7 @@ class Rule():
         #     self.done = not self.done
         # elif x < 1 / n_muts:
         if x < 0.2:
-            self.reward = random.randint(-1, 1)
+            reward = random.randint(-1, 1)
         # elif x < 5 / n_muts:
         #     self.max_applications = random.randint(0, 11)
         #     self.max_applications = math.inf if self.max_applications == 0 else self.max_applications
@@ -211,47 +197,134 @@ class Rule():
             # if 1 < 1 / n_muts:
             if True:
                 # Flip something in the in-out pattern.
-                io_idx = random.randint(0, 1)
-                subp_idx = random.randint(0, self._in_out.shape[1] - 1)
-                if self._in_out.shape[2] == 0:
+                # io_idx = random.randint(0, 1)
+                io_idx = jax.random.randint(key, (1,), 0, 2).item()
+                subp_idx = jax.random.randint(key, (1,), 0, rule.shape[1] - 1).item()
+                if rule.shape[2] == 0:
                     raise Exception('Cannot mutate rule with no subpatterns')
-                i = random.randint(0, self._in_out.shape[2] - 1)
-                j = random.randint(0, self._in_out.shape[3] - 1)
-                tile = self._in_out[io_idx, subp_idx, i, j]
-                tile_idx = tile.get_idx() if tile is not None else len(tiles)
-                tiles_none = tiles + [None]
-                new_in_out = self._in_out.copy()
-                new_in_out[io_idx, subp_idx, i, j] = tiles_none[(tile_idx + random.randint(1, len(tiles) - 1)) % (len(tiles) + 1)]
+                # i = random.randint(0, rule.shape[2] - 1)
+                i = jax.random.randint(key, (1,), 0, rule.shape[2]).item()
+                # j = random.randint(0,key, (1,),  rule.shape[3] -
+                j = jax.random.randint(key, (1,), 0, rule.shape[3]).item()
+
+                # flip this bit
+                new_rule = rule.at[io_idx, subp_idx, i, j].set(
+                    (rule[io_idx, subp_idx, i, j] + 1) % 1)
             else:
                 # Add something to the in-out pattern. Either a new subpattern, new rows, or new columns
                 axis = random.randint(1, 3)
                 diff = random.randint(0, 1)
-                if diff == 0 and self._in_out.shape[axis] > 1 or self._in_out.shape[axis] == 3:
+                if diff == 0 and rule._in_out.shape[axis] > 1 or rule._in_out.shape[axis] == 3:
                     # Index of subpattern/row/column to be removed
-                    i = random.randint(0, self._in_out.shape[axis] - 1)
-                    new_in_out = np.delete(self._in_out, i, axis=axis)
+                    i = random.randint(0, rule._in_out.shape[axis] - 1)
+                    new_in_out = np.delete(rule._in_out, i, axis=axis)
                 else:
-                    new_shape = list(self._in_out.shape)
+                    new_shape = list(rule._in_out.shape)
                     new_shape[axis] = 1
                     new = np.random.randint(0, len(tiles) + 1, new_shape)
                     # new = np.vectorize(lambda x: tiles[x] if x < len(tiles) else None)(new)
                     new = np.array(tiles + [None])[new]
-                    new_in_out = np.concatenate((self._in_out, new), axis=axis)
+                    new_in_out = np.concatenate((rule._in_out, new), axis=axis)
 
-            if is_valid(new_in_out):
-                self._in_out = new_in_out
-        self.compile()
+            # if not is_valid(new_rule):
+                # breakpoint()
+    #     self.children = random.sample(other_rules, random.randint(0, len(other_rules)))
+    else:
+        # if 1 < 1 / n_muts:
+        if True:
+            # Flip something in the in-out pattern.
+            io_idx = random.randint(0, 1)
+            subp_idx = random.randint(0, rule.shape[1] - 1)
+            if rule.shape[2] == 0:
+                raise Exception('Cannot mutate rule with no subpatterns')
+            i = jax.random.randint(key, (1,), 0, rule.shape[2] - 1).item()
+            j = jax.random.randint(key, (1,), 0, rule.shape[3] - 1)
 
-    def hashable(self):
-        int_in_out = np.vectorize(lambda x: x.get_idx() if x is not None else -1)(self._in_out)
-        return hash(int_in_out.tobytes())
+            # flip this bit
+            new_rule = rule.at[io_idx, subp_idx, i, j].set(
+                (rule[io_idx, subp_idx, i, j] + 1) % 1)
+        else:
+            # Add something to the in-out pattern. Either a new subpattern, new rows, or new columns
+            axis = random.randint(1, 3)
+            diff = random.randint(0, 1)
+            if diff == 0 and rule._in_out.shape[axis] > 1 or rule._in_out.shape[axis] == 3:
+                # Index of subpattern/row/column to be removed
+                i = random.randint(0, rule._in_out.shape[axis] - 1)
+                new_in_out = np.delete(rule._in_out, i, axis=axis)
+            else:
+                new_shape = list(rule._in_out.shape)
+                new_shape[axis] = 1
+                new = np.random.randint(0, len(tiles) + 1, new_shape)
+                # new = np.vectorize(lambda x: tiles[x] if x < len(tiles) else None)(new)
+                new = np.array(tiles + [None])[new]
+                new_in_out = np.concatenate((rule._in_out, new), axis=axis)
+
+        if not is_valid(new_rule):
+            #FIXME
+            # breakpoint()
+            pass
+
+    return rule, reward
+
+
+def compile(rule):
+    # List of subrules resulting from rule (i.e. if applying rotation).
+    # in_out = np.vectorize(TileType.get_idx)(self._in_out)
+    # subrules = [in_out]
+    # (in_out, subpatterns, height, width)
+    in_out = rule._in_out
+    subrules = [in_out]
+    # Only rotate if necessary.
+    if rule._rotate and rule._in_out[0].shape != (1, 1):
+        subrules += [np.rot90(in_out, k=1, axes=(2, 3)), np.rot90(in_out, k=2, axes=(2,3)), 
+            np.rot90(in_out, k=3, axes=(2,3))]
+    max_subrule_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
+    rule.subrules = subrules
+    rule.subrules_int = [np.vectorize(TileType.get_idx)(sr) for sr in subrules]
+    rule.subrules_int = \
+        [np.pad(sr, [(0, max_subrule_shape[i] - sr.shape[i]) for i in range(len(max_subrule_shape))], constant_values=-1)
+        for sr in rule.subrules_int]
+    # Now shape: (n_subrules, in_out, rule_channels, height, width)
+
+    # To convert to onehot, make Nones (-1) equal to 0. We'll give them their
+    # own onehot channel for now (then remove it later).
+    rule.subrules_int = (np.array(rule.subrules_int) + 1).astype(np.int8)
+
+    # Take one-hot over channels
+    # (n_subrules, in_out, rule_channels, height, width, tile_channels)
+    rule.subrules_int = np.eye(rule.n_tile_types + 1)[rule.subrules_int][..., 1:]
+    rule.subrules_int = rearrange(rule.subrules_int, 'n_subrules in_out rule_channels height width tile_channels -> ' +
+                                    'n_subrules in_out rule_channels tile_channels height width')
+    # Sum over rule channels.
+    # NOTE: This assumes the rule int array is binary.
+    rule.subrules_int = reduce(rule.subrules_int,
+                                'n_subrules in_out rule_channels tile_channels height width -> ' +
+                                'n_subrules in_out tile_channels height width', 'sum').astype(np.int8)
+    
+    # We may have redundant tiles in different rule channels in input or output pattern, so clip
+    rule.subrules_int = np.clip(rule.subrules_int, 0, 1)
+
+    # Always remove whatever was detected in the input pattern when
+    # it is activated.
+    # outp -= inp
+    rule.subrules_int[:, 1] -= rule.subrules_int[:, 0]
+
+    # Get max shape over subrules
+    max_shape = np.array([sr.shape for sr in subrules]).max(axis=0)
+    # Pad subrules to max shape
+    padded_subrules = []
+    # for sr in subrules:
+    #     padded_sr_shape = [(0, max_shape[i] - sr.shape[i]) for i in range(len(max_shape))]
+    #     padded_subrule = [np.pad(sr, padded_sr_shape) for sr in self.subrules_int]
+    #     padded_subrules.append(padded_subrule)
+
 
 
 def is_valid(in_out):
     """Accept new in-out rule only if it does not result in invalid player transformation.
     A rule is allowed to move or remove the player, but not create new players where previously
     there were none."""
-    in_out_players = np.vectorize(lambda x: x is not None and x.is_player)(in_out)
+    in_out_players = np.vectorize(lambda x: x is not None and x == 0)(in_out)
     # return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() <= 1
     return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 0
 
