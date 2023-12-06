@@ -21,6 +21,7 @@ class IndividualData:
     fitness: float
     # bc_0: float
     # bc_1: float
+    action_seq: chex.Array
 
 
 class Individual():

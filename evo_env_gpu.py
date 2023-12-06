@@ -5,10 +5,11 @@ import os
 from pdb import set_trace as TT
 import random
 import shutil
-from typing import Iterable
+from typing import Iterable, List
 
 # from fire import Fire
 from einops import rearrange
+from flax import struct
 import hydra
 import imageio
 import jax
@@ -28,11 +29,12 @@ from gen_env.utils import init_base_env, load_game_to_env, validate_config
 
 
 
-# @dataclass
-# class Playtrace:
-#     obs_seq: List[np.ndarray]
-#     action_seq: List[int]
-#     reward_seq: List[float]
+@struct.dataclass
+class Playtrace:
+    obs_seq: List[np.ndarray]
+    action_seq: List[int]
+    reward_seq: List[float]
+
 
 def collect_elites(cfg: GenEnvConfig):
 
@@ -136,12 +138,12 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
     params = elite.env_params
-    load_game_to_env(env, elite)
+    # load_game_to_env(env, elite)
     obs_seq = []
     rew_seq = []
     # env.queue_games([elite.map.copy()], [elite.rules.copy()])
     key = jax.random.PRNGKey(0)
-    state, obs = env.reset_env(key=key, params=params)
+    obs, state = env.reset_env(key=key, params=params)
     # print(f"Initial state reward: {state.ep_rew}")
     # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     # Debug: interact after episode completes (investigate why episode ends early)
@@ -165,7 +167,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
             #     print('Replaying again, rendering this time')
             #     return replay_episode(cfg, env, elite, record=True)
             break
-        state, obs, reward, done, info = env.step_env(key, state=state, action=elite.action_seq[i], params=params)
+        obs, state, reward, done, info = env.step_env(key, state=state, action=elite.action_seq[i], params=params)
         # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
@@ -185,7 +187,8 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
     elite.obs_seq = obs_seq
     elite.rew_seq = rew_seq
     if record:
-        return frames
+        return obs_seq, frames
+    return obs_seq
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
@@ -301,14 +304,14 @@ def main(cfg: GenEnvConfig):
         offspring_inds = []
         if n_proc == 1:
             for o_params in offspring_params:
-                fit = evaluate(key, env, o_params, render, trg_n_iter)
-                o_ind = IndividualData(env_params=o_params, fitness=fit)
+                fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)
+                o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
                 offspring_inds.append(o_ind)
         else:
             with Pool(processes=n_proc) as pool:
                 offspring_fits = multiproc_eval_offspring(offspring_inds)
             for o_params, fit in zip(offspring_params, offspring_fits):
-                o_ind = IndividualData(env_params=o_params, fitness=fit)
+                o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
                 offspring_inds.append(o_ind)
 
         elite_inds = offspring_inds
@@ -325,18 +328,15 @@ def main(cfg: GenEnvConfig):
             # o: Individual = copy.deepcopy(p)
             map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
             o_params = p_params.replace(map=map, rules=rules)
-            o_ind = IndividualData(env_params=o_params)
+            fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)
+            o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
             offspring_inds.append(o_ind)
         # if n_proc == 1:
-        for o_params in offspring_inds:
-            o_params, o_fitness = evaluate(key, env, o_params, render, trg_n_iter)
+        # for o_params in offspring_inds:
+            # o_params, o_fitness = evaluate(key, env, o_params, render, trg_n_iter)
         # else:
         #     with Pool(processes=n_proc) as pool:
         #         offspring = multiproc_eval_offspring(offspring)
-
-        offspring_inds = [
-            IndividualData(env_params=o_params, )
-        ]
 
         elite_inds = np.concatenate((elite_inds, offspring_inds))
         # Discard the weakest.
@@ -376,11 +376,11 @@ def main(cfg: GenEnvConfig):
                     'trg_n_iter': trg_n_iter
                 })
             # Save the elite's game mechanics to a yaml
-            elite_games_dir = os.path.join(cfg._log_dir_evo, "elite_games")
-            if not os.path.isdir(elite_games_dir):
-                os.mkdir(os.path.join(cfg._log_dir_evo, "elite_games"))
-            for i, e in enumerate(elite_inds):
-                e.save(os.path.join(elite_games_dir, f"{i}.yaml"))
+            # elite_games_dir = os.path.join(cfg._log_dir_evo, "elite_games")
+            # if not os.path.isdir(elite_games_dir):
+            #     os.mkdir(os.path.join(cfg._log_dir_evo, "elite_games"))
+            # for i, e in enumerate(elite_inds):
+            #     ind.save(os.path.join(elite_games_dir, f"{i}.yaml"))
 
         if n_gen % cfg.eval_freq == 0:
             eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
