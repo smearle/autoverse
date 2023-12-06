@@ -71,6 +71,7 @@ class ConvForward(nn.Module):
     arf_size: int
     vrf_size: int
     activation: str = "relu"
+    hid_dim: int = 128
 
     @nn.compact
     def __call__(self, map_x, flat_x):
@@ -84,11 +85,11 @@ class ConvForward(nn.Module):
         act, critic = crop_arf_vrf(map_x, self.arf_size, self.vrf_size)
 
         act = nn.Conv(
-            features=64, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
+            features=self.hid_dim, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
         )(act)
         act = activation(act)
         act = nn.Conv(
-            features=64, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
+            features=self.hid_dim, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
         )(act)
         act = activation(act)
 
@@ -96,7 +97,7 @@ class ConvForward(nn.Module):
         act = jnp.concatenate((act, flat_x), axis=-1)
 
         act = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+            self.hid_dim, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(act)
         act = activation(act)
 
@@ -109,11 +110,11 @@ class ConvForward(nn.Module):
         critic = jnp.concatenate((critic, flat_x), axis=-1)
 
         critic = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+            self.hid_dim, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(critic)
         critic = activation(critic)
         critic = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+            self.hid_dim, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(critic)
         critic = activation(critic)
         critic = nn.Dense(
