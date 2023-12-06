@@ -177,18 +177,26 @@ def mutate_rule(key, rule, reward, tiles):
         if True:
             # Flip something in the in-out pattern.
             # io_idx = random.randint(0, 1)
-            io_idx = jax.random.randint(key, (1,), 0, 2).item()
-            subp_idx = jax.random.randint(key, (1,), 0, rule.shape[1] - 1).item()
-            if rule.shape[2] == 0:
-                raise Exception('Cannot mutate rule with no subpatterns')
-            # i = random.randint(0, rule.shape[2] - 1)
-            i = jax.random.randint(key, (1,), 0, rule.shape[2]).item()
-            # j = random.randint(0,key, (1,),  rule.shape[3] -
-            j = jax.random.randint(key, (1,), 0, rule.shape[3]).item()
+            # io_idx = jax.random.randint(key, (1,), 0, 2).item()
+            # subp_idx = jax.random.randint(key, (1,), 0, rule.shape[1] - 1).item()
+            # if rule.shape[2] == 0:
+            #     raise Exception('Cannot mutate rule with no subpatterns')
+            # # i = random.randint(0, rule.shape[2] - 1)
+            # i = jax.random.randint(key, (1,), 0, rule.shape[2]).item()
+            # # j = random.randint(0,key, (1,),  rule.shape[3] -
+            # j = jax.random.randint(key, (1,), 0, rule.shape[3]).item()
 
-            # flip this bit
-            new_rule = rule.at[io_idx, subp_idx, i, j].set(
-                (rule[io_idx, subp_idx, i, j] + 1) % 1)
+            # # flip this bit
+            # new_rule = rule.at[io_idx, subp_idx, i, j].set(
+            #     (rule[io_idx, subp_idx, i, j] + 1) % 3 - 1)
+            new_rule = jax.random.randint(key, rule.shape, -1, 2)
+            pct_to_mutate = jax.random.uniform(key, shape=(), minval=0.0, maxval=0.3)
+            rule_mask = jax.random.bernoulli(key, p=pct_to_mutate, shape=rule.shape)
+            new_rule = jnp.where(rule_mask, new_rule, rule)
+
+            # Get rid of any rule affecting player
+            new_rule = new_rule.at[:, :, 0, :, :].set(0)
+
         else:
             # Add something to the in-out pattern. Either a new subpattern, new rows, or new columns
             axis = random.randint(1, 3)
