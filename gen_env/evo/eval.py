@@ -46,4 +46,4 @@ def evaluate(key: jax.random.PRNGKey,
     # env_params.fitness = fitness
     # env_params.action_seq = action_seq
     print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
-    return fitness
+    return fitness, action_seq

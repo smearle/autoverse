@@ -76,8 +76,8 @@ def init_base_env(cfg: GenEnvConfig, sb3=False):
 
 
 def load_game_to_env(env: PlayEnv, individual: IndividualData):
-    env._map_queue = [individual.map,]
-    env.rules = individual.rules
+    env._map_queue = [individual.params.map,]
+    env.rules = individual.params.rules
     env.tiles = individual.tiles
     env._init_rules = individual.rules
     params = get_params_from_individual(env, individual)
