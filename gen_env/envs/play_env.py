@@ -41,6 +41,14 @@ class GameDef:
 
 
 @struct.dataclass
+class GenEnvParams:
+    rules: RuleData
+    rule_dones: chex.Array
+    map: chex.Array
+    player_placeable_tiles: chex.Array
+
+
+@struct.dataclass
 class GenEnvState(struct.PyTreeNode):
     n_step: int
     map: chex.Array
@@ -48,14 +56,7 @@ class GenEnvState(struct.PyTreeNode):
     player_rot: int
     player_pos: Tuple[int]
     ep_rew: int
-
-
-@struct.dataclass
-class GenEnvParams:
-    rules: RuleData
-    rule_dones: chex.Array
-    map: chex.Array
-    player_placeable_tiles: chex.Array
+    queued_params: GenEnvParams
 
 
 @struct.dataclass
@@ -255,6 +256,7 @@ class PlayEnv(gym.Env):
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
             player_rot=0, ep_rew=0.0,
             player_pos=player_pos,
+            queued_params=params
         )
         # self._set_state(env_state)
         obs = self.get_obs(state, params)
@@ -272,12 +274,16 @@ class PlayEnv(gym.Env):
         # Use default env parameters if no others specified
         # if params is None:
         #     params = self.default_params
+
+        # This feels kind of sketchy but it does the trick        
+        reset_params = state.queued_params
+
         action = action.astype(jnp.int32)
         key, key_reset = jax.random.split(key)
         obs_st, state_st, reward, done, info = self.step_env(
             key, action=action, state=state, params=params
         )
-        obs_re, state_re = self.reset_env(key_reset, params)
+        obs_re, state_re = self.reset_env(key_reset, reset_params)
         # Auto-reset environment based on termination
         state = jax.tree_map(
             lambda x, y: jax.lax.select(done, x, y), state_re, state_st
@@ -834,15 +840,15 @@ class PlayEnv(gym.Env):
         return state
 
 
-    def get_state(self):
-        return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(),
-                        # obj_set=self.objects,
-            player_rot=self.player_rot, ep_rew=self.ep_rew)
+    # def get_state(self):
+    #     return GenEnvState(n_step=self.n_step, map_arr=self.map.copy(),
+    #                     # obj_set=self.objects,
+    #         player_rot=self.player_rot, ep_rew=self.ep_rew)
 
-    def set_state(self, state: GenEnvState):
-        state = copy.deepcopy(state)
-        self._set_state(state)
-        # TODO: setting variables and event graph.
+    # def set_state(self, state: GenEnvState):
+    #     state = copy.deepcopy(state)
+    #     self._set_state(state)
+    #     # TODO: setting variables and event graph.
 
     def hashable(self, state: GenEnvState):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())

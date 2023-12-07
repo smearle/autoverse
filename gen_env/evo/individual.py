@@ -25,14 +25,14 @@ class IndividualData:
 
 
 class Individual():
-    def __init__(self, cfg: GenEnvConfig, tiles: Iterable[TileType], rules: Iterable[Rule], map: np.ndarray):
+    def __init__(self, cfg: GenEnvConfig, tiles: Iterable[TileType]):
         self.cfg = cfg
-        self.tiles = tiles
-        self.rules = rules
+        # self.tiles = tiles
+        # self.rules = rules
         # for rule in self.rules:
         #     rule.n_tile_types = len(self.tiles)
         #     rule.compile()
-        self.map = map
+        # self.map = map
         self.fitness = None
 
         self.obs_seq = None
@@ -97,12 +97,13 @@ class Individual():
         return map, rules
 
 
-    def save(self, filename):
-        # Save dictionary to yaml
-        with open(filename, 'w') as f:
-            d = {'tiles': [t.to_dict() for t in self.tiles], 'rules': [r.to_dict() for r in self.rules],
-                 'map': self.map.tolist()}
-            yaml.safe_dump(d, f, indent=4, allow_unicode=False)
+    # TODO: bring this up to speed
+    # def save(self, filename):
+    #     # Save dictionary to yaml
+    #     with open(filename, 'w') as f:
+    #         d = {'tiles': [t.to_dict() for t in self.tiles], 'rules': [r.to_dict() for r in self.rules],
+    #              'map': self.map.tolist()}
+    #         yaml.safe_dump(d, f, indent=4, allow_unicode=False)
 
     def load(filename, cfg):
         # Load dictionary from yaml
@@ -129,8 +130,9 @@ class Individual():
             map = np.array(d['map'])
         return IndividualData(tiles=tiles, rules=rules, cfg=cfg, map=map)
 
-    def hashable(self):
-        rule_hashes = [r.hashable() for r in self.rules]
-        rules_hash = hash((tuple(rule_hashes)))
-        map_hash = hash(self.map.tobytes())
-        return hash((rules_hash, map_hash))
+    # TODO: bring this up to speed
+    # def hashable(self):
+    #     rule_hashes = [r.hashable() for r in self.rules]
+    #     rules_hash = hash((tuple(rule_hashes)))
+    #     map_hash = hash(self.map.tobytes())
+    #     return hash((rules_hash, map_hash))
