@@ -33,7 +33,7 @@ def gen_discount_factors_matrix(gamma, max_episode_steps):
 
 
 def distribute_evo_envs_to_train(config: TrainAccelConfig, evo_env_params: GenEnvParams):
-    n_reps = config.n_envs // config.evo_pop_size
+    n_reps = max(1, config.n_envs // config.evo_pop_size)
     return jax.tree_map(lambda x: jnp.concatenate([x for _ in range(n_reps)])[:config.n_envs], evo_env_params)
 
 
@@ -57,7 +57,6 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
     evo_env_params = evo_state.env_params
     # Just mutating all elites once atm
     mutate_fn = jax.vmap(ind.mutate, in_axes=(0, 0, 0, None))
-    breakpoint()
     maps, ruless = mutate_fn(evo_rng, evo_env_params.map, evo_env_params.rules, env.tiles)
     new_env_params = evo_env_params.replace(map=maps, rules=ruless)
     all_env_params = jax.tree_map(lambda x, y: jnp.vstack([x, y]), evo_env_params, new_env_params)
