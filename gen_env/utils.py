@@ -39,7 +39,7 @@ def save_video(frames, video_path, fps=10):
     imageio.mimwrite(video_path, frames, fps=25, quality=8, macro_block_size=1)
 
 
-def init_base_env(cfg: GenEnvConfig, sb3=False):
+def init_base_env(cfg: GenEnvConfig, sb3=False) -> (PlayEnv, GenEnvParams):
     # env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
     game_def: GameDef = GAMES[cfg.game].make_env()
     for rule in game_def.rules:
@@ -87,14 +87,14 @@ def init_base_env(cfg: GenEnvConfig, sb3=False):
     return env, params
 
 
-def load_game_to_env(env: PlayEnv, individual: IndividualData):
-    env._map_queue = [individual.params.map,]
-    env.rules = individual.params.rules
-    env.tiles = individual.tiles
-    env._init_rules = individual.rules
-    params = get_params_from_individual(env, individual)
-    env.init_obs_space(params=params)
-    return env
+# def load_game_to_env(env: PlayEnv, individual: IndividualData):
+#     env._map_queue = [individual.params.map,]
+#     env.rules = individual.params.rules
+#     env.tiles = individual.tiles
+#     env._init_rules = individual.rules
+#     params = get_params_from_individual(env, individual)
+#     env.init_obs_space(params=params)
+#     return env
 
 
 # TODO: individual should basically be its own dataclass

@@ -212,10 +212,10 @@ def mutate_rule(key, rule, reward, tiles):
                 # new = np.vectorize(lambda x: tiles[x] if x < len(tiles) else None)(new)
                 new = np.array(tiles + [None])[new]
                 new_in_out = np.concatenate((rule._in_out, new), axis=axis)
-        if not is_valid(new_rule):
-            #FIXME
-            # breakpoint()
-            pass
+        # if not is_valid(new_rule):
+        #     #FIXME
+        #     # breakpoint()
+        #     pass
 
     return new_rule, reward
 
@@ -277,9 +277,9 @@ def is_valid(in_out):
     """Accept new in-out rule only if it does not result in invalid player transformation.
     A rule is allowed to move or remove the player, but not create new players where previously
     there were none."""
-    in_out_players = np.vectorize(lambda x: x is not None and x == 0)(in_out)
+    in_out_players = in_out == 0
     # return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() <= 1
-    return in_out_players.sum() == 0 or in_out_players[0].sum() == 1 and in_out_players[1].sum() == 0
+    return in_out_players.sum() == 0 | in_out_players[0].sum() == 1 & in_out_players[1].sum() == 0
 
 class MJRule(Rule):
     def __init__(self, rule):
