@@ -84,7 +84,7 @@ class Individual():
         # Mask out bit flips at `player_idx`        
         bit_flips = bit_flips.at[self.player_idx].set(0)
 
-        map = map.astype(jnp.int32)
+        map = map.astype(jnp.int16)
         map = jnp.bitwise_xor(map, bit_flips)
 
         # for k in k_arr:

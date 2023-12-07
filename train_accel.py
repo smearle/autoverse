@@ -6,6 +6,8 @@ from typing import NamedTuple
 import hydra
 import jax
 import logging
+
+import numpy as np
 logging.getLogger('jax').setLevel(logging.INFO)
 import jax.numpy as jnp
 from flax import struct
@@ -17,7 +19,7 @@ import orbax
 from tensorboardX import SummaryWriter
 
 from gen_env.evo.individual import Individual
-from evo_accel import EvoState, apply_evo, gen_discount_factors_matrix
+from evo_accel import EvoState, apply_evo, distribute_evo_envs_to_train, gen_discount_factors_matrix
 from gen_env.configs.config import (RLConfig, TrainConfig, TrainAccelConfig, 
                                     GenEnvConfig)
 from gen_env.utils import init_base_env
@@ -62,6 +64,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
     # env_r.init_graphics()
 
     evo_individual = Individual(config, env.tiles)
+    discount_factors_matrix = gen_discount_factors_matrix(config.GAMMA, max_episode_steps=env.max_episode_steps)
 
     def linear_schedule(count):
         frac = (
@@ -126,8 +129,10 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 #                             fill_value=jnp.nan, dtype=jnp.float32)
 
         # Tile env_params evo_pop_size many times
-        evo_env_params = jax.tree_map(lambda x: jnp.tile(x, (config.evo_pop_size, 1)), env_params)
-        evo_state = EvoState(env_params=evo_env_params)
+        evo_env_params = jax.tree_map(lambda x: jnp.vstack([x for _ in range(config.evo_pop_size)]), env_params)
+        evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.zeros(config.evo_pop_size))
+
+        train_env_params = distribute_evo_envs_to_train(config, evo_env_params)
 
         steps_prev_complete = 0
         runner_state = RunnerState(
@@ -195,15 +200,16 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             key = jax.random.PRNGKey(0)
             frames = []
             for ep_idx in range(config.n_render_eps):
-                obs_r, state_r = env_r.reset_env(key, evo_env_params)
+                env_params = jax.tree_map(lambda x: x[ep_idx], train_env_params)
+                obs_r, state_r = env_r.reset_env(key, env_params)
                 for _ in range(env.max_episode_steps):
                     obs_r = jax.tree_util.tree_map(lambda x: x[None], obs_r)
                     pi, value = network.apply(network_params, obs_r)
                     action = pi.sample(seed=key)
                     key = jax.random.split(key)[0]
-                    obs_r, state_r, reward, done, info = env_r.step_env(key, state_r, action[0], evo_env_params)
+                    obs_r, state_r, reward, done, info = env_r.step_env(key, state_r, action[0], env_params)
                     # Concatenate the gpu dimension
-                    frame = env_r.render(state_r, evo_env_params, mode='rgb_array')
+                    frame = env_r.render(state_r, env_params, mode='rgb_array')
                     frames.append(frame)
 
 
@@ -226,10 +232,10 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
             obs_r, env_state_r, reward_r, done_r, info_r = vmap_step_fn(
                             rng_step, env_state_r, action_r,
-                            evo_env_params)
+                            train_env_params)
             vmap_render_fn = jax.vmap(env_r.render, in_axes=(0, None))
             # pmap_render_fn = jax.pmap(vmap_render_fn, in_axes=(0,))
-            frames = vmap_render_fn(env_state_r, evo_env_params)
+            frames = vmap_render_fn(env_state_r, train_env_params)
             # Get rid of the gpu dimension
             # frames = jnp.concatenate(jnp.stack(frames, 1))
             return (rng_r, obs_r, env_state_r, network_params),\
@@ -277,6 +283,8 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                     runner_state.rng, runner_state.update_i,
                 )
 
+                train_env_params = env_state.env_state.queued_params
+
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
                 # Squash the gpu dimension (network only takes one batch dimension)
@@ -288,11 +296,11 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config.n_envs)
 
-                # rng_step = rng_step.reshape((config.n_gpus, -1) + rng_step.shape[1:])
-                vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, None))
+                # Note that we are mapping across environment parameters as well to train on different environments
+                vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0))
                 # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
                 obsv, env_state, reward, done, info = vmap_step_fn(
-                    rng_step, env_state, action, evo_env_params
+                    rng_step, env_state, action, train_env_params
                 )
                 transition = Transition(
                     done, action, value, reward, log_prob, last_obs, info
@@ -457,17 +465,16 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                     rng=rng, env=env, ind=evo_individual, evo_state=evo_state, 
                     network_params=network_params, network=network,
                     config=config,
-                    discount_factor_matrix=discount_factor_matrix),
+                    discount_factor_matrix=discount_factors_matrix),
                 lambda: evo_state)
 
             elite_env_params = evo_state.env_params
-            # Tile env_params so that we have `n_envs` many
-            train_env_params = jax.tree_map(lambda x: 
-                jnp.tile(x, (int(np.ceil(config.n_envs / config.evo_pop_size)), 1))
-                    [:config.n_envs], elite_env_params)
+            # Tile and slice env_params so that we have `n_envs` many
+            n_reps = int(np.ceil(config.n_envs / config.evo_pop_size))
+            train_env_params = distribute_evo_envs_to_train(config, elite_env_params)
             # Now when we step the environments, each will reset to `queued` 
             # env_params on next reset (inside PlayEnv.step())
-            env_state = env_state.replace(env_params=train_env_params)
+            env_state = env_state.replace(env_state = env_state.env_state.replace(queued_params=train_env_params))
 
             # Create a tensorboard writer
             writer = SummaryWriter(get_exp_dir(config))
@@ -580,7 +587,7 @@ def init_checkpointer(config: RLConfig):
         reset_rng, 
         env_params, 
     )
-    evo_env_params = jax.tree_map(lambda x: jnp.tile(x, (config.evo_pop_size, 1)), env_params)
+    evo_env_params = jax.tree_map(lambda x: jnp.array([x for _ in range(config.evo_pop_size)]), env_params)
     evo_state = EvoState(env_params=evo_env_params)
     runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv,
                                # ep_returns=jnp.full(config.num_envs, jnp.nan), 
