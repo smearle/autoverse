@@ -129,7 +129,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 #                             fill_value=jnp.nan, dtype=jnp.float32)
 
         # Tile env_params evo_pop_size many times
-        evo_env_params = jax.tree_map(lambda x: jnp.vstack([x for _ in range(config.evo_pop_size)]), env_params)
+        evo_env_params = jax.tree_map(lambda x: jnp.concatenate([x[None] for _ in range(config.evo_pop_size)]), env_params)
         evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.zeros(config.evo_pop_size))
 
         train_env_params = distribute_evo_envs_to_train(config, evo_env_params)
