@@ -52,7 +52,7 @@ def init_config(config: RLConfig, evo=True):
     #     return config
 
     config.arf_size = (2 * config.map_width -
-                      1 if config.arf_size is None else config.arf_size)
+                       1 if config.arf_size is None else config.arf_size)
     config.arf_size = config.arf_size if config.arf_size is None \
         else config.arf_size
     config.exp_dir = get_exp_dir(config)

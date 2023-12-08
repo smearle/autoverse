@@ -120,12 +120,20 @@ class TrainConfig(RLConfig):
 @dataclass
 class TrainAccelConfig(TrainConfig):
     evo_freq: int = 10
+    n_envs: int = 20
     evo_pop_size: int = 10
     evo_mutate_prob: float = 0.1
 
 
 @dataclass
 class EnjoyConfig(RLConfig):
+    random_agent: bool = False
+    # How many episodes to render as gifs
+    n_eps: int = 10
+
+
+@dataclass
+class EnjoyAccelConfig(TrainAccelConfig, EnjoyConfig):
     random_agent: bool = False
     # How many episodes to render as gifs
     n_eps: int = 10
@@ -158,6 +166,7 @@ cs.store(name="rl_config", node=RLConfig)
 cs.store(name="train_xlife", node=TrainConfig)
 cs.store(name="train_accel_xlife", node=TrainAccelConfig)
 cs.store(name="enjoy_xlife", node=EnjoyConfig)
+cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
 cs.store(name="eval_xlife", node=EvalConfig)
 cs.store(name="profile_xlife", node=ProfileEnvConfig)
 cs.store(name="batch_xlife", node=BatchConfig)
