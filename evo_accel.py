@@ -34,7 +34,8 @@ def gen_discount_factors_matrix(gamma, max_episode_steps):
 
 def distribute_evo_envs_to_train(config: TrainAccelConfig, evo_env_params: GenEnvParams):
     n_reps = max(1, config.n_envs // config.evo_pop_size)
-    return jax.tree_map(lambda x: jnp.concatenate([x for _ in range(n_reps)])[:config.n_envs], evo_env_params)
+    return jax.tree_map(lambda x: jnp.concatenate([x for _ in range(n_reps)])
+                        [:config.n_envs], evo_env_params)
 
 
 @struct.dataclass # need to make a carrier for for the fitness to the tensorboard logging? hmm unnecessary

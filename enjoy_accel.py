@@ -6,16 +6,17 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 
-from evo_accel import distribute_evo_envs_to_train, RunnerState
+from evo_accel import distribute_evo_envs_to_train
 from gen_env.configs.config import EnjoyConfig
 # from envs.pcgrl_env import PCGRLEnv, render_stats
 from gen_env.envs.play_env import PlayEnv
 from gen_env.utils import init_base_env
-from train import init_checkpointer
+from train_accel import init_checkpointer, RunnerState
 from pcgrl_utils import get_exp_dir, get_network, init_config
 
 
-@hydra.main(version_base=None, config_path='gen_env/configs/', config_name='enjoy_xlife')
+@hydra.main(version_base=None, config_path='gen_env/configs/',
+            config_name='enjoy_accel_xlife')
 def main_enjoy(config: EnjoyConfig):
     config = init_config(config)
 
@@ -34,6 +35,13 @@ def main_enjoy(config: EnjoyConfig):
 
     env: PlayEnv
     env, env_params = init_base_env(config)
+
+    evo_env_params = runner_state.evo_state.env_params
+    n_reps = max(1, config.n_eps // evo_env_params.map.shape[0])
+    env_params = jax.tree_map(
+        lambda x: jnp.concatenate([x for _ in range(n_reps)])
+        [:config.n_eps], evo_env_params)
+
     # env.prob.init_graphics()
     network = get_network(env, env_params, config)
 
@@ -46,7 +54,7 @@ def main_enjoy(config: EnjoyConfig):
 
     # obs, env_state = env.reset(rng, env_params)
 
-    obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(rng_reset, env_params)
+    obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(rng_reset, env_params)
     # As above, but explicitly jit
 
     def step_env(carry, _):
@@ -62,7 +70,7 @@ def main_enjoy(config: EnjoyConfig):
         # obs, env_state, reward, done, info = env.step(
         #     rng_step, env_state, action[..., 0], env_params
         # )
-        obs, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+        obs, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
             rng_step, env_state, action, env_params
 
         )
@@ -91,7 +99,8 @@ def main_enjoy(config: EnjoyConfig):
         ep_frames = []
         for step_i in range(states.ep_rew.shape[0]):
             state_i = jax.tree_map(lambda x: x[step_i, ep_i], states)
-            ep_frames.append(env.render(state_i, env_params, mode='rgb_array'))
+            env_params_i = jax.tree_map(lambda x: x[ep_i], env_params)
+            ep_frames.append(env.render(state_i, env_params_i, mode='rgb_array'))
         frames.append(ep_frames)
         # Print reward
         print(f'Ep {ep_i}: {states.ep_rew[:, ep_i].sum()}')
