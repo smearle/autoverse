@@ -251,7 +251,7 @@ def main(cfg: GenEnvConfig):
         else:
             shutil.rmtree(cfg._log_dir_il, ignore_errors=True)
     if not loaded:
-        pop_size = cfg.evo_batch_size
+        pop_size = cfg.evo_pop_size
         trg_n_iter = 100 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
@@ -300,7 +300,7 @@ def main(cfg: GenEnvConfig):
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
-        parents = np.random.choice(elites, size=cfg.evo_batch_size, replace=True)
+        parents = np.random.choice(elites, size=cfg.evo_pop_size, replace=True)
         offspring = []
         for p in parents:
             o: IndividualData = copy.deepcopy(p)
@@ -321,7 +321,7 @@ def main(cfg: GenEnvConfig):
         for e in elites:
             if o.fitness is None:
                 raise ValueError("Fitness is None.")
-        elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.evo_batch_size)[:cfg.evo_batch_size]
+        elite_idxs = np.argpartition(np.array([o.fitness for o in elites]), cfg.evo_pop_size)[:cfg.evo_pop_size]
         elites = np.delete(elites, elite_idxs)
         fits = [e.fitness for e in elites]
         max_fit = max(fits)

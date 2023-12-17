@@ -86,7 +86,14 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
         rewards_mat = jnp.tile(rewards[None], (n_steps, 1, 1))
         discounted_rewards_mat = rewards_mat * discount_mat
         returns = discounted_rewards_mat.sum(axis=1)
+
         vf_errs = jnp.abs(returns - values)
+
+        # In this case, evolution aims to increase the degree to which the agent overestimates its success. If the agent
+        # is frozen, reward should decrease.
+        # vf_errs = returns - values
+
+
         fits = vf_errs.sum(axis=0)
         
         # regret value
@@ -146,17 +153,4 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
     return EvoState(top_fitness=top_fitnesses, env_params=elite_params) # here do I need to init an empty one and evo_state.replace(top_fitness=top_fitnesses, frz_map=top) ?
     # return top
     
-
-        
-
-    
-def mutate_frz_map(rng, frz_map, config: TrainConfig):
-    '''
-    mutate the frz maps
-    '''
-    mut_tiles = jax.random.bernoulli(
-        rng, p=config.evo_mutate_prob, shape=frz_map.shape)
-    # frz_map = (frz_map + mut_tiles) % 2
-    new_frz_map = jnp.logical_xor(frz_map, mut_tiles)
-    return new_frz_mapfrz
     

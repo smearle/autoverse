@@ -46,16 +46,31 @@ class Individual():
         assert self.player_idx == 0
 
     def mutate(self, key, map, rules, tiles):
-        if self.cfg.mutate_rules:
-            # Mutate between 1 and 3 random rules
-            r_idx = np.random.randint(0, rules.reward.shape[0], random.randint(1, 3))
-            for i in r_idx:
-                rule = rules.rule[i]
-                rule_reward = rules.reward[i]
-                rule, rule_reward = mutate_rule(key, rule, rule_reward, tiles)
-                rules_int = rules.rule.at[i].set(rule)
-                rules_reward = rules.reward.at[i].set(rule_reward)
-                rules = RuleData(rule=rules_int, reward=rules_reward)
+
+        def mutate_rules(key, rules, tiles) -> RuleData:
+
+            def _mutate_rule(key, rule, rule_reward, tiles):
+                rule_int, rule_reward = mutate_rule(key, rule, rule_reward, tiles)
+                rules = RuleData(rule=rule_int, reward=rule_reward)
+                return rules
+
+            mutate_keys = jax.random.split(key, rules.rule.shape[0])
+
+            mutated_rules = jax.vmap(_mutate_rule, in_axes=(0, 0, 0, None))\
+                (mutate_keys, rules.rule, rules.reward, tiles)
+
+            # Uniform sample probability of masking out rule mutations
+            mask_pct = jax.random.uniform(key, shape=(1,), minval=0.0, maxval=0.5)
+            mask = jax.random.bernoulli(key, p=mask_pct, shape=rules.reward.shape)
+            mutated_rules = mutated_rules.replace(
+                rule=jax.tree_map(lambda x: jnp.where(mask[...,None,None,None,None,None], x, 0), mutated_rules.rule),
+                reward=jax.tree_map(lambda x: jnp.where(mask, x, 0), mutated_rules.reward),
+            )
+
+            return mutated_rules
+
+
+        rules = jax.lax.cond(self.cfg.mutate_rules, lambda key, rules: mutate_rules(key, rules, tiles), lambda _, __: rules, key, rules)
 
         # if not hasattr(self.cfg, 'fix_map') or not self.cfg.fix_map:
         # if not self.cfg.fix_map:

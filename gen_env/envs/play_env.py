@@ -621,7 +621,7 @@ class PlayEnv(gym.Env):
 
         rule_ims = []
         # for rule in self.rules:
-        for i, (rule_int, rule) in enumerate(zip(params.rules.rule, self.rules)):
+        for rule_i, (rule_int, rule) in enumerate(zip(params.rules.rule, self.rules)):
             # Select the first rotation-variant (subrule) of the rule
             in_out = rule_int[0]
             # Get the tile images corresponding to the in_out pattern
@@ -668,8 +668,8 @@ class PlayEnv(gym.Env):
             # Paste text
             text = f'Rule {rule.name}'
             # If the rule has non-zero reward, add the reward to the text
-            if rule.reward != 0:
-                r_reward = params.rules.reward[i]
+            r_reward = params.rules.reward[rule_i]
+            if r_reward != 0:
                 text += f'\nReward: {r_reward}'
             img_pil = Image.fromarray(p_ims)
             draw = ImageDraw.Draw(img_pil)

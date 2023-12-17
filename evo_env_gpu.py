@@ -255,7 +255,7 @@ def main(cfg: GenEnvConfig):
         else:
             shutil.rmtree(cfg._log_dir_il, ignore_errors=True)
     if not loaded:
-        pop_size = cfg.evo_batch_size
+        pop_size = cfg.evo_pop_size
         trg_n_iter = 200 # Max number of iterations while searching for solution. Will increase during evolution
         os.makedirs(cfg._log_dir_evo, exist_ok=True)
 
@@ -321,7 +321,7 @@ def main(cfg: GenEnvConfig):
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
         # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
-        parents = np.random.choice(elite_inds, size=cfg.evo_batch_size, replace=True)
+        parents = np.random.choice(elite_inds, size=cfg.evo_pop_size, replace=True)
         offspring_inds = []
         if n_proc == 1:
             for p_ind in parents:
@@ -341,7 +341,7 @@ def main(cfg: GenEnvConfig):
         for e in elite_inds:
             if e.fitness is None:
                 raise ValueError("Fitness is None.")
-        elite_idxs = np.argpartition(np.array([o.fitness for o in elite_inds]), cfg.evo_batch_size)[:cfg.evo_batch_size]
+        elite_idxs = np.argpartition(np.array([o.fitness for o in elite_inds]), cfg.evo_pop_size)[:cfg.evo_pop_size]
         elite_inds = np.delete(elite_inds, elite_idxs)
         fits = [e.fitness for e in elite_inds]
         max_fit = max(fits)
