@@ -149,4 +149,9 @@ def main_enjoy(config: EnjoyConfig):
 
 
 if __name__ == '__main__':
+    # The environment's render function is not jittable, so we need to run this
+    # script on cpu.
+    jax_platform_name = os.system(' echo $JAX_PLATFORM_NAME')
+    os.system('export JAX_PLATFORM_NAME=cpu')
     main_enjoy()
+    os.system(f'export JAX_PLATFORM_NAME={jax_platform_name}')

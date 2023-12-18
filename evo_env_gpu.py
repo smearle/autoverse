@@ -399,4 +399,10 @@ def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData
 
 
 if __name__ == '__main__':
+    # We use CPU multiprocessing to do search with hash tables (which are not
+    # easily implemented in jax), so we need to set the jax platform to CPU
+    # (otherwise we'll run into multiprocessing errors).
+    jax_platform_name = os.system(' echo $JAX_PLATFORM_NAME')
+    os.system('export JAX_PLATFORM_NAME=cpu')
     main()
+    os.system(f'export JAX_PLATFORM_NAME={jax_platform_name}')
