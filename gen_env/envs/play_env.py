@@ -618,7 +618,6 @@ class PlayEnv(gym.Env):
 
         # On a separate canvas, visualize rules.
         # Visualize each rule's in_out pattern using grids of tiles
-
         rule_ims = []
         # for rule in self.rules:
         for rule_i, (rule_int, rule) in enumerate(zip(params.rules.rule, self.rules)):
@@ -690,7 +689,7 @@ class PlayEnv(gym.Env):
         assert len(set([im.shape for im in rule_ims])) == 1
 
         rule_ims = np.array(rule_ims)
-        rule_ims = np.concatenate(rule_ims, axis=0)
+        rule_ims = np.concatenate(rule_ims, axis=1)
 
         # Pad rules below to match the height of the tile images
         h, w = tile_ims.shape[:2]
@@ -744,7 +743,9 @@ class PlayEnv(gym.Env):
             self.rend_im = np.rot90(self.rend_im, k=-1)
 
             # Scale up the image by 2
-            self.rend_im = cv2.resize(self.rend_im, self.cfg.window_shape)
+            win_shape = (np.array(self.rend_im.shape)[:-1] * self.cfg.window_scale).astype(int)
+            # breakpoint()
+            # self.rend_im = cv2.resize(self.rend_im, win_shape)
 
             if self.screen is None:
                 pygame.init()

@@ -8,7 +8,6 @@ import chex
 import jax
 from jax import numpy as jnp
 import numpy as np
-from tensorboardX import SummaryWriter
 
 from gen_env.configs.config import TrainAccelConfig, TrainConfig
 from gen_env.envs.play_env import PlayEnv, GenEnvParams
