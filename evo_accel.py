@@ -42,13 +42,14 @@ class EvoState:
     top_fitness: Optional[chex.Array] = None
     env_params: Optional[GenEnvParams] = None
 
+
 def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_params, network,
               config: TrainConfig, discount_factor_matrix):
     '''
-    copy and mutate the frz maps
-    get the fitness of the evolved frz map
-    rank the frz maps based on the fitness
-    discard the worst frz maps and return the best frz maps
+    - copy and mutate the environments
+    - get the fitness of the envs
+    - rank the envs based on the fitness
+    - discard the worst envs and return the best
     '''
     rng, _rng = jax.random.split(rng)
     evo_rng = jax.random.split(_rng, config.evo_pop_size)
