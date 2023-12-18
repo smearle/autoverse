@@ -588,7 +588,7 @@ def init_checkpointer(config: RLConfig):
         env_params, 
     )
     evo_env_params = jax.tree_map(lambda x: jnp.array([x for _ in range(config.evo_pop_size)]), env_params)
-    evo_state = EvoState(env_params=evo_env_params)
+    evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.full(config.evo_pop_size, -jnp.inf))
     runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv,
                                # ep_returns=jnp.full(config.num_envs, jnp.nan), 
                                rng=rng, update_i=0, evo_state=evo_state)

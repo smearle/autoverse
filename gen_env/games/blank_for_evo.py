@@ -27,8 +27,10 @@ def make_env():
         in_out=np.array([
             [
                 # [[None, player, force]],
-                [[None, force, None]],
-                [[None, tile_a, None]],
+                # [[None, force, None]],
+                # [[None, tile_a, None]],
+                [[None, None, None]],
+                [[None, None, None]],
             ],
             [
                 # [[None, None, player]],

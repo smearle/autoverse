@@ -48,7 +48,7 @@ class GenEnvConfig:
     
     map_shape: tuple = (10, 10)
 
-    window_shape: tuple = (800, 800)
+    window_scale: float = 1.0
 
 
 @dataclass
