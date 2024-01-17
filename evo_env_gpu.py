@@ -25,7 +25,7 @@ from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
 from gen_env.evo.individual import Individual, IndividualData
 from gen_env.rules import is_valid
-from gen_env.utils import init_base_env, load_game_to_env, validate_config
+from gen_env.utils import init_base_env, validate_config
 
 
 
@@ -261,7 +261,7 @@ def main(cfg: GenEnvConfig):
 
     env, base_params = init_base_env(cfg)
     env.tiles
-    ind = Individual(cfg, env.tiles, base_params.rules, base_params.map)
+    ind = Individual(cfg, env.tiles)
     key = jax.random.PRNGKey(0)
     env_state, obs = env.reset(key=key, params=base_params)
     # if num_proc > 1:
@@ -279,7 +279,7 @@ def main(cfg: GenEnvConfig):
         eval_offspring = []
         while len(offspring) > 0:
             envs = [env for _ in range(len(offspring))]
-            eval_offspring += pool.map(evaluate_multi, [(env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
+            eval_offspring += pool.map(evaluate_multi, [(key, env, ind, render, trg_n_iter) for env, ind in zip(envs, offspring)])
             offspring = offspring[cfg.n_proc:]
         return eval_offspring
 
@@ -327,6 +327,7 @@ def main(cfg: GenEnvConfig):
             for p_ind in parents:
                 p_params = p_ind.env_params
                 # o: Individual = copy.deepcopy(p)
+                key, _ = jax.random.split(key)
                 map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
                 o_params = p_params.replace(map=map, rules=rules)
                 fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)

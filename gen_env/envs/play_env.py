@@ -905,8 +905,8 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     outp = rearrange(outp, 'o i h w -> i o h w')
 
     # Need to flip along height/width dimensions for transposed convolution to work as expected
-    outp = np.flip(outp, 2)
-    outp = np.flip(outp, 3)
+    outp = jnp.flip(outp, 2)
+    outp = jnp.flip(outp, 3)
 
     # jax.debug.print('outp {outp}', outp=outp)
 

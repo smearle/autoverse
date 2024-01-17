@@ -3,7 +3,6 @@ import numpy as np
 
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.individual import IndividualData
-from gen_env.utils import load_game_to_env
 from search_agent import batched_bfs, bfs
 
 def evaluate_multi(args):
