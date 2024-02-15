@@ -57,6 +57,7 @@ class GenEnvState(struct.PyTreeNode):
     player_pos: Tuple[int]
     ep_rew: int
     queued_params: GenEnvParams
+    rule_activations: chex.Array = None
 
 
 @struct.dataclass
@@ -67,7 +68,7 @@ class GenEnvObs:
 
 class PlayEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
-    tile_size = 16
+    tile_size = 32
     view_size = 9
     
     def __init__(self, width: int, height: int,
@@ -542,6 +543,34 @@ class PlayEnv(gym.Env):
         #     rule_obs = np.zeros_like(rule_obs)
         
         return rule_obs.astype(np.float32)
+
+    def render_cell(self, cell, tile_size):
+        cell_im = np.zeros((tile_size, tile_size, 3), dtype=np.uint8)
+        k_idxs = np.argwhere(cell == 1)[::-1]
+        n_tiles_ij = len(k_idxs)
+        for k_i, k in enumerate(k_idxs):
+            # Each tile being stacked has reduced width
+            tile_im = self.tile_colors[k]
+            # tile_k_width = int(tile_size * (n_tiles - n_tiles_ij) / n_tiles)
+            margin_ki = tile_size // 2
+            a0 = b0 = int(k_i / n_tiles_ij * margin_ki)
+            a1 = b1 = -a0 if k_i > 0 else tile_size
+            cell_im[a0:a1, b0:b1] = tile_im
+        return cell_im
+
+    def render_flat_map(self, map, tile_size):
+        # Flat render of all tiles
+        # For each cell on the map, render the tile with lowe
+        row_ims = []
+        for i in range(map.shape[1]):
+            col_ims = []
+            for j in range(map.shape[2]):
+                cell_im = self.render_cell(map[:, i, j], tile_size)
+                col_ims.append(cell_im)
+            row_ims.append(np.concatenate(col_ims, axis=1))
+        flat_im = np.concatenate(row_ims, axis=0)
+        flat_im = np.pad(flat_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+        return flat_im
     
     def render(self, state: GenEnvState, params: GenEnvParams, mode='human'):
         font = ImageFont.load_default()
@@ -581,26 +610,26 @@ class PlayEnv(gym.Env):
         tile_im = np.array(img_pil)
         tile_ims.append(tile_im)
 
-        # Flat render of all tiles
-        tile_im = self.tile_colors[int_map]
-        tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-        tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-        tile_ims = [tile_im] + tile_ims[::-1]
+        flat_im = self.render_flat_map(state.map, tile_size)
+        # tile_im = self.tile_colors[int_map]
+        # tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+        # tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+        tile_ims = [flat_im] + tile_ims[::-1]
 
         map_h, map_w = tile_ims[0].shape[:-1]
 
         # Add empty images to the end of the tile images to fill out the grid
-        n_tiles = len(tile_ims)
         # Find the smallest square number greater than or equal to n_tiles
-        n_tiles_sqrt = int(np.ceil(np.sqrt(n_tiles)))
-        n_tiles_sqrt2 = n_tiles_sqrt ** 2
-        n_empty_tiles = n_tiles_sqrt2 - n_tiles
-        empty_tile_im = np.zeros((map_h, map_w, 3), dtype=np.uint8)
-        empty_tile_ims = [empty_tile_im] * n_empty_tiles
-        tile_ims += empty_tile_ims
         # Reshape the tile images into a grid
         tile_ims = np.array(tile_ims)
-        tile_ims = tile_ims.reshape(n_tiles_sqrt, n_tiles_sqrt, map_h, map_w, 3)
+        n_ims = tile_ims.shape[0]
+        n_ims_sqrt = int(np.ceil(np.sqrt(n_ims)))
+        n_ims_sqrt2 = n_ims_sqrt ** 2
+        n_empty_ims = n_ims_sqrt2 - n_ims
+        empty_im = np.zeros((map_h, map_w, 3), dtype=np.uint8)
+        empty_ims = [empty_im] * n_empty_ims
+        tile_ims = np.concatenate([tile_ims, empty_ims])
+        tile_ims = tile_ims.reshape(n_ims_sqrt, n_ims_sqrt, map_h, map_w, 3)
         # Add padding between tiles
         pw = 2
         tile_ims = np.pad(tile_ims, ((0, 0), (0, 0), (pw, pw), (pw, pw), (0, 0)), mode='constant', constant_values=0)
@@ -627,33 +656,15 @@ class PlayEnv(gym.Env):
             p_ims = []
             i, o = in_out
             for p in (i, o):
-                lyr_ims = []
-                lyr_shape = p[0].shape
-                for tile_idx, lyr in enumerate(p):
+                row_ims = []
+                for j in range(p.shape[0]):
                     col_ims = []
-                    for row in lyr:
-                        row_ims = []
-                        # for tile in row:
-                        for tile_pres in row:
-                            if tile_pres == 1:
-                                # tile_im = self.tile_colors[tile_idx if tile is not None else -1]
-                                tile_im = self.tile_colors[tile_idx]
-                            elif tile_pres == -1:
-                                tile_im = self.tile_colors[-1]
-                            else:
-                                tile_im = np.array([0, 0, 0], dtype=np.uint8)
-                            tile_im = repeat(tile_im, f' c -> {tile_size} {tile_size} c')
-                            # tile_im = np.pad(tile_im, ((3, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-                            row_ims.append(tile_im) 
-                        # Concatenate the row images into a single image
-                        row_im = np.concatenate(row_ims, axis=1)
-                        col_ims.append(row_im)
-                    # Concatenate the column images into a single image
-                    col_im = np.concatenate(col_ims, axis=0)
-                    lyr_ims.append(col_im)
-                # Concatenate the layer images into a single image
-                lyr_im = np.concatenate(lyr_ims, axis=0)
-                p_ims.append(lyr_im)
+                    for k in range(p.shape[1]):
+                        cell_im = self.render_cell(p[:, j, k], tile_size)
+                        col_ims.append(cell_im)
+                    row_ims.append(np.concatenate(col_ims, axis=1))
+                p_im = np.concatenate(row_ims, axis=0)
+                p_ims.append(p_im)
             # Concatenate the input and output images into a single image, with padding and a left-right arrow in between
             p_ims = np.array(p_ims)
             p_ims = np.pad(p_ims, ((0, 0), (0, 0), (0, 30), (0, 0)), mode='constant', constant_values=0)
@@ -675,6 +686,9 @@ class PlayEnv(gym.Env):
             draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
             p_ims = np.array(img_pil)
             rule_ims.append(p_ims)
+
+            # Underneath the rule, add a grid the same size as the map, which lights up wherever the rule has been 
+            # applied.
 
         # Get the shape of the largest rule, pad other rules to match
         max_h = max([im.shape[0] for im in rule_ims])
@@ -743,15 +757,14 @@ class PlayEnv(gym.Env):
             self.rend_im = np.rot90(self.rend_im, k=-1)
 
             # Scale up the image by 2
-            win_shape = (np.array(self.rend_im.shape)[:-1] * self.cfg.window_scale).astype(int)
-            # breakpoint()
-            # self.rend_im = cv2.resize(self.rend_im, win_shape)
+            win_shape = tuple((np.array(self.rend_im.shape)[:-1][::-1] * self.cfg.window_scale).astype(int))
+            self.rend_im = cv2.resize(self.rend_im, win_shape)
 
             if self.screen is None:
                 pygame.init()
                 # Flip image to match pygame coordinate system
                 # Set up the drawing window to match size of rend_im
-                self.screen = pygame.display.set_mode([self.rend_im.shape[0], self.rend_im.shape[1]])
+                self.screen = pygame.display.set_mode((self.rend_im.shape[0], self.rend_im.shape[1]))
                 # self.screen = pygame.display.set_mode([(len(self.tiles)+1)*self.h*GenEnv.tile_size, self.w*GenEnv.tile_size])
             pygame_render_im(self.screen, self.rend_im)
             return
@@ -764,7 +777,7 @@ class PlayEnv(gym.Env):
         # self._last_reward = self._reward
         # for obj in self.objects:
         #     obj.tick(self)
-        map_arr, reward, done, has_applied_rule, rule_time_ms\
+        map_arr, reward, done, sr_activs, has_applied_rule, rule_time_ms\
             = apply_rules(state.map, params, self.map_padding)
         map_arr = map_arr.astype(jnp.int16)
         # if self._done_at_reward is not None:
@@ -772,7 +785,7 @@ class PlayEnv(gym.Env):
         done = done | (state.n_step >= self.max_episode_steps) | \
             (jnp.sum(map_arr[self.player_idx]) == 0)
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
-        state = state.replace(player_pos=player_pos, map=map_arr)
+        state = state.replace(player_pos=player_pos, map=map_arr, rule_activations=sr_activs,)
         # map_arr = jax.lax.cond(
         #     not done,
         #     lambda map_arr: self._compile_map(map_arr),
@@ -1025,7 +1038,6 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, rule_reward: float, do
     # For computing reward, zero out the right/bottom most columns/rows of the map
     # so that rule applications applied to the ``repeated'' edges are not counted
     # twice.
-    sr_activs_empty = jnp.zeros_like(sr_activs)
     sr_activs = sr_activs.at[:, :, :, :map_padding].set(0)
     sr_activs = sr_activs.at[:, :, :, -map_padding:].set(0)
     sr_activs = sr_activs.at[:, :, :, :, :map_padding].set(0)
@@ -1035,7 +1047,7 @@ def apply_rule(map: chex.Array, subrules_int: chex.Array, rule_reward: float, do
     done = jnp.any(sr_activs * done)
     reward = rule_reward * sr_activs.sum()
     has_applied_rule = sr_activs.sum() > 0
-    return out_map, done, reward, has_applied_rule
+    return out_map, done, reward, sr_activs, has_applied_rule
 
 
 def apply_rules(map: np.ndarray, params: GenEnvParams, map_padding: int):
@@ -1082,7 +1094,7 @@ def apply_rules(map: np.ndarray, params: GenEnvParams, map_padding: int):
     #         reward += r_reward
     #         has_applied_rule = has_applied_rule or r_has_applied_rule
     # else:
-    out_maps, r_dones, r_rewards, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0, None, None))(
+    out_maps, r_dones, r_rewards, r_sr_activs, r_has_applied_rules = jax.vmap(apply_rule, (None, 0, 0, 0, None, None))(
         map, subrules_ints, rule_rewards, dones, False, map_padding)
     # jax.debug.print('r_rewards {r_rewards}', r_rewards=r_rewards)
     next_map += out_maps.sum(axis=0)
@@ -1095,7 +1107,7 @@ def apply_rules(map: np.ndarray, params: GenEnvParams, map_padding: int):
     # Remove padding.
     next_map = next_map[:, map_padding:-map_padding, map_padding:-map_padding]
     time_ms=(timer() - start) * 1000
-    return next_map, reward, done, has_applied_rule, time_ms
+    return next_map, reward, done, r_sr_activs, has_applied_rule, time_ms
 
 def hash_rules(rules):
     """Hash a list of rules to a unique value.

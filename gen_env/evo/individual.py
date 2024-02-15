@@ -11,7 +11,7 @@ import numpy as np
 
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.configs.config import GenEnvConfig
-from gen_env.rules import Rule, RuleData, RuleSet, mutate_rule
+from gen_env.rules import Rule, RuleData, RuleSet, mutate_rules
 from gen_env.tiles import TileType, TileSet
 
 
@@ -47,30 +47,29 @@ class Individual():
 
     def mutate(self, key, map, rules, tiles):
 
-        def mutate_rules(key, rules, tiles) -> RuleData:
+        # def mutate_rules(key, rules, tiles) -> RuleData:
 
-            def _mutate_rule(key, rule, rule_reward, tiles):
-                rule_int, rule_reward = mutate_rule(key, rule, rule_reward, tiles)
-                rules = RuleData(rule=rule_int, reward=rule_reward)
-                return rules
+        #     def _mutate_rule(key, rule, rule_reward, tiles):
+        #         rule_int, rule_reward = mutate_rule(key, rule, rule_reward, tiles)
+        #         rules = RuleData(rule=rule_int, reward=rule_reward)
+        #         return rules
 
-            mutate_keys = jax.random.split(key, rules.rule.shape[0])
+        #     mutate_keys = jax.random.split(key, rules.rule.shape[0])
 
-            mutated_rules = jax.vmap(_mutate_rule, in_axes=(0, 0, 0, None))\
-                (mutate_keys, rules.rule, rules.reward, tiles)
+        #     mutated_rules = jax.vmap(_mutate_rule, in_axes=(0, 0, 0, None))\
+        #         (mutate_keys, rules.rule, rules.reward, tiles)
 
-            # Uniform sample probability of masking out rule mutations
-            mask_pct = jax.random.uniform(key, shape=(1,), minval=0.0, maxval=0.5)
-            mask = jax.random.bernoulli(key, p=mask_pct, shape=rules.reward.shape)
-            mutated_rules = mutated_rules.replace(
-                rule=jax.tree_map(lambda x: jnp.where(mask[...,None,None,None,None,None], x, 0), mutated_rules.rule),
-                reward=jax.tree_map(lambda x: jnp.where(mask, x, 0), mutated_rules.reward),
-            )
+        #     # Uniform sample probability of masking out rule mutations
+        #     mask_pct = jax.random.uniform(key, shape=(1,), minval=0.0, maxval=0.5)
+        #     mask = jax.random.bernoulli(key, p=mask_pct, shape=rules.reward.shape)
+        #     mutated_rules = mutated_rules.replace(
+        #         rule=jax.tree_map(lambda x: jnp.where(mask[...,None,None,None,None,None], x, 0), mutated_rules.rule),
+        #         reward=jax.tree_map(lambda x: jnp.where(mask, x, 0), mutated_rules.reward),
+        #     )
 
-            return mutated_rules
+        #     return mutated_rules
 
-
-        rules = jax.lax.cond(self.cfg.mutate_rules, lambda key, rules: mutate_rules(key, rules, tiles), lambda _, __: rules, key, rules)
+        rules = jax.lax.cond(self.cfg.mutate_rules, lambda key, rules: mutate_rules(key, rules), lambda _, __: rules, key, rules)
 
         # if not hasattr(self.cfg, 'fix_map') or not self.cfg.fix_map:
         # if not self.cfg.fix_map:

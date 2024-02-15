@@ -24,8 +24,8 @@ from gen_env.games import GAMES
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
 from gen_env.evo.individual import Individual, IndividualData
-from gen_env.rules import is_valid
-from gen_env.utils import init_base_env, validate_config
+from gen_env.rules import compile_rule, is_valid
+from gen_env.utils import gen_rand_env_params, init_base_env, validate_config
 
 
 
@@ -285,6 +285,11 @@ def main(cfg: GenEnvConfig):
 
     fixed_tile_nums = np.array([t.num if t.num is not None else -1 for t in env.tiles])
 
+    game_def = GAMES[cfg.game].make_env()
+    for rule in game_def.rules:
+        rule.n_tile_types = len(game_def.tiles)
+        rule = compile_rule(rule)
+
     # Initial population
     if not loaded:
         n_gen = 0
@@ -296,9 +301,10 @@ def main(cfg: GenEnvConfig):
         offspring_params = []
         for _ in range(pop_size):
             key, _ = jax.random.split(key)
-            o_map, o_rules = ind.mutate(key=key, map=map, rules=rules, 
-                                    tiles=tiles)
-            o_params = base_params.replace(map=o_map, rules=o_rules)
+            o_params = gen_rand_env_params(cfg, key, game_def, rules)
+            # o_map, o_rules = ind.mutate(key=key, map=map, rules=rules, 
+            #                         tiles=tiles)
+            # o_params = base_params.replace(map=o_map, rules=o_rules)
             offspring_params.append(o_params)
 
         offspring_inds = []
@@ -320,6 +326,8 @@ def main(cfg: GenEnvConfig):
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
+        if n_gen % cfg.eval_freq == 0:
+            eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
         # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
         parents = np.random.choice(elite_inds, size=cfg.evo_pop_size, replace=True)
         offspring_inds = []
@@ -381,8 +389,6 @@ def main(cfg: GenEnvConfig):
             # for i, e in enumerate(elite_inds):
             #     ind.save(os.path.join(elite_games_dir, f"{i}.yaml"))
 
-        if n_gen % cfg.eval_freq == 0:
-            eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
 
 def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):
     """ Evaluate elites."""
