@@ -129,6 +129,7 @@ class Rule():
     def observe(self, n_tiles):
         # FIXME: Need to observe reward, rotation, etc.
         # return np.array([self.done, self.reward / 3, self.max_applications / 11, self.random, self._rotate,])
+
         in_out_disc = np.vectorize(TileType.get_idx)(self._in_out)
         # in_out_disc = self.subrules_int
 
@@ -149,7 +150,32 @@ class Rule():
         return hash(int_in_out.tobytes())
 
 
-def mutate_rule(key, rule, reward, tiles):
+def gen_rand_rule(rng, rules: RuleData) -> chex.Array:
+    # (n_rules, n_rotations, in_out, n_tiles, height, width)
+    rand_rule = jax.random.randint(rng, rules.rule[:, 0:1, :, :, :, :].shape, minval=0, maxval=2, dtype=rules.rule.dtype)
+
+    # Cannot have any other tiles active in the input patch
+    rand_rule = rand_rule.at[:, :, 0].set(
+        jnp.where(rand_rule[:, :, 0] == 0, -1, rand_rule[:, :, 0])
+    )
+
+    # Restrict to one row/column
+    rand_rule = rand_rule.at[:, :, :, :, 1:].set(0)
+
+    # Remove input tiles unless otherwise specified
+    # rand_rule = rand_rule.at[:,:,1].set(rand_rule[:, :, 1] - rand_rule[:, :, 0])
+
+    # rand_rule = rand_rule.at[:, :, 1, 0].set(rand_rule[:, :, 0, 0])
+    rand_rule = rand_rule.at[:, :, :, 0].set(0)
+    # Repeat rotations
+    rule_rot_90 = jnp.rot90(rand_rule, k=1, axes=(-2, -1))
+    rule_rot_180 = jnp.rot90(rand_rule, k=2, axes=(-2, -1))
+    rule_rot_270 = jnp.rot90(rand_rule, k=3, axes=(-2, -1))
+    rand_rule = jnp.concatenate([rand_rule, rule_rot_90, rule_rot_180, rule_rot_270], axis=1)
+    return rand_rule
+
+
+def mutate_rules(key, rules: RuleData):
     # x = random.random()
     x = jax.random.uniform(key, minval=0.0, maxval=1.0)
     # if False:
@@ -165,20 +191,27 @@ def mutate_rule(key, rule, reward, tiles):
         # reward = random.randint(-1, 1)
         # reward = jax.random.randint(key, (1,), -1, 2).item()
 
-    reward = jax.lax.cond(x < 0.2, lambda _: jax.random.randint(key, shape=(), minval=-1, maxval=2), lambda _: reward, None)
+    # reward = jax.lax.cond(
+    #     x < 0.2,
+    #     lambda _: jax.random.randint(key, shape=(), minval=-1, maxval=2),
+    #     lambda _: reward, 
+    #     None
+    # )
+    rule = rules.rule
+    reward = rules.reward
+    new_reward = jax.random.randint(key, shape=reward.shape, minval=-1.0, maxval=2.0)
+    reward_mask = jax.random.bernoulli(key, p=0.3, shape=reward.shape)
+    reward = jnp.where(reward_mask, new_reward, reward)
 
-    def mutate_rule_patterns(key, rule):
+    pct_rules_to_mutate = jax.random.uniform(key, shape=(), minval=0.0, maxval=0.5)
+    rule_mask = jax.random.bernoulli(key, p=pct_rules_to_mutate, shape=rule.shape)
+    pct_tiles_to_mutate = jax.random.uniform(key, shape=(), minval=0.0, maxval=0.5)
+    tile_mask = jax.random.bernoulli(key, p=pct_tiles_to_mutate, shape=rule.shape)
+    tile_mask = tile_mask * rule_mask
+    new_rule = gen_rand_rule(key, rules)
+    rule = jnp.where(tile_mask, new_rule, rule)
 
-        new_rule = jax.random.randint(key, rule.shape, -1, 2, dtype=jnp.int16)
-        pct_to_mutate = jax.random.uniform(key, shape=(), minval=0.0, maxval=0.3)
-        rule_mask = jax.random.bernoulli(key, p=pct_to_mutate, shape=rule.shape)
-        new_rule = jnp.where(rule_mask, new_rule, rule)
-        # Get rid of any rule affecting player
-        new_rule = new_rule.at[:, :, 0, :, :].set(0)
-
-        return new_rule
-
-    new_rule = jax.lax.cond(x >= 0.2, lambda _: mutate_rule_patterns(key, rule), lambda _: rule, None)
+    return rules
     
     # elif x < 5 / n_muts:
     #     self.max_applications = random.randint(0, 11)
@@ -235,10 +268,9 @@ def mutate_rule(key, rule, reward, tiles):
     #     #     # breakpoint()
     #     #     pass
 
-    return new_rule, reward
 
 
-def compile(rule):
+def compile_rule(rule):
     # List of subrules resulting from rule (i.e. if applying rotation).
     # in_out = np.vectorize(TileType.get_idx)(self._in_out)
     # subrules = [in_out]

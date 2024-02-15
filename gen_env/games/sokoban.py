@@ -79,7 +79,7 @@ def make_env():
             ],
             [
                 [[None, player, crate]],  # Player moves, force removed, crate overwrites floor.
-                [[None, None, None]],  # No effect.
+                [[None, floor, None]],  # No effect.
             ]
         ]),
         max_applications=inf,

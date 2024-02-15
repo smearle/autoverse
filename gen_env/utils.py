@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 import os
+from typing import Tuple
+import chex
 
 import cv2
 import imageio
@@ -11,7 +13,7 @@ from gen_env.configs.config import GenEnvConfig
 from gen_env.envs.play_env import GameDef, PlayEnv, SB3PlayEnv, GenEnvParams, gen_random_map
 from gen_env.evo.individual import IndividualData
 from gen_env.games import GAMES
-from gen_env.rules import RuleData, compile
+from gen_env.rules import RuleData, compile_rule, gen_rand_rule
 
 
 def validate_config(cfg: GenEnvConfig):
@@ -39,12 +41,12 @@ def save_video(frames, video_path, fps=10):
     imageio.mimwrite(video_path, frames, fps=25, quality=8, macro_block_size=1)
 
 
-def init_base_env(cfg: GenEnvConfig, sb3=False) -> (PlayEnv, GenEnvParams):
+def init_base_env(cfg: GenEnvConfig, sb3=False) -> Tuple[PlayEnv, GenEnvParams]:
     # env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
     game_def: GameDef = GAMES[cfg.game].make_env()
     for rule in game_def.rules:
         rule.n_tile_types = len(game_def.tiles)
-        rule = compile(rule)
+        rule = compile_rule(rule)
     if game_def.map is None:
         key = jax.random.PRNGKey(cfg.seed)
         map_arr = gen_random_map(key, game_def, cfg.map_shape).astype(jnp.int16)
@@ -86,6 +88,22 @@ def init_base_env(cfg: GenEnvConfig, sb3=False) -> (PlayEnv, GenEnvParams):
     # env.search_tiles = [t for t in env.tiles]
     return env, params
 
+
+
+def gen_rand_env_params(cfg: GenEnvConfig, rng: jax.random.PRNGKey, game_def, rules: RuleData) -> GenEnvParams:
+    rand_rule = gen_rand_rule(rng, rules)
+    rule_rewards = jax.random.randint(rng, (len(game_def.rules),), minval=-1, maxval=2, dtype=jnp.int32)
+    rules = RuleData(rule=rand_rule, reward=rule_rewards)
+
+    map_arr = gen_random_map(rng, game_def, cfg.map_shape).astype(jnp.int16)
+    # Make rules random
+    rule_dones = jnp.zeros((len(game_def.rules),), dtype=bool)
+    player_placeable_tiles = \
+        jnp.array([tile.idx for tile, placement_rule in game_def.player_placeable_tiles], dtype=int)
+    params = GenEnvParams(rules=rules, map=map_arr,
+                          rule_dones=rule_dones,
+                          player_placeable_tiles=player_placeable_tiles)
+    return params
 
 # def load_game_to_env(env: PlayEnv, individual: IndividualData):
 #     env._map_queue = [individual.params.map,]
