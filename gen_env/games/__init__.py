@@ -15,6 +15,7 @@ from gen_env.games import (
     power_line, 
     rush_hour,
     sokoban,
+    test_1x1_rules,
     )
 
 GAMES = {
@@ -33,6 +34,7 @@ GAMES = {
     'power_line': power_line,
     # 'rush_hour': rush_hour,
     'sokoban': sokoban,
+    'test_1x1_rules': test_1x1_rules,
 }
 
 def make_env_rllib(env_config, make_env_func):

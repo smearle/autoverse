@@ -27,7 +27,7 @@ def evaluate(key: jax.random.PRNGKey,
     # individual.map = env.map.copy()
     # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     best_state_actionss, best_rewards, n_iter_bests, n_iter = \
-        bfs(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=10)
+        bfs(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=3)
     best_state_actions, best_reward, n_iter_best = best_state_actionss[0], best_rewards[0], n_iter_bests[0]
     action_seq = None
     if best_state_actions is not None:
