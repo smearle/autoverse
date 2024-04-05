@@ -23,9 +23,10 @@ from gen_env.configs.config import GenEnvConfig
 from gen_env.games import GAMES
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
-from gen_env.evo.individual import Individual, IndividualData
-from gen_env.rules import compile_rule, is_valid
+from gen_env.evo.individual import Individual, IndividualData, hash_individual
+from gen_env.rules import compile_rule
 from gen_env.utils import gen_rand_env_params, init_base_env, validate_config
+from gen_env.evo.individual import Individual, IndividualData, hash_individual
 
 
 
@@ -54,12 +55,12 @@ def collect_elites(cfg: GenEnvConfig):
         elites_i = save_dict['elites']
         for elite in elites_i:
             n_evaluated += 1
-            e_hash = elite.hashable()
+            e_hash = hash_individual(elite)
             if e_hash not in elites or elites[e_hash].fitness < elite.fitness:
                 elites[e_hash] = elite
     print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
     # Replay episodes, recording obs and rewards and attaching to individuals
-    env = init_base_env(cfg)
+    env, env_params = init_base_env(cfg)
     elites = list(elites.values())
 
     vid_dir = os.path.join(cfg._log_dir_evo, 'debug_videos')
@@ -67,10 +68,11 @@ def collect_elites(cfg: GenEnvConfig):
     # Replay the episode, storing the obs and action sequences to the elite.
     for e_idx, elite in enumerate(elites):
     #     # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-        frames = replay_episode(cfg, env, elite, record=False)
+        playtrace, frames = replay_episode(cfg, env, elite, record=False)
 
         # Will only have returned frames in case of funky error, for debugging
         if frames is not None:
+            breakpoint()
             imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitness}.mp4"), frames, fps=10)
             frames_2 = replay_episode(cfg, env, elite, record=False)
             imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitness}_take2.mp4"), frames_2, fps=10)
@@ -134,9 +136,10 @@ def split_elites(cfg: GenEnvConfig, elites: Iterable[IndividualData]):
 
 
 def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData, 
-                   record: bool = False):
+                   record: bool = False, best_i: int = 0):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
+    action_seq = elite.action_seqs[best_i]
     params = elite.env_params
     # load_game_to_env(env, elite)
     obs_seq = []
@@ -158,7 +161,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
     done = False
     i = 0
     while not done:
-        if i >= len(elite.action_seq):
+        if i >= len(action_seq):
             # FIXME: Problem with player death...?
             print('Warning: action sequence too short. Ending episode before env is done. Probably because of cap on '
                   'search iterations.')
@@ -167,7 +170,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
             #     print('Replaying again, rendering this time')
             #     return replay_episode(cfg, env, elite, record=True)
             break
-        obs, state, reward, done, info = env.step_env(key, state=state, action=elite.action_seq[i], params=params)
+        obs, state, reward, done, info = env.step_env(key, state=state, action=action_seq[i], params=params)
         # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
@@ -176,19 +179,19 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
         if cfg.render:
             env.render(mode='human', state=state, params=params)
         i += 1
-    if i < len(elite.action_seq):
+    if i < len(action_seq):
         # FIXME: Problem with player death...?
         # raise Exception("Action sequence too long.")
         print('Warning: action sequence too long.')
         if not record:
             print('Replaying again, rendering this time')
-            return replay_episode(cfg, env, elite, record=True)
+            return replay_episode(cfg, env, elite, record=True, best_i=best_i)
         # breakpoint()
-    playtrace = Playtrace(obs_seq=obs_seq, action_seq=elite.action_seq,
+    playtrace = Playtrace(obs_seq=obs_seq, action_seq=action_seq,
                           reward_seq=rew_seq)
     if record:
         return playtrace, frames
-    return playtrace
+    return playtrace, None
 
 
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
@@ -310,14 +313,14 @@ def main(cfg: GenEnvConfig):
         offspring_inds = []
         if n_proc == 1:
             for o_params in offspring_params:
-                fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)
-                o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
+                fitnesses, action_seqs = evaluate(key, env, o_params, render, trg_n_iter)
+                o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
                 offspring_inds.append(o_ind)
         else:
             with Pool(processes=n_proc) as pool:
                 offspring_fits = multiproc_eval_offspring(offspring_params)
             for o_params, fit in zip(offspring_params, offspring_fits):
-                o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
+                o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
                 offspring_inds.append(o_ind)
 
         elite_inds = offspring_inds
@@ -326,7 +329,7 @@ def main(cfg: GenEnvConfig):
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
-        if n_gen % cfg.eval_freq == 0:
+        if cfg.eval_freq != -1 and n_gen % cfg.eval_freq == 0:
             eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
         # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
         parents = np.random.choice(elite_inds, size=cfg.evo_pop_size, replace=True)
@@ -338,8 +341,8 @@ def main(cfg: GenEnvConfig):
                 key, _ = jax.random.split(key)
                 map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
                 o_params = p_params.replace(map=map, rules=rules)
-                fit, action_seq = evaluate(key, env, o_params, render, trg_n_iter)
-                o_ind = IndividualData(env_params=o_params, fitness=fit, action_seq=action_seq)
+                fitnesses, action_seqs = evaluate(key, env, o_params, render, trg_n_iter)
+                o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
                 offspring_inds.append(o_ind)
         else:
             with Pool(processes=n_proc) as pool:
@@ -348,11 +351,11 @@ def main(cfg: GenEnvConfig):
         elite_inds = np.concatenate((elite_inds, offspring_inds))
         # Discard the weakest.
         for e in elite_inds:
-            if e.fitness is None:
+            if e.fitnesses[0] is None:
                 raise ValueError("Fitness is None.")
-        elite_idxs = np.argpartition(np.array([o.fitness for o in elite_inds]), cfg.evo_pop_size)[:cfg.evo_pop_size]
+        elite_idxs = np.argpartition(np.array([o.fitnesses[0] for o in elite_inds]), cfg.evo_pop_size)[:cfg.evo_pop_size]
         elite_inds = np.delete(elite_inds, elite_idxs)
-        fits = [e.fitness for e in elite_inds]
+        fits = [e.fitnesses[0] for e in elite_inds]
         max_fit = max(fits)
         mean_fit = np.mean(fits)
         min_fit = min(fits) 
@@ -393,16 +396,18 @@ def main(cfg: GenEnvConfig):
 def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):
     """ Evaluate elites."""
     # Sort elites by fitness.
-    elites = sorted(elites, key=lambda e: e.fitness, reverse=True)
+    elites = sorted(elites, key=lambda e: e.fitnesses[0], reverse=True)
     for e_idx, e in enumerate(elites[:10]):
-        playtraces, frames = replay_episode(cfg, env, e, record=cfg.record)
-        if cfg.record:
-            # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
-            # Save as mp4
-            # imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
-            imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
-            # Save elite as yaml
-            # ind.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
+        for best_i in range(len(e.fitnesses)):
+            print(f"Trace {best_i}, actions: {e.action_seqs[best_i]}")
+            playtraces, frames = replay_episode(cfg, env, e, record=cfg.record, best_i=best_i)
+            if cfg.record:
+                # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
+                # Save as mp4
+                # imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
+                imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_trace-{best_i}_fitness-{e.fitnesses[best_i]}.mp4"), frames, fps=10)
+                # Save elite as yaml
+                # ind.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
 
 
 if __name__ == '__main__':

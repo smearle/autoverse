@@ -197,7 +197,7 @@ def main(cfg: GenEnvConfig):
 
 
     # else:
-    #     # progress_df = pd.read_csv(os.path.join(cfg.log_dir, "progress.csv"))
+    #     # p, Nonerogress_df = pd.read_csv(os.path.join(cfg.log_dir, "progress.csv"))
     #     transitions = np.load(os.path.join(cfg.log_dir_common, "transitions.npz"), allow_pickle=True)['arr_0'].item()
     #     transitions = TransitionsMinimal(
     #         obs=transitions['obs'],

@@ -168,20 +168,20 @@ def batched_bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
 
     
 def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
-          max_steps: int = inf, render: bool = RENDER, max_episode_steps: int = 100):
+          max_steps: int = inf, render: bool = RENDER, max_episode_steps: int = 100, n_best_to_keep: int = 1):
     """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
     # height, width = env.height, env.width
     # state = env.get_state()
     key = jax.random.PRNGKey(0)
     frontier = [(state, [], 0)]
-    visited = {}
+    visited = {hash(env, state): -inf}
     # visited = {env.player_pos: state}
     # visited = {type(env).hashable(state): state}
     # visited_0 = [state]
-    best_state_actions = None
-    best_reward = -inf
+    best_state_actionss = [None] * n_best_to_keep
+    best_rewards = [-inf] * n_best_to_keep
+    n_iter_bests = [0] * n_best_to_keep
     n_iter = 0
-    n_iter_best = 0
 
     if isinstance(env.action_space, gym.spaces.Discrete):
         possible_actions = list(range(env.action_space.n))
@@ -203,7 +203,7 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
         # visited[env.player_pos] = env.get_state()
         # if type(env).hashable(parent_state) in visited:
             # continue
-        visited[hash(env, parent_state)] = parent_rew
+        # visited[hash(env, parent_state)] = parent_rew
         # print(visited.keys())
         random.shuffle(possible_actions)
         for action in possible_actions:
@@ -211,7 +211,7 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
             # print('set frontier state')
             obs, state, rew, done, info = \
                 env.step_env(key=key, action=action, state=parent_state, params=params)
-            child_rew = state.ep_rew
+            child_rew = state.ep_rew.item()
             if render:
                 env.render()
             # print(f'action: {action}')
@@ -224,7 +224,7 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
             hashed_state = hash(env, state)
             # if hashed_state in visited and child_rew > visited[hashed_state]:
             #     breakpoint()
-            if hashed_state in visited and child_rew <= visited[hashed_state]:
+            if (hashed_state in visited) and (child_rew <= visited[hashed_state]):
                 # print(f'already visited {hashed_state}')
                 continue
             # visited[env.player_pos] = state
@@ -235,16 +235,18 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
             # print([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()])
             # if not np.all([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()]):
                 # TT()
-            if child_rew > best_reward:
-                best_state_actions = (state, action_seq)
-                best_reward = child_rew
-                n_iter_best = n_iter
-                # print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+            for i in range(n_best_to_keep):
+                if child_rew > best_rewards[i]:
+                    best_state_actionss = best_state_actionss[:i] + [(state, action_seq)] + best_state_actionss[i+1:]
+                    best_rewards = best_rewards[:i] + [child_rew] + best_rewards[i+1:]
+                    n_iter_bests = n_iter_bests[:i] + [n_iter] + n_iter_bests[i+1:]
+                    # print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+                    break
             if not jnp.all(done):
                 # Add this state to the frontier so can we can continue searching from it later
                 frontier.append((state, action_seq, child_rew))
 
-    return best_state_actions, best_reward, n_iter_best, n_iter
+    return best_state_actionss, best_rewards, n_iter_bests, n_iter
 
 
 def hash(env: PlayEnv, state):
