@@ -1,5 +1,5 @@
 import random
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List
 import yaml
 
 import chex
@@ -18,11 +18,18 @@ from gen_env.tiles import TileType, TileSet
 @struct.dataclass
 class IndividualData:
     env_params: GenEnvParams
-    fitness: float
+    fitnesses: Iterable[float]
     # bc_0: float
     # bc_1: float
-    action_seq: chex.Array
+    action_seqs: Iterable[chex.Array]
+    # obs_seq: chex.Array
 
+    
+def hash_individual(individual: IndividualData) -> int:
+    hashable_elite = jax.tree_map(lambda x: np.array(x).tobytes(), individual)
+    # Return flattened leaf nodes of pytree
+    flat_hashable_elite: List = jax.tree_leaves(hashable_elite)
+    return hash(frozenset(flat_hashable_elite))
 
 class Individual():
     def __init__(self, cfg: GenEnvConfig, tiles: Iterable[TileType]):

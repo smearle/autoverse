@@ -177,7 +177,7 @@ def gen_rand_rule(rng, rules: RuleData) -> chex.Array:
 
 def mutate_rules(key, rules: RuleData):
     # x = random.random()
-    x = jax.random.uniform(key, minval=0.0, maxval=1.0)
+    # x = jax.random.uniform(key, minval=0.0, maxval=1.0)
     # if False:
     #     pass
     # if x < 1 / n_muts:

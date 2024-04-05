@@ -26,8 +26,9 @@ def evaluate(key: jax.random.PRNGKey,
     # Save the map after it having been cleaned up by the environment
     # individual.map = env.map.copy()
     # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-    best_state_actions, best_reward, n_iter_best, n_iter = \
-        bfs(env, init_state, env_params, max_steps=trg_n_iter)
+    best_state_actionss, best_rewards, n_iter_bests, n_iter = \
+        bfs(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=10)
+    best_state_actions, best_reward, n_iter_best = best_state_actionss[0], best_rewards[0], n_iter_bests[0]
     action_seq = None
     if best_state_actions is not None:
         (final_state, action_seq) = best_state_actions
@@ -36,13 +37,15 @@ def evaluate(key: jax.random.PRNGKey,
             for action in action_seq:
                 state, obs, reward, done, info = env.step(action, state)
                 env.render()
+    action_seqs = [e[1] for e in best_state_actionss if e is not None]
     # TODO: dummy
     # fitness = best_reward
-    fitness = n_iter_best
-    if fitness == 1:
-        fitness += n_iter / (trg_n_iter + 2)
+    fitnesses = np.array(n_iter_bests)
+    # if fitness == 1:
+    #     fitnesses += n_iter / (trg_n_iter + 2)
+    np.where(fitnesses == 1, fitnesses + n_iter / (trg_n_iter + 2), fitnesses)
     # fitness = len(action_seq) if action_seq is not None else 0
     # env_params.fitness = fitness
     # env_params.action_seq = action_seq
-    print(f"Achieved fitness {fitness} at {n_iter_best} iterations with {best_reward} reward. Searched for {n_iter} iterations total.")
-    return fitness, action_seq
+    print(f"Achieved fitnesses {fitnesses.tolist()} at {n_iter_bests} iterations with {best_rewards} reward. Searched for {n_iter} iterations total.")
+    return fitnesses, action_seqs

@@ -257,7 +257,9 @@ class PlayEnv(gym.Env):
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
             player_rot=0, ep_rew=0.0,
             player_pos=player_pos,
-            queued_params=params
+            queued_params=params,
+            # FIXME: padding is hard-coded here. Not a huge deal but will result in rendering issues if map/rule shape changes.
+            rule_activations=jnp.zeros((len(rules.rule), map_arr.shape[1]+4, map_arr.shape[2]+4)),
         )
         # self._set_state(env_state)
         obs = self.get_obs(state, params)
@@ -477,7 +479,6 @@ class PlayEnv(gym.Env):
         #     # If there are too many, remove some
         #     # print(f"Checking {tile.name} tiles")
         #     idxs = np.where(map[tile.idx] == 1)[0]
-        #     breakpoint()
         #     # print(f"Found {len(idxs)} {tile.name} tiles")
         #     if len(idxs) > tile.num:
         #         # print(f'Found too many {tile.name} tiles, removing some')
@@ -685,10 +686,34 @@ class PlayEnv(gym.Env):
             draw = ImageDraw.Draw(img_pil)
             draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
             p_ims = np.array(img_pil)
-            rule_ims.append(p_ims)
 
             # Underneath the rule, add a grid the same size as the map, which lights up wherever the rule has been 
             # applied.
+            binary_rule_activ_map = state.rule_activations[rule_i]
+            # This has shape (1, map_h, map_w)
+            # Transform the binary rule activations into an image (inactive is red, active is green), with tiles of the
+            # width below.
+            tile_width = 10
+            # Repeat each element to increase resolution
+            tiled_activ_map = np.repeat(np.repeat(binary_rule_activ_map, tile_width, axis=0), tile_width, axis=1)
+
+            # Map the binary values to colors: 1 (active) to green, 0 (inactive) to red
+            color_map = np.zeros((*tiled_activ_map.shape, 3), dtype=np.uint8)  # Prepare an array for RGB values
+
+            # NOTE: Hardcoded, assumes subrules are rotations (and thus that there are 4 possible values in the map)
+            color_map[tiled_activ_map == 1] = [0, 255*1/4, 0]  # Active: Green
+            color_map[tiled_activ_map == 2] = [0, 255*1/2, 0]  # Active: Green
+            color_map[tiled_activ_map == 3] = [0, 255*3/4, 0]  # Active: Green
+            color_map[tiled_activ_map == 4] = [0, 255, 0]  # Active: Green
+            color_map[tiled_activ_map == 0] = [255, 0, 0]  # Inactive: Red
+            
+            # Pad the color map to match the size of the rule image
+            pad_h = max(0, p_ims.shape[0] - color_map.shape[0])
+            pad_w = max(0, p_ims.shape[1] - color_map.shape[1])
+            color_map = np.pad(color_map, ((0, pad_h), (0, pad_w), (0, 0)), mode='constant', constant_values=0)
+
+            p_ims = np.concatenate([p_ims, color_map], axis=0)
+            rule_ims.append(p_ims)
 
         # Get the shape of the largest rule, pad other rules to match
         max_h = max([im.shape[0] for im in rule_ims])
@@ -785,7 +810,14 @@ class PlayEnv(gym.Env):
         done = done | (state.n_step >= self.max_episode_steps) | \
             (jnp.sum(map_arr[self.player_idx]) == 0)
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
-        state = state.replace(player_pos=player_pos, map=map_arr, rule_activations=sr_activs,)
+
+        # We're just using these to visualize where a given rule is triggered.
+        # Sum over rotation axis.
+        rule_activations = sr_activs.sum(axis=1)
+        # Remove these other axes... whatever they are lol.
+        rule_activations = rule_activations[:, 0, 0]
+
+        state = state.replace(player_pos=player_pos, map=map_arr, rule_activations=rule_activations,)
         # map_arr = jax.lax.cond(
         #     not done,
         #     lambda map_arr: self._compile_map(map_arr),
@@ -869,7 +901,7 @@ class PlayEnv(gym.Env):
         search_state = state.map[self._search_tile_idxs]
         player_rot = state.player_rot
         # Uniquely hash based on player rotation and search tile states
-        return hash((player_rot.item(), search_state.tobytes()))
+        return hash((player_rot.item(), search_state.astype(bool).tobytes()))
 
 
     def _set_state(self, state: GenEnvState):
