@@ -12,7 +12,7 @@ def draw_triangle(im, pos, rot, color, tile_size):
         tile_size (int): the size of a tile
     Returns:
         np.ndarray: the image with the triangle drawn"""
-    pos = pos[1], pos[0] + 2
+    pos = pos[1], pos[0] + 1
 
     # Define the triangle
     triangle = np.array([

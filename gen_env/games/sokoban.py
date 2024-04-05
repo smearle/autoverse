@@ -16,7 +16,7 @@ def make_env():
     crate = TileType('crate', num=n_crates, color='brown')  # Not passable.
     target = TileType('target', num=n_crates, color='green', cooccurs=[floor])
 
-    tiles = TileSet([player, crate, target, wall, floor, force])
+    tiles = TileSet([player, force, crate, target, wall, floor])
     search_tiles = [floor, wall, target, crate, player]
 
     done_at_reward = n_crates

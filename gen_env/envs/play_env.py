@@ -576,66 +576,76 @@ class PlayEnv(gym.Env):
     def render(self, state: GenEnvState, params: GenEnvParams, mode='human'):
         font = ImageFont.load_default()
         tile_size = self.tile_size
-        # self.rend_im = np.zeros_like(self.int_map)
-        # Create an int map where the first tiles in `self.tiles` take priority.
-        int_map = np.full(state.map.shape[1:], dtype=np.int16, fill_value=-1)
-        tile_ims = []
-        for tile in self.tiles[::-1]:
-            # if tile.color is not None:
-            int_map[np.array(state.map)[tile.idx] == 1] = tile.idx
-            tile_map = np.where(state.map[tile.idx] == 1, tile.idx, -1)
-            # If this is the player, render as a triangle according to its rotation
-            tile_im = self.tile_colors[tile_map]
-            # Pad the tile image and add text to the bottom
+        
+        RENDER_LAYERS = False
+
+        if not RENDER_LAYERS:
+            tile_size = 64
+            tile_ims = self.render_flat_map(state.map, tile_size)
+        
+        else:
+            # self.rend_im = np.zeros_like(self.int_map)
+            # Create an int map where the first tiles in `self.tiles` take priority.
+            int_map = np.full(state.map.shape[1:], dtype=np.int16, fill_value=-1)
+            tile_ims = []
+            for tile in self.tiles[::-1]:
+                # if tile.color is not None:
+                int_map[np.array(state.map)[tile.idx] == 1] = tile.idx
+                tile_map = np.where(state.map[tile.idx] == 1, tile.idx, -1)
+                # If this is the player, render as a triangle according to its rotation
+                tile_im = self.tile_colors[tile_map]
+                # Pad the tile image and add text to the bottom
+                tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+                tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+                # Get text as rgb np array
+                text = tile.name
+                # Draw text on image
+                # font = ImageFont.truetype("arial.ttf", 20)
+                # Get font available on mac 
+                img_pil = Image.fromarray(tile_im)
+                draw = ImageDraw.Draw(img_pil)
+                draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
+                tile_im = np.array(img_pil)
+                tile_ims.append(tile_im)
+
+            # Extra one for player pos
+            tile_im = np.zeros_like(self.tile_colors[tile_map]) + 255
             tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
             tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-            # Get text as rgb np array
-            text = tile.name
-            # Draw text on image
-            # font = ImageFont.truetype("arial.ttf", 20)
-            # Get font available on mac 
+            tile_im = draw_triangle(tile_im, state.player_pos, state.player_rot, tile.color, tile_size)
             img_pil = Image.fromarray(tile_im)
             draw = ImageDraw.Draw(img_pil)
-            draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
+            draw.text((10, 10), 'player pos', font=font, fill=(255, 255, 255, 0))
             tile_im = np.array(img_pil)
             tile_ims.append(tile_im)
 
-        # Extra one for player pos
-        tile_im = np.zeros_like(self.tile_colors[tile_map]) + 255
-        tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-        tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-        tile_im = draw_triangle(tile_im, state.player_pos, state.player_rot, tile.color, tile_size)
-        img_pil = Image.fromarray(tile_im)
-        draw = ImageDraw.Draw(img_pil)
-        draw.text((10, 10), 'player pos', font=font, fill=(255, 255, 255, 0))
-        tile_im = np.array(img_pil)
-        tile_ims.append(tile_im)
+            flat_im = self.render_flat_map(state.map, tile_size)
+            # tile_im = self.tile_colors[int_map]
+            # tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
+            # tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+            tile_ims = [flat_im] + tile_ims[::-1]
 
-        flat_im = self.render_flat_map(state.map, tile_size)
-        # tile_im = self.tile_colors[int_map]
-        # tile_im = repeat(tile_im, f'h w c -> (h {tile_size}) (w {tile_size}) c')
-        # tile_im = np.pad(tile_im, ((30, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
-        tile_ims = [flat_im] + tile_ims[::-1]
+            map_h, map_w = tile_ims[0].shape[:-1]
 
-        map_h, map_w = tile_ims[0].shape[:-1]
+            # Add empty images to the end of the tile images to fill out the grid
+            # Find the smallest square number greater than or equal to n_tiles
+            # Reshape the tile images into a grid
+            tile_ims = np.array(tile_ims)
+            n_ims = tile_ims.shape[0]
+            n_ims_sqrt = int(np.ceil(np.sqrt(n_ims)))
+            n_ims_sqrt2 = n_ims_sqrt ** 2
+            n_empty_ims = n_ims_sqrt2 - n_ims
+            empty_im = np.zeros((map_h, map_w, 3), dtype=np.uint8)
+            empty_ims = [empty_im] * n_empty_ims
+            tile_ims = np.concatenate([tile_ims, empty_ims])
+            tile_ims = tile_ims.reshape(n_ims_sqrt, n_ims_sqrt, map_h, map_w, 3)
+            # Add padding between tiles
+            pw = 2
+            tile_ims = np.pad(tile_ims, ((0, 0), (0, 0), (pw, pw), (pw, pw), (0, 0)), mode='constant', constant_values=0)
 
-        # Add empty images to the end of the tile images to fill out the grid
-        # Find the smallest square number greater than or equal to n_tiles
-        # Reshape the tile images into a grid
-        tile_ims = np.array(tile_ims)
-        n_ims = tile_ims.shape[0]
-        n_ims_sqrt = int(np.ceil(np.sqrt(n_ims)))
-        n_ims_sqrt2 = n_ims_sqrt ** 2
-        n_empty_ims = n_ims_sqrt2 - n_ims
-        empty_im = np.zeros((map_h, map_w, 3), dtype=np.uint8)
-        empty_ims = [empty_im] * n_empty_ims
-        tile_ims = np.concatenate([tile_ims, empty_ims])
-        tile_ims = tile_ims.reshape(n_ims_sqrt, n_ims_sqrt, map_h, map_w, 3)
-        # Add padding between tiles
-        pw = 2
-        tile_ims = np.pad(tile_ims, ((0, 0), (0, 0), (pw, pw), (pw, pw), (0, 0)), mode='constant', constant_values=0)
-        # Concatenate the tile images into a single image
-        tile_ims = rearrange(tile_ims, 'n1 n2 h w c -> (n1 h) (n2 w) c')
+            # Concatenate the tile images into a single image
+            tile_ims = rearrange(tile_ims, 'n1 n2 h w c -> (n1 h) (n2 w) c')
+
         # Below the image, add a row of text showing episode/cumulative reward
         # Add padding below the image
         tile_ims = np.pad(tile_ims, ((0, 30), (0, 0), (0, 0)), mode='constant', constant_values=0)
@@ -645,6 +655,8 @@ class PlayEnv(gym.Env):
         draw = ImageDraw.Draw(img_pil)
         draw.text((10, 10), text, font=font, fill=(255, 255, 255, 0))
         tile_ims = np.array(img_pil)
+
+        tile_size = 16
 
         # On a separate canvas, visualize rules.
         # Visualize each rule's in_out pattern using grids of tiles
@@ -728,7 +740,16 @@ class PlayEnv(gym.Env):
         assert len(set([im.shape for im in rule_ims])) == 1
 
         rule_ims = np.array(rule_ims)
-        rule_ims = np.concatenate(rule_ims, axis=1)
+        n_ims = rule_ims.shape[0]
+        n_ims_sqrt = int(np.ceil(np.sqrt(n_ims)))
+        n_ims_sqrt2 = n_ims_sqrt ** 2
+        n_empty_ims = n_ims_sqrt2 - n_ims
+        empty_im = np.zeros(rule_ims[0].shape, dtype=np.uint8)
+        empty_ims = [empty_im] * n_empty_ims
+        rule_ims = np.concatenate([rule_ims, empty_ims])
+        rule_ims = rule_ims.reshape(n_ims_sqrt, n_ims_sqrt, *rule_ims[0].shape)
+        # rule_ims = np.concatenate(rule_ims, axis=1)
+        rule_ims = rearrange(rule_ims, 'n1 n2 h w c -> (n1 h) (n2 w) c')
 
         # Pad rules below to match the height of the tile images
         h, w = tile_ims.shape[:2]
@@ -937,8 +958,9 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # Make it toroidal
     # Use jax to apply a convolution to the map
     sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
-    # How many tiles are expected in the input pattern
-    n_constraints = inp.sum()
+    # How many tiles are expected in the input pattern. Not summing absence of tiles here
+    inp_posi = np.clip(inp, 0, 1)
+    n_constraints = inp_posi.sum()
     # Identify positions at which all constraints were met
     sr_activs = (sr_activs == n_constraints).astype(jnp.float32)
 
