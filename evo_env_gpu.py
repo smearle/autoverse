@@ -54,9 +54,10 @@ def collect_elites(cfg: GenEnvConfig):
         save_dict = np.load(f, allow_pickle=True)['arr_0'].item()
         elites_i = save_dict['elites']
         for elite in elites_i:
+            elite: IndividualData
             n_evaluated += 1
             e_hash = hash_individual(elite)
-            if e_hash not in elites or elites[e_hash].fitness < elite.fitness:
+            if e_hash not in elites or elites[e_hash].fitnesses[0] < elite.fitnesses[0]:
                 elites[e_hash] = elite
     print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
     # Replay episodes, recording obs and rewards and attaching to individuals
@@ -73,9 +74,9 @@ def collect_elites(cfg: GenEnvConfig):
         # Will only have returned frames in case of funky error, for debugging
         if frames is not None:
             breakpoint()
-            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitness}.mp4"), frames, fps=10)
+            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitnesses[0]}.mp4"), frames, fps=10)
             frames_2 = replay_episode(cfg, env, elite, record=False)
-            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitness}_take2.mp4"), frames_2, fps=10)
+            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitnesses[0]}_take2.mp4"), frames_2, fps=10)
             breakpoint()
 
 
@@ -104,7 +105,7 @@ def collect_elites(cfg: GenEnvConfig):
 
 def split_elites(cfg: GenEnvConfig, elites: Iterable[IndividualData]):
     """ Split elites into train, val and test sets."""
-    elites.sort(key=lambda x: x.fitness, reverse=True)
+    elites.sort(key=lambda x: x.fitnesses[0], reverse=True)
 
     n_elites = len(elites)
     # n_train = int(n_elites * .8)
