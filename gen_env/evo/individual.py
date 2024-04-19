@@ -24,6 +24,16 @@ class IndividualData:
     action_seqs: Iterable[chex.Array]
     # obs_seq: chex.Array
 
+
+# Will contain only the best playtrace, for offline learning
+@struct.dataclass
+class IndividualPlaytraceData:
+    env_params: GenEnvParams
+    fitness: float
+    action_seq: chex.Array
+    obs_seq: chex.Array
+    rew_seq: chex.Array
+
     
 def hash_individual(individual: IndividualData) -> int:
     hashable_elite = jax.tree_map(lambda x: np.array(x).tobytes(), individual)

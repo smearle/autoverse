@@ -155,17 +155,19 @@ def gen_rand_rule(rng, rules: RuleData) -> chex.Array:
     rand_rule = jax.random.randint(rng, rules.rule[:, 0:1, :, :, :, :].shape, minval=0, maxval=2, dtype=rules.rule.dtype)
 
     # Cannot have any other tiles active in the input patch
-    rand_rule = rand_rule.at[:, :, 0].set(
-        jnp.where(rand_rule[:, :, 0] == 0, -1, rand_rule[:, :, 0])
-    )
+    # rand_rule = rand_rule.at[:, :, 0].set(
+    #     jnp.where(rand_rule[:, :, 0] == 0, -1, rand_rule[:, :, 0])
+    # )
 
     # Restrict to one row/column
     rand_rule = rand_rule.at[:, :, :, :, 1:].set(0)
 
     # Remove input tiles unless otherwise specified
-    # rand_rule = rand_rule.at[:,:,1].set(rand_rule[:, :, 1] - rand_rule[:, :, 0])
+    rand_rule = rand_rule.at[:,:,1].set(rand_rule[:, :, 1] - rand_rule[:, :, 0])
 
     # rand_rule = rand_rule.at[:, :, 1, 0].set(rand_rule[:, :, 0, 0])
+
+    # Ensure the player cannot be active in the rule TODO: do not hardcode player index
     rand_rule = rand_rule.at[:, :, :, 0].set(0)
     # Repeat rotations
     rule_rot_90 = jnp.rot90(rand_rule, k=1, axes=(-2, -1))
