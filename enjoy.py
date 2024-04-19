@@ -11,7 +11,7 @@ from gen_env.configs.config import EnjoyConfig
 # from envs.pcgrl_env import PCGRLEnv, render_stats
 from gen_env.envs.play_env import PlayEnv
 from gen_env.utils import init_base_env
-from train import init_checkpointer
+from rl_player_jax import init_checkpointer
 from pcgrl_utils import get_exp_dir, get_network, init_config
 
 

@@ -36,3 +36,8 @@ blender render_scene.blend --python enjoy_blender.py
 Because jax allocates gpu memory in advance, making `total_timesteps` too large will cause an out-of-memory error.
 However, complete jobs can be resumed with increased `total_timesteps` where jax will only allocate the difference between 
 completed and pending timesteps in advance.
+
+# TODO:
+
+- [] Make search more efficient, taking advantage of jax parallelism somehow (since right now we take one step in one environment at a time, then hash the state to see if it's visited; would it be advantageous to step a huge number of mutants at once, then hash the resultant states---potentially distributing this process across CPUs? Or is there some clever way to hash the states in jax on the GPU?)
+- [] When the search cap is increased, maybe we want to pick up where we left off searching in the current elite environments? It's only fair. We should also hash mutant env params against existing elites, if we're not already

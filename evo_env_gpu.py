@@ -3,6 +3,7 @@ from enum import unique
 import glob
 import os
 from pdb import set_trace as TT
+import pickle
 import random
 import shutil
 from typing import Iterable, List
@@ -23,7 +24,7 @@ from gen_env.configs.config import GenEnvConfig
 from gen_env.games import GAMES
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
-from gen_env.evo.individual import Individual, IndividualData, hash_individual
+from gen_env.evo.individual import Individual, IndividualData, IndividualPlaytraceData, hash_individual
 from gen_env.rules import compile_rule
 from gen_env.utils import gen_rand_env_params, init_base_env, validate_config
 from gen_env.evo.individual import Individual, IndividualData, hash_individual
@@ -58,6 +59,8 @@ def collect_elites(cfg: GenEnvConfig):
             n_evaluated += 1
             e_hash = hash_individual(elite)
             if e_hash not in elites or elites[e_hash].fitnesses[0] < elite.fitnesses[0]:
+                if not hasattr(elite, 'fitnesses'):
+                    breakpoint()
                 elites[e_hash] = elite
     print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
     # Replay episodes, recording obs and rewards and attaching to individuals
@@ -69,7 +72,15 @@ def collect_elites(cfg: GenEnvConfig):
     # Replay the episode, storing the obs and action sequences to the elite.
     for e_idx, elite in enumerate(elites):
     #     # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-        playtrace, frames = replay_episode(cfg, env, elite, record=False)
+        playtrace, frames = replay_episode(cfg, env, elite, record=False, best_i=0)
+
+        elites[e_idx] = IndividualPlaytraceData(
+            env_params=elite.env_params,
+            fitness=elite.fitnesses[0],
+            action_seq=playtrace.action_seq,
+            obs_seq=playtrace.obs_seq,
+            rew_seq=playtrace.reward_seq,
+        )
 
         # Will only have returned frames in case of funky error, for debugging
         if frames is not None:
@@ -87,9 +98,16 @@ def collect_elites(cfg: GenEnvConfig):
 
     train_elites, val_elites, test_elites = split_elites(cfg, elites)
     # Save elites to file
-    np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)
-    np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.npz'), val_elites)
-    np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.npz'), test_elites)
+    # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)
+    # User pickle instead
+    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.pkl'), 'wb') as f:
+        pickle.dump(train_elites, f)
+    # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.npz'), val_elites)
+    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.pkl'), 'wb') as f:
+        pickle.dump(val_elites, f)
+    # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.npz'), test_elites)
+    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.pkl'), 'wb') as f:
+        pickle.dump(test_elites, f)
 
     # Save unique elites to npz file
     # If not overwriting, load existing elites
@@ -105,7 +123,7 @@ def collect_elites(cfg: GenEnvConfig):
 
 def split_elites(cfg: GenEnvConfig, elites: Iterable[IndividualData]):
     """ Split elites into train, val and test sets."""
-    elites.sort(key=lambda x: x.fitnesses[0], reverse=True)
+    elites.sort(key=lambda x: x.fitness, reverse=True)
 
     n_elites = len(elites)
     # n_train = int(n_elites * .8)

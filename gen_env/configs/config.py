@@ -23,7 +23,7 @@ class GenEnvConfig:
     save_freq: int = 1
     render: bool = False
     record: bool = True
-    workspace: str = "../gen-game-runs"
+    workspace: str = "saves_evo"
     runs_dir_evo: str = "evo_env"
     runs_dir_rl: str = "rl_player"
     runs_dir_il: str = "il_player"
@@ -49,6 +49,13 @@ class GenEnvConfig:
     map_shape: tuple = (10, 10)
 
     window_scale: float = 1.0
+
+
+@dataclass
+class ILConfig(GenEnvConfig):
+    il_max_steps: int = 1000
+    il_tqdm: bool = True
+    render_freq: int = 1
 
 
 @dataclass
@@ -163,6 +170,7 @@ class BatchConfig(TrainConfig):
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=GenEnvConfig)
 cs.store(name="rl_config", node=RLConfig)
+cs.store(name="il_config", node=ILConfig)
 cs.store(name="train_xlife", node=TrainConfig)
 cs.store(name="train_accel_xlife", node=TrainAccelConfig)
 cs.store(name="enjoy_xlife", node=EnjoyConfig)
