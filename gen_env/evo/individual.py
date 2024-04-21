@@ -33,6 +33,7 @@ class IndividualPlaytraceData:
     action_seq: chex.Array
     obs_seq: chex.Array
     rew_seq: chex.Array
+    done_seq: chex.Array
 
     
 def hash_individual(individual: IndividualData) -> int:

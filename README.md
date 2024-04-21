@@ -33,9 +33,9 @@ blender render_scene.blend --python enjoy_blender.py
 
 # Notes
 
-Because jax allocates gpu memory in advance, making `total_timesteps` too large will cause an out-of-memory error.
-However, complete jobs can be resumed with increased `total_timesteps` where jax will only allocate the difference between 
-completed and pending timesteps in advance.
+- Because jax allocates gpu memory in advance, making `total_timesteps` too large will cause an out-of-memory error. However, complete jobs can be resumed with increased `total_timesteps` where jax will only allocate the difference between completed and pending timesteps in advance.
+
+- Looks like certain rules can be applied every turn in the same spot. Must be because a rotation (subrule) of this rule is overwriting itself? We are applying rules and subrules in parallel with `vmap`. I guess this is not a bug, they could overwrite each other in a different way if we were to apply the (subrules) sequentially...
 
 # TODO:
 

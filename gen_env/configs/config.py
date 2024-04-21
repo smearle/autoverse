@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 class GenEnvConfig:
     seed: int = 0
     map_width: int = 10
+    max_episode_steps: int = 100
     env_exp_id: int = 0
     player_exp_id: int = 0
     overwrite: bool = False
@@ -50,12 +51,27 @@ class GenEnvConfig:
 
     window_scale: float = 1.0
 
+    activation: str = "relu"
+    model: str = "conv"
+    # Size of the receptive field to be fed to the action subnetwork.
+    vrf_size: Optional[int] = 31
+    # Size of the receptive field to be fed to the value subnetwork.
+    arf_size: Optional[int] = 31
+    # TODO: actually take arf and vrf into account in models, where possible
+    act_shape: Tuple[int, int] = (1, 1)
+
+    hidden_dims: Tuple[int, int] = (256, 256)
 
 @dataclass
 class ILConfig(GenEnvConfig):
-    il_max_steps: int = 1000
+    il_max_steps: int = int(1e9)
+    il_batch_size: int = 4096
     il_tqdm: bool = True
+    il_lr: float = 1.0e-4
+    log_interval: int = 500
+    eval_interval: int = 1000
     render_freq: int = 1
+    model: str = "conv"
 
 
 @dataclass
@@ -72,25 +88,16 @@ class RLConfig(GenEnvConfig):
     ENT_COEF: float = 0.01
     VF_COEF: float = 0.5
     MAX_GRAD_NORM: float = 0.5
-    activation: str = "relu"
     env_name: str = "xlife"
     ANNEAL_LR: bool = False
     DEBUG: bool = True
     exp_name: str = "0"
     problem: str = "binary"
     representation: str = "narrow"
-    model: str = "conv"
-
-    # Size of the receptive field to be fed to the action subnetwork.
-    vrf_size: Optional[int] = 31
-    # Size of the receptive field to be fed to the value subnetwork.
-    arf_size: Optional[int] = 31
-    # TODO: actually take arf and vrf into account in models, where possible
 
     # change_pct: float = -1.0
 
     # The shape of the (patch of) edit(s) to be made by the edited by the generator at each step.
-    act_shape: Tuple[int, int] = (1, 1)
 
     # static_tile_prob: Optional[float] = 0.0
     # n_freezies: int = 0

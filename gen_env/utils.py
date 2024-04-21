@@ -73,7 +73,7 @@ def init_base_env(cfg: GenEnvConfig, sb3=False) -> Tuple[PlayEnv, GenEnvParams]:
     if not sb3:
         env = PlayEnv(
             cfg=cfg, height=cfg.map_shape[0], width=cfg.map_shape[1],
-            game_def=game_def, params=params,
+            game_def=game_def, params=params, max_episode_steps=cfg.max_episode_steps,
         )
     else:
         env = SB3PlayEnv(

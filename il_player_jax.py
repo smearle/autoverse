@@ -5,8 +5,10 @@ import os
 import shutil
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
+import chex
 import flax
 from flax import linen as nn
+from flax import struct
 from flax.training.train_state import TrainState
 import gymnax
 import hydra
@@ -23,12 +25,13 @@ from gen_env.envs.gen_env import GenEnv
 from gen_env.utils import init_base_env, validate_config
 from pcgrl_utils import get_network
 from purejaxrl.experimental.s5.wrappers import LogWrapper
+from utils import load_elite_envs
 
 
 
 Batch = collections.namedtuple(
     'Batch',
-    ['observations', 'actions', 'rewards', 'masks', 'next_observations'])
+    ['observations', 'actions', 'rewards', 'masks'])
 Params = flax.core.FrozenDict[str, Any]
 Shape = Sequence[int]
 Dtype = Any  # this could be a real type?
@@ -137,20 +140,26 @@ def sample_actions(
                            temperature, distribution)
 
 
-def log_prob_update(actor: Model, batch: Batch,
+def log_prob_update(train_state, batch: Batch,
                     rng: PRNGKey) -> Tuple[Model, InfoDict]:
     rng, key = jax.random.split(rng)
 
     def loss_fn(actor_params: Params) -> Tuple[jnp.ndarray, InfoDict]:
-        dist = actor.apply_fn({'params': actor_params},
+        dist, val = train_state.apply_fn({'params': actor_params},
                               batch.observations,
-                              training=True,
                               rngs={'dropout': key})
         log_probs = dist.log_prob(batch.actions)
         actor_loss = -log_probs.mean()
-        return actor_loss, {'actor_loss': actor_loss}
+        return actor_loss
 
-    return (rng, *actor.apply_gradient(loss_fn))
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
+    total_loss, grads = grad_fn(
+        train_state.params,
+    )
+    # jax.debug.print("total_loss={total_loss}", total_loss=total_loss)
+    train_state = train_state.apply_gradients(grads=grads)
+
+    return (rng, train_state, {'actor_loss': total_loss})
 
 
 def mse_update(actor: Model, batch: Batch,
@@ -163,9 +172,16 @@ def mse_update(actor: Model, batch: Batch,
                                  training=True,
                                  rngs={'dropout': key})
         actor_loss = ((actions - batch.actions)**2).mean()
-        return actor_loss, {'actor_loss': actor_loss}
+        return actor_loss
 
-    return (rng, *actor.apply_gradient(loss_fn))
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    total_loss, grads = grad_fn(
+        train_state.params,
+    )
+    # jax.debug.print("total_loss={total_loss}", total_loss=total_loss)
+    train_state = train_state.apply_gradients(grads=grads)
+
+    return (rng, train_state, {'actor_loss': total_loss})
 
 
 _log_prob_update_jit = jax.jit(log_prob_update)
@@ -199,11 +215,11 @@ class BCLearner(object):
         network = get_network(env, env_params, cfg)
         init_x = env.gen_dummy_obs(env_params)
         network_params = network.init(actor_key, init_x)
-        
+        print(network.subnet.tabulate(rng, init_x.map, init_x.flat))
 
         self.actor = TrainState.create(
             apply_fn=network.apply,
-            params=network_params,
+            params=network_params["params"],
             tx=tx,
         )
         self.rng = rng
@@ -221,12 +237,12 @@ class BCLearner(object):
         return np.clip(actions, -1, 1)
 
     def update(self, batch: Batch) -> InfoDict:
-        if self.distribution == 'det':
-            self.rng, self.actor, info = _mse_update_jit(
-                self.actor, batch, self.rng)
-        else:
-            self.rng, self.actor, info = _log_prob_update_jit(
-                self.actor, batch, self.rng)
+        # if self.distribution == 'det':
+        #     self.rng, self.actor, info = _mse_update_jit(
+        #         self.actor, batch, self.rng)
+        # else:
+        self.rng, self.actor, info = _log_prob_update_jit(
+            self.actor, batch, self.rng)
         return info
 
         
@@ -269,23 +285,22 @@ class Dataset(object):
 
     def __init__(self, observations: np.ndarray, actions: np.ndarray,
                  rewards: np.ndarray, masks: np.ndarray,
-                 dones_float: np.ndarray, next_observations: np.ndarray,
+                 dones_float: np.ndarray,
                  size: int):
         self.observations = observations
         self.actions = actions
         self.rewards = rewards
         self.masks = masks
         self.dones_float = dones_float
-        self.next_observations = next_observations
         self.size = size
 
     def sample(self, batch_size: int) -> Batch:
         indx = np.random.randint(self.size, size=batch_size)
-        return Batch(observations=self.observations[indx],
+        observations = jax.tree.map(lambda x: x[indx], self.observations)
+        return Batch(observations=observations,
                      actions=self.actions[indx],
                      rewards=self.rewards[indx],
-                     masks=self.masks[indx],
-                     next_observations=self.next_observations[indx])
+                     masks=self.masks[indx])
 
     def get_initial_states(
         self,
@@ -357,7 +372,7 @@ class Dataset(object):
         trajs = trajs[-N:]
 
         (self.observations, self.actions, self.rewards, self.masks,
-         self.dones_float, self.next_observations) = merge_trajectories(trajs)
+         self.dones_float) = merge_trajectories(trajs)
 
         self.size = len(self.observations)
 
@@ -367,7 +382,7 @@ class Dataset(object):
         trajs = split_into_trajectories(self.observations, self.actions,
                                         self.rewards, self.masks,
                                         self.dones_float,
-                                        self.next_observations)
+        )
         np.random.shuffle(trajs)
 
         N = int(len(trajs) * percentage / 100)
@@ -376,7 +391,7 @@ class Dataset(object):
         trajs = trajs[-N:]
 
         (self.observations, self.actions, self.rewards, self.masks,
-         self.dones_float, self.next_observations) = merge_trajectories(trajs)
+         self.dones_float) = merge_trajectories(trajs)
 
         self.size = len(self.observations)
 
@@ -386,36 +401,35 @@ class Dataset(object):
         trajs = split_into_trajectories(self.observations, self.actions,
                                         self.rewards, self.masks,
                                         self.dones_float,
-                                        self.next_observations)
+        )
         train_size = int(train_fraction * len(trajs))
 
         np.random.shuffle(trajs)
 
         (train_observations, train_actions, train_rewards, train_masks,
          train_dones_float,
-         train_next_observations) = merge_trajectories(trajs[:train_size])
+         ) = merge_trajectories(trajs[:train_size])
 
         (valid_observations, valid_actions, valid_rewards, valid_masks,
          valid_dones_float,
-         valid_next_observations) = merge_trajectories(trajs[train_size:])
+         ) = merge_trajectories(trajs[train_size:])
 
         train_dataset = Dataset(train_observations,
                                 train_actions,
                                 train_rewards,
                                 train_masks,
                                 train_dones_float,
-                                train_next_observations,
                                 size=len(train_observations))
         valid_dataset = Dataset(valid_observations,
                                 valid_actions,
                                 valid_rewards,
                                 valid_masks,
                                 valid_dones_float,
-                                valid_next_observations,
                                 size=len(valid_observations))
 
         return train_dataset, valid_dataset
 
+    
         
 class D4RLDataset(Dataset):
 
@@ -424,35 +438,37 @@ class D4RLDataset(Dataset):
                  clip_to_eps: bool = True,
                  eps: float = 1e-5):
         for ds_name, dataset in zip(('train', 'val', 'test'), datasets):
-            breakpoint()
 
-            dataset_dict = {}
+            dataset = jax.tree.map(lambda x: jnp.concatenate(x, 0), dataset)
+
+            # Remove all entries where the action is -1 (early episode termination due to search iteration cap)
+            mask = dataset.action_seq != -1
+            dataset = jax.tree.map(lambda x: x[mask], dataset)
+
+            dones_float = dataset.done_seq
+
+            dataset = {
+                'observations': dataset.obs_seq,
+                'actions': dataset.action_seq,
+                'rewards': dataset.rew_seq,
+                'terminals': dataset.done_seq,
+            }
             # dataset = d4rl.qlearning_dataset(env)
 
-            if clip_to_eps:
-                lim = 1 - eps
-                dataset['actions'] = np.clip(dataset['actions'], -lim, lim)
+            # for i in range(len(dones_float) - 1):
+            #     if np.linalg.norm(dataset['observations'][i + 1] -
+            #                     dataset['next_observations'][i]
+            #                     ) > 1e-6 or dataset['terminals'][i] == 1.0:
+            #         dones_float[i] = 1
+            #     else:
+            #         dones_float[i] = 0
 
-            dones_float = np.zeros_like(dataset['rewards'])
-
-            for i in range(len(dones_float) - 1):
-                if np.linalg.norm(dataset['observations'][i + 1] -
-                                dataset['next_observations'][i]
-                                ) > 1e-6 or dataset['terminals'][i] == 1.0:
-                    dones_float[i] = 1
-                else:
-                    dones_float[i] = 0
-
-            dones_float[-1] = 1
-
-            dataset = super().__init__(dataset['observations'].astype(np.float32),
+            dataset = super().__init__(dataset['observations'],
                             actions=dataset['actions'].astype(np.float32),
                             rewards=dataset['rewards'].astype(np.float32),
                             masks=1.0 - dataset['terminals'].astype(np.float32),
                             dones_float=dones_float.astype(np.float32),
-                            next_observations=dataset['next_observations'].astype(
-                                np.float32),
-                            size=len(dataset['observations']))
+                            size=len(dataset['rewards']))
 
             setattr(self, ds_name, dataset)
 
@@ -480,6 +496,14 @@ def evaluate(agent, env: GenEnv, num_episodes: int) -> Dict[str, float]:
         stats['success'] = successes / num_episodes
     return stats
 
+    
+@struct.dataclass
+class ILDataset:
+    action_seq: chex.Array
+    obs_seq: chex.Array
+    rew_seq: chex.Array
+    done_seq: chex.Array 
+
 
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: ILConfig):
@@ -504,9 +528,6 @@ def main(cfg: ILConfig):
     if not os.path.exists(cfg._log_dir_il):
         os.makedirs(cfg._log_dir_il)
 
-    # Initialize tensorboard logger
-    writer = SummaryWriter(cfg._log_dir_il)
-
     # HACK to load trained run after refactor
     # import sys
     # from gen_env import evo, configs, tiles, rules
@@ -519,19 +540,38 @@ def main(cfg: ILConfig):
     # Load the transitions from the training set
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
 
+    _datasets = (train_elites, val_elites, test_elites)
+    datasets = []
+    for d in _datasets:
+        d = ILDataset(
+            action_seq=d.action_seq,
+            obs_seq=d.obs_seq,
+            rew_seq=d.rew_seq,
+            done_seq=d.done_seq
+        )
+        datasets.append(d)
+
+    # Initialize tensorboard logger
     summary_writer = SummaryWriter(
         os.path.join(cfg._log_dir_il, 'tb', str(cfg.seed)))
 
     video_save_folder = None if cfg.render_freq == -1 else os.path.join(
         cfg._log_dir_il, 'video', 'eval')
 
-    env, dataset = D4RLDataset(datasets=(train_elites, val_elites, test_elites))
+    dataset = D4RLDataset(datasets=datasets)
 
     kwargs = dict(cfg)
-    kwargs['num_steps'] = cfg.max_steps
-    agent = BCLearner(cfg.seed,
-                      env.observation_space.sample()[np.newaxis],
-                      env.action_space.sample()[np.newaxis], **kwargs)
+    kwargs['num_steps'] = cfg.il_max_steps
+    agent = BCLearner(cfg=cfg, seed=cfg.seed,
+                      observations=env.observation_space.sample()[np.newaxis],
+                      actions=np.array(env.action_space.sample())[np.newaxis], actor_lr=cfg.il_lr,
+                      num_steps=cfg.il_max_steps)
+
+    train_state = TrainState.create(
+        apply_fn=agent.actor.apply_fn,
+        params=agent.actor.params,
+        tx=agent.actor.tx,
+    )
 
     eval_returns = []
     for i in tqdm.tqdm(range(1, cfg.il_max_steps + 1),
@@ -543,10 +583,14 @@ def main(cfg: ILConfig):
 
         if i % cfg.log_interval == 0:
             for k, v in update_info.items():
+                print(f'{k}: {v}')
+                if isinstance(v, jnp.ndarray):
+                    assert v.shape == ()
+                    v = v.item()
                 summary_writer.add_scalar(f'training/{k}', v, i)
             summary_writer.flush()
 
-        if i % cfg.eval_interval == 0:
+        if cfg.eval_interval != -1 and i % cfg.eval_interval == 0:
             eval_stats = evaluate(agent, env, cfg.eval_episodes)
 
             for k, v in eval_stats.items():
@@ -559,22 +603,5 @@ def main(cfg: ILConfig):
                        fmt=['%d', '%.1f'])
 
 
-def load_elite_envs(cfg, latest_gen):
-    # elites = np.load(os.path.join(cfg.log_dir_evo, "unique_elites.npz"), allow_pickle=True)['arr_0']
-    # train_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_train_elites.npz"), allow_pickle=True)['arr_0']
-    # val_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_val_elites.npz"), allow_pickle=True)['arr_0']
-    # test_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.npz"), allow_pickle=True)['arr_0']
-    # load with pickle instead
-    import pickle
-    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_train_elites.pkl"), 'rb') as f:
-        train_elites = pickle.load(f)
-    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_val_elites.pkl"), 'rb') as f:
-        val_elites = pickle.load(f)
-    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.pkl"), 'rb') as f:
-        test_elites = pickle.load(f)
-
-    return train_elites, val_elites, test_elites
-
-    
 if __name__ == "__main__":
     main()

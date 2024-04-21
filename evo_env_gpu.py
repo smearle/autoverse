@@ -8,12 +8,13 @@ import random
 import shutil
 from typing import Iterable, List
 
-# from fire import Fire
+import chex
 from einops import rearrange
 from flax import struct
 import hydra
 import imageio
 import jax
+from jax import numpy as jnp
 import numpy as np
 # import pool from ray
 # from ray.util.multiprocessing import Pool
@@ -28,6 +29,7 @@ from gen_env.evo.individual import Individual, IndividualData, IndividualPlaytra
 from gen_env.rules import compile_rule
 from gen_env.utils import gen_rand_env_params, init_base_env, validate_config
 from gen_env.evo.individual import Individual, IndividualData, hash_individual
+from utils import concatenate_leaves, stack_leaves
 
 
 
@@ -36,9 +38,10 @@ class Playtrace:
     obs_seq: List[np.ndarray]
     action_seq: List[int]
     reward_seq: List[float]
+    done_seq: chex.Array
 
 
-def collect_elites(cfg: GenEnvConfig):
+def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
 
     # If overwriting, or elites have not previously been aggregated, then collect all unique games.
     # if cfg.overwrite or not os.path.isfile(unique_elites_path):
@@ -58,37 +61,68 @@ def collect_elites(cfg: GenEnvConfig):
             elite: IndividualData
             n_evaluated += 1
             e_hash = hash_individual(elite)
-            if e_hash not in elites or elites[e_hash].fitnesses[0] < elite.fitnesses[0]:
+            if e_hash not in elites or elites[e_hash].fitnesses.item() < elite.fitnesses[0].item():
                 if not hasattr(elite, 'fitnesses'):
                     breakpoint()
+
+                # HACK which kind of runs counter to naming
+                elite = elite.replace(fitnesses=jnp.array(elite.fitnesses[0]))
+                action_seq = jnp.pad(jnp.array(elite.action_seqs[0]),
+                                     (0, max_episode_steps + 1 - len(elite.action_seqs[0])),
+                                     constant_values=-1)
+                elite = elite.replace(action_seqs=action_seq)
+
                 elites[e_hash] = elite
     print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
     # Replay episodes, recording obs and rewards and attaching to individuals
     env, env_params = init_base_env(cfg)
     elites = list(elites.values())
+    n_elites = len(elites)
+
+    elites_v = stack_leaves(elites)
 
     vid_dir = os.path.join(cfg._log_dir_evo, 'debug_videos')
     os.makedirs(vid_dir, exist_ok=True)
     # Replay the episode, storing the obs and action sequences to the elite.
-    for e_idx, elite in enumerate(elites):
-    #     # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
-        playtrace, frames = replay_episode(cfg, env, elite, record=False, best_i=0)
 
-        elites[e_idx] = IndividualPlaytraceData(
+    # def _replay_episode(carry, i):
+    def _replay_episode(elite):
+        # elite = elites_jnp[i]
+        playtrace, frames = replay_episode_jax(cfg, env, elite, record=False, best_i=0)
+
+        return None, IndividualPlaytraceData(
             env_params=elite.env_params,
-            fitness=elite.fitnesses[0],
+            fitness=elite.fitnesses,
             action_seq=playtrace.action_seq,
             obs_seq=playtrace.obs_seq,
             rew_seq=playtrace.reward_seq,
+            done_seq=playtrace.done_seq,
         )
+    
+    # _, elites = jax.lax.scan(_replay_episode, None, jnp.arange(len(elites)), length=len(elites))
+    # Actually, we can vmap this
+    _, playtraces = jax.vmap(_replay_episode, in_axes=(0))(elites_v)
 
-        # Will only have returned frames in case of funky error, for debugging
-        if frames is not None:
-            breakpoint()
-            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitnesses[0]}.mp4"), frames, fps=10)
-            frames_2 = replay_episode(cfg, env, elite, record=False)
-            imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitnesses[0]}_take2.mp4"), frames_2, fps=10)
-            breakpoint()
+    # for e_idx, elite in enumerate(elites):
+    # #     # assert elite.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
+    #     playtrace, frames = replay_episode_jax(cfg, env, elite, record=False, best_i=0)
+    #     # playtrace, frames = replay_episode(cfg, env, elite, record=False, best_i=0)
+
+    #     elites[e_idx] = IndividualPlaytraceData(
+    #         env_params=elite.env_params,
+    #         fitness=elite.fitnesses[0],
+    #         action_seq=playtrace.action_seq,
+    #         obs_seq=playtrace.obs_seq,
+    #         rew_seq=playtrace.reward_seq,
+    #     )
+
+    #     # Will only have returned frames in case of funky error, for debugging
+    #     if frames is not None:
+    #         breakpoint()
+    #         imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitnesses[0]}.mp4"), frames, fps=10)
+    #         frames_2 = replay_episode(cfg, env, elite, record=False)
+    #         imageio.mimsave(os.path.join(vid_dir, f"elite-{e_idx}_fitness-{elite.fitnesses[0]}_take2.mp4"), frames_2, fps=10)
+    #         breakpoint()
 
 
     # Sort elites by increasing fitness
@@ -96,7 +130,7 @@ def collect_elites(cfg: GenEnvConfig):
     if not os.path.isdir(cfg._log_dir_player_common):
         os.mkdir(cfg._log_dir_player_common)
 
-    train_elites, val_elites, test_elites = split_elites(cfg, elites)
+    train_elites, val_elites, test_elites = split_elites(cfg, playtraces)
     # Save elites to file
     # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)
     # User pickle instead
@@ -121,37 +155,110 @@ def collect_elites(cfg: GenEnvConfig):
     # Additionally save elites to workspace directory for easy access for imitation learning
     # np.savez(unique_elites_path, elites)
 
-def split_elites(cfg: GenEnvConfig, elites: Iterable[IndividualData]):
+def split_elites(cfg: GenEnvConfig, playtraces: Playtrace):
     """ Split elites into train, val and test sets."""
-    elites.sort(key=lambda x: x.fitness, reverse=True)
+    # playtraces.sort(key=lambda x: x.fitness, reverse=True)
+    # Sort 
+    sorted_idxs = jnp.argsort(playtraces.fitness, axis=0)[:, 0]
+    playtraces = jax.tree.map(lambda x: x[sorted_idxs], playtraces)
 
-    n_elites = len(elites)
+    n_elites = sorted_idxs.shape[0]
     # n_train = int(n_elites * .8)
     # n_val = int(n_elites * .1)
     # n_test = n_elites - n_train - n_val
 
     # Sample train/val/test sets from elites with a range of fitness values. Every `n`th elite is sampled.
     # This ensures that the train/val/test sets are diverse. No elites can be in multiple sets.
-    train_elites = []
-    val_elites = []
-    test_elites = []
-    for i in range(n_elites):
-        if i % 10 == 0:
-            val_elites.append(elites[i])
-        elif (i + 1) % 10 == 0:
-            test_elites.append(elites[i])
-        else:
-            train_elites.append(elites[i])
+    # train_elites = []
+    # val_elites = []
+    # test_elites = []
+    # for i in range(n_elites):
+    #     if i % 10 == 0:
+    #         val_elites.append(playtraces[i])
+    #     elif (i + 1) % 10 == 0:
+    #         test_elites.append(playtraces[i])
+    #     else:
+    #         train_elites.append(playtraces[i])
+    val_idxs = jnp.arange(0, n_elites, 10)
+    test_idxs = jnp.arange(9, n_elites, 10)
+    # train_idxs = jnp.array([i for i in range(n_elites) if i not in val_idxs and i not in test_idxs])
+    # More efficient:
+    train_idxs = jnp.setdiff1d(jnp.arange(n_elites), jnp.concatenate([val_idxs, test_idxs])) 
+    
+    val_elites = jax.tree.map(lambda x: x[val_idxs], playtraces)
+    test_elites = jax.tree.map(lambda x: x[test_idxs], playtraces)
+    train_elites = jax.tree.map(lambda x: x[train_idxs], playtraces)
 
-    n_train = len(train_elites)
-    n_val = len(val_elites)
-    n_test = len(test_elites)
+    n_train = len(train_idxs)
+    n_val = len(val_idxs)
+    n_test = len(test_idxs)
 
     # train_elites = elites[:n_train]
     # val_elites = elites[n_train:n_train+n_val]
     # test_elites = elites[n_train+n_val:]
     print(f"Split {n_elites} elites into {n_train} train, {n_val} val, {n_test} test.")
     return train_elites, val_elites, test_elites
+
+
+def replay_episode_jax(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData, 
+                   record: bool = False, best_i: int = 0):
+    """Re-play the episode, recording observations and rewards (for imitation learning)."""
+    # FIXME: This is super slow! Maybe better to do a scan over max_episode_steps, then slice away invalid moves?
+
+    # print(f"Fitness: {elite.fitness}")
+    # action_seq = elite.action_seqs[best_i]
+    action_seq = elite.action_seqs
+    # action_seq_jnp = jnp.array(action_seq)
+    params = elite.env_params
+    # load_game_to_env(env, elite)
+    # env.queue_games([elite.map.copy()], [elite.rules.copy()])
+    key = jax.random.PRNGKey(0)
+    init_obs, state = env.reset_env(key=key, params=params)
+    # print(f"Initial state reward: {state.ep_rew}")
+    # assert env.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
+    # Debug: interact after episode completes (investigate why episode ends early)
+    # env.render(mode='pygame')
+    # while True:
+    #     env.tick_human()
+    if record:
+        frames = [env.render(mode='rgb_array', state=state, params=params)]
+    if cfg.render:
+        env.render(mode='human', state=state)
+    done = False
+    i = 0
+
+    def step_while(carry):
+        rng, obs, state, rew, done, i = carry
+        return i < len(action_seq)
+
+    def step_env(carry, _):
+    # def step_env(carry):
+        # rng, obs, state, rew, done, i = carry
+        rng, state, i = carry
+        action = action_seq[i]
+        obs, state, reward, done, info = env.step_env(key, state=state, action=action, params=params)    
+
+        # Put a fake done here in case we have fewer actions than max_episode_steps. For IL dataset, just in case (?)
+        done = jax.lax.select(action_seq[i+1] == -1, True, done)
+
+        i += 1
+        rng, _ = jax.random.split(rng)
+        # return (rng, obs, state, reward, done, i)
+        return (rng, state, i), (obs, state, reward, done)
+
+    _, (obs_seq, state, rew_seq, done_seq) = jax.lax.scan(step_env, (key, state, 0), None, length=env.max_episode_steps)
+    # rng, obs_seq, state, rew_seq, done, i = jax.lax.while_loop(step_while, step_env, (key, obs, state, 0, False, 0))
+
+    init_obs = jax.tree.map(lambda x: x[None], init_obs)
+    obs_seq = concatenate_leaves((obs_seq, init_obs))
+    rew_seq = concatenate_leaves((rew_seq, jnp.array([0.0])))
+    done_seq = concatenate_leaves((done_seq, jnp.array([False])))
+
+    playtrace = Playtrace(obs_seq=obs_seq, action_seq=action_seq,
+                          reward_seq=rew_seq, done_seq=done_seq)
+    if record:
+        return playtrace, frames
+    return playtrace, None
 
 
 def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData, 
@@ -236,7 +343,7 @@ def main(cfg: GenEnvConfig):
     #     cfg.evaluate=True
     load = not overwrite
     if cfg.collect_elites:
-        collect_elites(cfg)
+        collect_elites(cfg, max_episode_steps=cfg.max_episode_steps)
         return
     loaded = False
     if os.path.isdir(cfg._log_dir_evo):
