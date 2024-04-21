@@ -66,12 +66,14 @@ class Dense(nn.Module):
 
 
 class ConvForward(nn.Module):
+    """The way we crop out actions and values in ConvForward1 results in 
+    values skipping conv layers, which is not what we intended. This matches
+    the conv-dense model in the original paper without accounting for arf or 
+    vrf."""
     action_dim: Sequence[int]
     act_shape: Tuple[int, int]
-    arf_size: int
-    vrf_size: int
+    hidden_dims: Tuple[int]
     activation: str = "relu"
-    hid_dim: int = 128
 
     @nn.compact
     def __call__(self, map_x, flat_x):
@@ -81,47 +83,43 @@ class ConvForward(nn.Module):
             activation = nn.tanh
 
         flat_action_dim = self.action_dim * math.prod(self.act_shape)
+        h1, h2 = self.hidden_dims
 
-        act, critic = crop_arf_vrf(map_x, self.arf_size, self.vrf_size)
+        map_x = nn.Conv(
+            features=h1, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
+        )(map_x)
+        act = activation(map_x)
+        map_x = nn.Conv(
+            features=h1, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
+        )(map_x)
+        map_x = activation(map_x)
 
-        act = nn.Conv(
-            features=self.hid_dim, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
-        )(act)
-        act = activation(act)
-        act = nn.Conv(
-            features=self.hid_dim, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
-        )(act)
-        act = activation(act)
+        map_x = act.reshape((act.shape[0], -1))
+        x = jnp.concatenate((map_x, flat_x), axis=-1)
 
-        act = act.reshape((act.shape[0], -1))
-        act = jnp.concatenate((act, flat_x), axis=-1)
+        x = nn.Dense(
+            h2, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(x)
+        x = activation(x)
 
-        act = nn.Dense(
-            self.hid_dim, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(act)
-        act = activation(act)
+        x = nn.Dense(
+            h1, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(x)
+        x = activation(x)
+
+        act, critic = x, x
 
         act = nn.Dense(
             flat_action_dim, kernel_init=orthogonal(0.01),
             bias_init=constant(0.0)
         )(act)
 
-        critic = critic.reshape((critic.shape[0], -1))
-        critic = jnp.concatenate((critic, flat_x), axis=-1)
-
-        critic = nn.Dense(
-            self.hid_dim, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(critic)
-        critic = activation(critic)
-        critic = nn.Dense(
-            self.hid_dim, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(critic)
-        critic = activation(critic)
         critic = nn.Dense(
             1, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
         )(critic)
 
         return act, jnp.squeeze(critic, axis=-1)
+
 
 
 class SeqNCA(nn.Module):

@@ -76,8 +76,8 @@ def get_network(env: PlayEnv, env_params: GenEnvParams, config: RLConfig):
     if config.model == "conv":
         network = ConvForward(
             action_dim=action_dim, activation=config.activation,
-            arf_size=config.arf_size, act_shape=config.act_shape,
-            vrf_size=config.vrf_size,
+            act_shape=config.act_shape,
+            hidden_dims=config.hidden_dims,
         )
     if config.model == "seqnca":
         network = SeqNCA(
