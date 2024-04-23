@@ -54,9 +54,9 @@ class GenEnvConfig:
     activation: str = "relu"
     model: str = "conv"
     # Size of the receptive field to be fed to the action subnetwork.
-    vrf_size: Optional[int] = 31
+    # vrf_size: Optional[int] = 31
     # Size of the receptive field to be fed to the value subnetwork.
-    arf_size: Optional[int] = 31
+    # arf_size: Optional[int] = 31
     # TODO: actually take arf and vrf into account in models, where possible
     act_shape: Tuple[int, int] = (1, 1)
 
@@ -70,12 +70,15 @@ class ILConfig(GenEnvConfig):
     il_lr: float = 1.0e-4
     log_interval: int = 500
     eval_interval: int = 1000
+    ckpt_interval: int = 1000
     render_freq: int = 1
     model: str = "conv"
 
+    _il_ckpt_dir: Optional[str] = None
+
 
 @dataclass
-class RLConfig(GenEnvConfig):
+class RLConfig(ILConfig):
     lr: float = 1.0e-4
     n_envs: int = 4
     num_steps: int = 128
@@ -95,6 +98,11 @@ class RLConfig(GenEnvConfig):
     problem: str = "binary"
     representation: str = "narrow"
 
+    evo_freq: int = 10
+    n_envs: int = 20
+    evo_pop_size: int = 10
+    evo_mutate_prob: float = 0.1
+
     # change_pct: float = -1.0
 
     # The shape of the (patch of) edit(s) to be made by the edited by the generator at each step.
@@ -108,8 +116,8 @@ class RLConfig(GenEnvConfig):
     gif_frame_duration: int = 25
 
     """ DO NOT USE. WILL BE OVERWRITTEN. """
-    exp_dir: Optional[str] = None
-    n_gpus: int = 1
+    _rl_exp_dir: Optional[str] = None
+    _n_gpus: int = 1
 
 @dataclass
 class TrainConfig(RLConfig):

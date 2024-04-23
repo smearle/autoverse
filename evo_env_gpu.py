@@ -27,7 +27,7 @@ from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
 from gen_env.evo.individual import Individual, IndividualData, IndividualPlaytraceData, hash_individual
 from gen_env.rules import compile_rule
-from gen_env.utils import gen_rand_env_params, init_base_env, validate_config
+from gen_env.utils import gen_rand_env_params, init_base_env, init_evo_config
 from gen_env.evo.individual import Individual, IndividualData, hash_individual
 from utils import concatenate_leaves, stack_leaves
 
@@ -270,6 +270,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
     # load_game_to_env(env, elite)
     obs_seq = []
     rew_seq = []
+    done_seq = []
     # env.queue_games([elite.map.copy()], [elite.rules.copy()])
     key = jax.random.PRNGKey(0)
     obs, state = env.reset_env(key=key, params=params)
@@ -297,6 +298,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
             #     return replay_episode(cfg, env, elite, record=True)
             break
         obs, state, reward, done, info = env.step_env(key, state=state, action=action_seq[i], params=params)
+        done_seq.append(done)
         # print(state.ep_rew)
         obs_seq.append(obs)
         rew_seq = rew_seq + [reward]
@@ -314,7 +316,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
             return replay_episode(cfg, env, elite, record=True, best_i=best_i)
         # breakpoint()
     playtrace = Playtrace(obs_seq=obs_seq, action_seq=action_seq,
-                          reward_seq=rew_seq)
+                          reward_seq=rew_seq, done_seq=done_seq)
     if record:
         return playtrace, frames
     return playtrace, None
@@ -323,7 +325,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def main(cfg: GenEnvConfig):
-    validate_config(cfg)
+    init_evo_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
     
     overwrite, n_proc, render = cfg.overwrite, cfg.n_proc, cfg.render

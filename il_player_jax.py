@@ -22,10 +22,10 @@ import tqdm
 
 from gen_env.configs.config import GenEnvConfig, ILConfig
 from gen_env.envs.gen_env import GenEnv
-from gen_env.utils import init_base_env, validate_config
+from gen_env.utils import init_base_env, init_evo_config
 from pcgrl_utils import get_network
 from purejaxrl.experimental.s5.wrappers import LogWrapper
-from utils import load_elite_envs
+from utils import init_il_config, load_elite_envs
 
 
 
@@ -162,19 +162,20 @@ def log_prob_update(train_state, batch: Batch,
     return (rng, train_state, {'actor_loss': total_loss})
 
 
-def mse_update(actor: Model, batch: Batch,
+def mse_update(train_state: TrainState, batch: Batch,
                rng: PRNGKey) -> Tuple[Model, InfoDict]:
     rng, key = jax.random.split(rng)
 
     def loss_fn(actor_params: Params) -> Tuple[jnp.ndarray, InfoDict]:
-        actions = actor.apply_fn({'params': actor_params},
+        dist, val = train_state.apply_fn({'params': actor_params},
                                  batch.observations,
-                                 training=True,
+                                #  training=True,
                                  rngs={'dropout': key})
+        actions = dist.sample(seed=key)
         actor_loss = ((actions - batch.actions)**2).mean()
         return actor_loss
 
-    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
     total_loss, grads = grad_fn(
         train_state.params,
     )
@@ -217,19 +218,22 @@ class BCLearner(object):
         network_params = network.init(actor_key, init_x)
         print(network.subnet.tabulate(rng, init_x.map, init_x.flat))
 
-        self.actor = TrainState.create(
+        train_state = TrainState.create(
             apply_fn=network.apply,
             params=network_params["params"],
             tx=tx,
         )
+        self.train_state = train_state
+
+        # FIXME: load this from checkpoint
         self.rng = rng
 
     def sample_actions(self,
                        observations: np.ndarray,
                        temperature: float = 1.0) -> jnp.ndarray:
         self.rng, actions = sample_actions(self.rng,
-                                                    self.actor.apply_fn,
-                                                    self.actor.params,
+                                                    self.train_state.apply_fn,
+                                                    self.train_state.params,
                                                     observations, temperature,
                                                     self.distribution)
 
@@ -238,11 +242,11 @@ class BCLearner(object):
 
     def update(self, batch: Batch) -> InfoDict:
         # if self.distribution == 'det':
-        #     self.rng, self.actor, info = _mse_update_jit(
-        #         self.actor, batch, self.rng)
+        # self.rng, self.actor, info = _mse_update_jit(
+        #     self.train_state, batch, self.rng)
         # else:
-        self.rng, self.actor, info = _log_prob_update_jit(
-            self.actor, batch, self.rng)
+        self.rng, self.train_state, info = _log_prob_update_jit(
+            self.train_state, batch, self.rng)
         return info
 
         
@@ -301,143 +305,14 @@ class Dataset(object):
                      actions=self.actions[indx],
                      rewards=self.rewards[indx],
                      masks=self.masks[indx])
-
-    def get_initial_states(
-        self,
-        and_action: bool = False
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        states = []
-        if and_action:
-            actions = []
-        trajs = split_into_trajectories(self.observations, self.actions,
-                                        self.rewards, self.masks,
-                                        self.dones_float,
-                                        self.next_observations)
-
-        def compute_returns(traj):
-            episode_return = 0
-            for _, _, rew, _, _, _ in traj:
-                episode_return += rew
-
-            return episode_return
-
-        trajs.sort(key=compute_returns)
-
-        for traj in trajs:
-            states.append(traj[0][0])
-            if and_action:
-                actions.append(traj[0][1])
-
-        states = np.stack(states, 0)
-        if and_action:
-            actions = np.stack(actions, 0)
-            return states, actions
-        else:
-            return states
-
-    def get_monte_carlo_returns(self, discount) -> np.ndarray:
-        trajs = split_into_trajectories(self.observations, self.actions,
-                                        self.rewards, self.masks,
-                                        self.dones_float,
-                                        self.next_observations)
-        mc_returns = []
-        for traj in trajs:
-            mc_return = 0.0
-            for i, (_, _, reward, _, _, _) in enumerate(traj):
-                mc_return += reward * (discount**i)
-            mc_returns.append(mc_return)
-
-        return np.asarray(mc_returns)
-
-    def take_top(self, percentile: float = 100.0):
-        assert percentile > 0.0 and percentile <= 100.0
-
-        trajs = split_into_trajectories(self.observations, self.actions,
-                                        self.rewards, self.masks,
-                                        self.dones_float,
-                                        self.next_observations)
-
-        def compute_returns(traj):
-            episode_return = 0
-            for _, _, rew, _, _, _ in traj:
-                episode_return += rew
-
-            return episode_return
-
-        trajs.sort(key=compute_returns)
-
-        N = int(len(trajs) * percentile / 100)
-        N = max(1, N)
-
-        trajs = trajs[-N:]
-
-        (self.observations, self.actions, self.rewards, self.masks,
-         self.dones_float) = merge_trajectories(trajs)
-
-        self.size = len(self.observations)
-
-    def take_random(self, percentage: float = 100.0):
-        assert percentage > 0.0 and percentage <= 100.0
-
-        trajs = split_into_trajectories(self.observations, self.actions,
-                                        self.rewards, self.masks,
-                                        self.dones_float,
-        )
-        np.random.shuffle(trajs)
-
-        N = int(len(trajs) * percentage / 100)
-        N = max(1, N)
-
-        trajs = trajs[-N:]
-
-        (self.observations, self.actions, self.rewards, self.masks,
-         self.dones_float) = merge_trajectories(trajs)
-
-        self.size = len(self.observations)
-
-    def train_validation_split(self,
-                               train_fraction: float = 0.8
-                               ) -> Tuple['Dataset', 'Dataset']:
-        trajs = split_into_trajectories(self.observations, self.actions,
-                                        self.rewards, self.masks,
-                                        self.dones_float,
-        )
-        train_size = int(train_fraction * len(trajs))
-
-        np.random.shuffle(trajs)
-
-        (train_observations, train_actions, train_rewards, train_masks,
-         train_dones_float,
-         ) = merge_trajectories(trajs[:train_size])
-
-        (valid_observations, valid_actions, valid_rewards, valid_masks,
-         valid_dones_float,
-         ) = merge_trajectories(trajs[train_size:])
-
-        train_dataset = Dataset(train_observations,
-                                train_actions,
-                                train_rewards,
-                                train_masks,
-                                train_dones_float,
-                                size=len(train_observations))
-        valid_dataset = Dataset(valid_observations,
-                                valid_actions,
-                                valid_rewards,
-                                valid_masks,
-                                valid_dones_float,
-                                size=len(valid_observations))
-
-        return train_dataset, valid_dataset
-
     
         
-class D4RLDataset(Dataset):
+class AutoverseILDataset(Dataset):
 
     def __init__(self,
-                 datasets,
+                 dataset,
                  clip_to_eps: bool = True,
                  eps: float = 1e-5):
-        for ds_name, dataset in zip(('train', 'val', 'test'), datasets):
 
             dataset = jax.tree.map(lambda x: jnp.concatenate(x, 0), dataset)
 
@@ -453,24 +328,14 @@ class D4RLDataset(Dataset):
                 'rewards': dataset.rew_seq,
                 'terminals': dataset.done_seq,
             }
-            # dataset = d4rl.qlearning_dataset(env)
 
-            # for i in range(len(dones_float) - 1):
-            #     if np.linalg.norm(dataset['observations'][i + 1] -
-            #                     dataset['next_observations'][i]
-            #                     ) > 1e-6 or dataset['terminals'][i] == 1.0:
-            #         dones_float[i] = 1
-            #     else:
-            #         dones_float[i] = 0
-
-            dataset = super().__init__(dataset['observations'],
+            super().__init__(dataset['observations'],
                             actions=dataset['actions'].astype(np.float32),
                             rewards=dataset['rewards'].astype(np.float32),
                             masks=1.0 - dataset['terminals'].astype(np.float32),
                             dones_float=dones_float.astype(np.float32),
                             size=len(dataset['rewards']))
 
-            setattr(self, ds_name, dataset)
 
                          
 def evaluate(agent, env: GenEnv, num_episodes: int) -> Dict[str, float]:
@@ -505,37 +370,33 @@ class ILDataset:
     done_seq: chex.Array 
 
 
+from orbax import checkpoint as ocp
+
+
+def save_checkpoint(config, ckpt_manager, train_state, t):
+    ckpt_manager.save(t, args=ocp.args.StandardSave(train_state))
+    ckpt_manager.wait_until_finished() 
+
+
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: ILConfig):
-    validate_config(cfg)
-
-    # glob files of form `gen-XX*elites.npz` and get highest gen number
-    gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.pkl"))
-    gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
-    latest_gen = max(gen_nums)
-
-    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
+    init_evo_config(cfg)
+    latest_gen = init_il_config(cfg)
 
     # Environment class doesn't matter and will be overwritten when we load in an individual.
     # env = maze.make_env(10, 10)
     env, env_params = init_base_env(cfg)
-    rng = np.random.default_rng(cfg.env_exp_id)
+    # rng = np.random.default_rng(cfg.env_exp_id)
+    rng = jax.random.PRNGKey(cfg.seed)
 
     if cfg.overwrite:
         if os.path.exists(cfg._log_dir_il):
             shutil.rmtree(cfg._log_dir_il)
+            print(f"Overwriting {cfg._log_dir_il}")
 
     if not os.path.exists(cfg._log_dir_il):
         os.makedirs(cfg._log_dir_il)
 
-    # HACK to load trained run after refactor
-    # import sys
-    # from gen_env import evo, configs, tiles, rules
-    # sys.modules['evo'] = evo
-    # sys.modules['configs'] = configs
-    # sys.modules['tiles'] = tiles
-    # sys.modules['rules'] = rules
-    # end HACK
 
     # Load the transitions from the training set
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
@@ -543,13 +404,14 @@ def main(cfg: ILConfig):
     _datasets = (train_elites, val_elites, test_elites)
     datasets = []
     for d in _datasets:
-        d = ILDataset(
+        d = AutoverseILDataset(dataset=ILDataset(
             action_seq=d.action_seq,
             obs_seq=d.obs_seq,
             rew_seq=d.rew_seq,
             done_seq=d.done_seq
-        )
+        ))
         datasets.append(d)
+    train_dataset, val_dataset, test_dataset = datasets
 
     # Initialize tensorboard logger
     summary_writer = SummaryWriter(
@@ -558,7 +420,6 @@ def main(cfg: ILConfig):
     video_save_folder = None if cfg.render_freq == -1 else os.path.join(
         cfg._log_dir_il, 'video', 'eval')
 
-    dataset = D4RLDataset(datasets=datasets)
 
     kwargs = dict(cfg)
     kwargs['num_steps'] = cfg.il_max_steps
@@ -567,17 +428,27 @@ def main(cfg: ILConfig):
                       actions=np.array(env.action_space.sample())[np.newaxis], actor_lr=cfg.il_lr,
                       num_steps=cfg.il_max_steps)
 
-    train_state = TrainState.create(
-        apply_fn=agent.actor.apply_fn,
-        params=agent.actor.params,
-        tx=agent.actor.tx,
-    )
+    # FIXME this is silly, lift this out!
+    train_state = agent.train_state
+
+    options = ocp.CheckpointManagerOptions(
+        max_to_keep=2, create=True)
+    checkpoint_manager = ocp.CheckpointManager(
+        cfg._il_ckpt_dir, options=options)
+
+    if checkpoint_manager.latest_step() is not None:
+        t = checkpoint_manager.latest_step()
+        train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
+        checkpoint_manager.wait_until_finished()
+        agent.train_state = train_state
+    else: 
+        t = 0
 
     eval_returns = []
-    for i in tqdm.tqdm(range(1, cfg.il_max_steps + 1),
+    for i in tqdm.tqdm(range(t, cfg.il_max_steps + 1),
                        smoothing=0.1,
                        disable=not cfg.il_tqdm):
-        batch = dataset.sample(cfg.il_batch_size)
+        batch = train_dataset.sample(cfg.il_batch_size)
 
         update_info = agent.update(batch)
 
@@ -591,16 +462,31 @@ def main(cfg: ILConfig):
             summary_writer.flush()
 
         if cfg.eval_interval != -1 and i % cfg.eval_interval == 0:
-            eval_stats = evaluate(agent, env, cfg.eval_episodes)
+            for ds, n in zip([train_dataset, val_dataset], ['train', 'val']):
+                batch = ds.sample(cfg.il_batch_size)
 
-            for k, v in eval_stats.items():
-                summary_writer.add_scalar(f'evaluation/average_{k}s', v, i)
-            summary_writer.flush()
+                train_state = agent.train_state
+                dist, val = train_state.apply_fn({'params': train_state.params},
+                                    batch.observations,
+                                    rngs={'dropout': rng})
+                actions = dist.sample(seed=rng)
+                pct_correct = (actions == batch.actions).mean()
+                summary_writer.add_scalar(f'evaluation/pct_correct_{n}', pct_correct, i)
+                print(f"pct. {n} correct: {pct_correct}")
 
-            eval_returns.append((i, eval_stats['return']))
-            np.savetxt(os.path.join(cfg._log_dir_il, f'{cfg.seed}.txt'),
-                       eval_returns,
-                       fmt=['%d', '%.1f'])
+            # eval_stats = evaluate(agent, env, cfg.eval_episodes)
+
+            # for k, v in eval_stats.items():
+            #     summary_writer.add_scalar(f'evaluation/average_{k}s', v, i)
+            # summary_writer.flush()
+
+            # eval_returns.append((i, eval_stats['return']))
+            # np.savetxt(os.path.join(cfg._log_dir_il, f'{cfg.seed}.txt'),
+            #            eval_returns,
+            #            fmt=['%d', '%.1f'])
+                       
+        if cfg.ckpt_interval != -1 and i % cfg.ckpt_interval == 0:
+            save_checkpoint(cfg, checkpoint_manager, agent.train_state, i)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ from imitation.data.wrappers import RolloutInfoWrapper
 from gen_env.configs.config import GenEnvConfig
 from gen_env.games import maze
 from gen_env.envs.play_env import PlayEnv
-from gen_env.utils import init_base_env, load_game_to_env, validate_config
+from gen_env.utils import init_base_env, load_game_to_env, init_evo_config
 
 
 def evaluate_policy_on_elites(cfg: GenEnvConfig, policy, env, elites, name):
@@ -120,7 +120,7 @@ def load(cfg: GenEnvConfig, policy_path: str):
 
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: GenEnvConfig):
-    validate_config(cfg)
+    init_evo_config(cfg)
 
     # glob files of form `gen-XX*elites.npz` and get highest gen number
     gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.npz"))

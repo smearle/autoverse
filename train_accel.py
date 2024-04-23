@@ -8,6 +8,8 @@ import jax
 import logging
 
 import numpy as np
+
+from utils import init_il_config, init_rl_config, load_elite_envs
 logging.getLogger('jax').setLevel(logging.INFO)
 import jax.numpy as jnp
 from flax import struct
@@ -22,10 +24,9 @@ from gen_env.evo.individual import Individual
 from evo_accel import EvoState, apply_evo, distribute_evo_envs_to_train, gen_discount_factors_matrix
 from gen_env.configs.config import (RLConfig, TrainConfig, TrainAccelConfig, 
                                     GenEnvConfig)
-from gen_env.utils import init_base_env
+from gen_env.utils import init_base_env, init_config
 from purejaxrl.experimental.s5.wrappers import LogWrapper
-from pcgrl_utils import (get_ckpt_dir, get_exp_dir, get_network,
-                   init_config)
+from pcgrl_utils import get_rl_ckpt_dir, get_network
 
 
 class RunnerState(struct.PyTreeNode):
@@ -50,33 +51,33 @@ class Transition(NamedTuple):
     # rng_act: jnp.ndarray
 
 
-def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
-    config.NUM_UPDATES = (
-        config.total_timesteps // config.num_steps // config.n_envs
+def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_env_params):
+    cfg.NUM_UPDATES = (
+        cfg.total_timesteps // cfg.num_steps // cfg.n_envs
     )
-    config.MINIBATCH_SIZE = (
-        config.n_envs * config.num_steps // config.NUM_MINIBATCHES
+    cfg.MINIBATCH_SIZE = (
+        cfg.n_envs * cfg.num_steps // cfg.NUM_MINIBATCHES
     )
-    env_r, env_params = init_base_env(config)
+    env_r, env_params = init_base_env(cfg)
     # env_r, env_params = gymnax_pcgrl_make(config.env_name, config=config)
     # env = FlattenObservationWrapper(env)
     env = LogWrapper(env_r)
     # env_r.init_graphics()
 
-    evo_individual = Individual(config, env.tiles)
-    discount_factors_matrix = gen_discount_factors_matrix(config.GAMMA, max_episode_steps=env.max_episode_steps)
+    evo_individual = Individual(cfg, env.tiles)
+    discount_factors_matrix = gen_discount_factors_matrix(cfg.GAMMA, max_episode_steps=env.max_episode_steps)
 
     def linear_schedule(count):
         frac = (
             1.0
-            - (count // (config.NUM_MINIBATCHES * config.update_epochs))
-            / config.NUM_UPDATES
+            - (count // (cfg.NUM_MINIBATCHES * cfg.update_epochs))
+            / cfg.NUM_UPDATES
         )
-        return config["LR"] * frac
+        return cfg["LR"] * frac
 
-    def train(rng, config: TrainConfig):
+    def train(rng, cfg: TrainConfig):
         # INIT NETWORK
-        network = get_network(env, env_params, config)
+        network = get_network(env, env_params, cfg)
 
         rng, _rng = jax.random.split(rng)
         init_x = env.gen_dummy_obs(env_params)
@@ -86,15 +87,15 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
         # print(network.subnet.tabulate(_rng, init_x, jnp.zeros((init_x.shape[0], 0))))
 
         # Print number of learnable parameters in the network
-        if config.ANNEAL_LR:
+        if cfg.ANNEAL_LR:
             tx = optax.chain(
-                optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+                optax.clip_by_global_norm(cfg.MAX_GRAD_NORM),
                 optax.adam(learning_rate=linear_schedule, eps=1e-5),
             )
         else:
             tx = optax.chain(
-                optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-                optax.adam(config.lr, eps=1e-5),
+                optax.clip_by_global_norm(cfg.MAX_GRAD_NORM),
+                optax.adam(cfg.lr, eps=1e-5),
             )
         train_state = TrainState.create(
             apply_fn=network.apply,
@@ -104,7 +105,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 
         # INIT ENV FOR TRAIN
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.n_envs)
+        reset_rng = jax.random.split(_rng, cfg.n_envs)
         # Apply pmap
         vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, None))
         # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
@@ -112,7 +113,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 
         # INIT ENV FOR RENDER
         rng_r, _rng_r = jax.random.split(rng)
-        reset_rng_r = jax.random.split(_rng_r, config.n_render_eps)
+        reset_rng_r = jax.random.split(_rng_r, cfg.n_render_eps)
 
         # Apply pmap
         # reset_rng_r = reset_rng_r.reshape((config.n_gpus, -1) + reset_rng_r.shape[1:])
@@ -129,10 +130,10 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 #                             fill_value=jnp.nan, dtype=jnp.float32)
 
         # Tile env_params evo_pop_size many times
-        evo_env_params = jax.tree_map(lambda x: jnp.concatenate([x[None] for _ in range(config.evo_pop_size)]), env_params)
-        evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.zeros(config.evo_pop_size))
+        evo_env_params = jax.tree_map(lambda x: jnp.concatenate([x[None] for _ in range(cfg.evo_pop_size)]), env_params)
+        evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.zeros(cfg.evo_pop_size))
 
-        train_env_params = distribute_evo_envs_to_train(config, evo_env_params)
+        # train_env_params = distribute_evo_envs_to_train(cfg, evo_env_params)
 
         steps_prev_complete = 0
         runner_state = RunnerState(
@@ -144,9 +145,9 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
         if restored_ckpt is not None:
             steps_prev_complete = restored_ckpt['steps_prev_complete']
             runner_state = restored_ckpt['runner_state']
-            steps_remaining = config.total_timesteps - steps_prev_complete
-            config.NUM_UPDATES = int(
-                steps_remaining // config.num_steps // config.n_envs)
+            steps_remaining = cfg.total_timesteps - steps_prev_complete
+            cfg.NUM_UPDATES = int(
+                steps_remaining // cfg.num_steps // cfg.n_envs)
 
             # TODO: Overwrite certain config values
 
@@ -156,20 +157,20 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             return render_frames_gif(frames, i, states)
 
         def render_frames_gif(frames, i, env_states=None):
-            if i % config.render_freq != 0:
+            if i % cfg.render_freq != 0:
             # if jnp.all(frames == 0):
                 return
             print(f"Rendering episode gifs at update {i}")
-            assert len(frames) == config.n_render_eps * 1 * env.max_episode_steps,\
+            assert len(frames) == cfg.n_render_eps * 1 * env.max_episode_steps,\
                 "Not enough frames collected"
 
-            if config.env_name == 'Candy':
+            if cfg.env_name == 'Candy':
                 # Render intermediary frames.
                 pass
 
             # Save gifs.
-            for ep_is in range(config.n_render_eps):
-                gif_name = f"{config.exp_dir}/update-{i}_ep-{ep_is}.gif"
+            for ep_is in range(cfg.n_render_eps):
+                gif_name = f"{cfg.exp_dir}/update-{i}_ep-{ep_is}.gif"
                 ep_frames = frames[ep_is*env.max_episode_steps:(ep_is+1)*env.max_episode_steps]
 
                 # new_frames = []
@@ -183,7 +184,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                     imageio.v3.imwrite(
                         gif_name,
                         ep_frames,
-                        duration=config.gif_frame_duration
+                        duration=cfg.gif_frame_duration
                     )
                 except jax.errors.TracerArrayConversionError:
                     print("Failed to save gif. Skipping...")
@@ -199,7 +200,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             state_r = None
             key = jax.random.PRNGKey(0)
             frames = []
-            for ep_idx in range(config.n_render_eps):
+            for ep_idx in range(cfg.n_render_eps):
                 env_params = jax.tree_map(lambda x: x[ep_idx], train_env_params)
                 obs_r, state_r = env_r.reset_env(key, env_params)
                 for _ in range(env.max_episode_steps):
@@ -225,7 +226,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             pi, value = network.apply(network_params, obs_r)
             action_r = pi.sample(seed=rng_r)
 
-            rng_step = jax.random.split(_rng_r, config.n_render_eps)
+            rng_step = jax.random.split(_rng_r, cfg.n_render_eps)
 
             # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
             vmap_step_fn = jax.vmap(env_r.step, in_axes=(0, 0, 0, None))
@@ -244,17 +245,17 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
         def save_checkpoint(runner_state, info, steps_prev_complete):
             try:
                 timesteps = info["timestep"][info["returned_episode"]
-                                             ] * config.n_envs
+                                             ] * cfg.n_envs
             except jax.errors.NonConcreteBooleanIndexError:
                 return
             for t in timesteps:
                 if t > 0:
                     latest_ckpt_step = checkpoint_manager.latest_step()
                     if (latest_ckpt_step is None or
-                            t - latest_ckpt_step >= config.ckpt_freq):
+                            t - latest_ckpt_step >= cfg.ckpt_freq):
                         print(f"Saving checkpoint at step {t}")
                         ckpt = {'runner_state': runner_state,
-                                'config': config, 
+                                'config': cfg, 
                                 'step_i': t}
                         # ckpt = {'step_i': t}
                         save_args = orbax_utils.save_args_from_target(ckpt)
@@ -283,7 +284,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                     runner_state.rng, runner_state.update_i,
                 )
 
-                train_env_params = env_state.env_state.queued_params
+                # train_env_params = env_state.env_state.queued_params
 
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
@@ -294,7 +295,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config.n_envs)
+                rng_step = jax.random.split(_rng, cfg.n_envs)
 
                 # Note that we are mapping across environment parameters as well to train on different environments
                 vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0))
@@ -311,7 +312,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, runner_state, None, config.num_steps
+                _env_step, runner_state, None, cfg.num_steps
             )
 
             # CALCULATE ADVANTAGE
@@ -330,11 +331,11 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                         transition.value,
                         transition.reward,
                     )
-                    delta = reward + config.GAMMA * \
+                    delta = reward + cfg.GAMMA * \
                         next_value * (1 - done) - value
                     gae = (
                         delta
-                        + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
+                        + cfg.GAMMA * cfg.GAE_LAMBDA * (1 - done) * gae
                     )
                     return (gae, value), gae
 
@@ -364,7 +365,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
                             value - traj_batch.value
-                        ).clip(-config.CLIP_EPS, config.CLIP_EPS)
+                        ).clip(-cfg.CLIP_EPS, cfg.CLIP_EPS)
                         value_losses = jnp.square(value - targets)
                         value_losses_clipped = jnp.square(
                             value_pred_clipped - targets)
@@ -381,8 +382,8 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                         loss_actor2 = (
                             jnp.clip(
                                 ratio,
-                                1.0 - config.CLIP_EPS,
-                                1.0 + config.CLIP_EPS,
+                                1.0 - cfg.CLIP_EPS,
+                                1.0 + cfg.CLIP_EPS,
                             )
                             * gae
                         )
@@ -392,8 +393,8 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 
                         total_loss = (
                             loss_actor
-                            + config.VF_COEF * value_loss
-                            - config.ENT_COEF * entropy
+                            + cfg.VF_COEF * value_loss
+                            - cfg.ENT_COEF * entropy
                         )
                         return total_loss, (value_loss, loss_actor, entropy)
 
@@ -408,9 +409,9 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                 train_state, traj_batch, advantages, targets, rng = \
                     update_state
                 rng, _rng = jax.random.split(rng)
-                batch_size = config.MINIBATCH_SIZE * config.NUM_MINIBATCHES
+                batch_size = cfg.MINIBATCH_SIZE * cfg.NUM_MINIBATCHES
                 assert (
-                    batch_size == config.num_steps * config.n_envs
+                    batch_size == cfg.num_steps * cfg.n_envs
                 ), "batch size must be equal to number of steps * number " + \
                     "of envs"
                 permutation = jax.random.permutation(_rng, batch_size)
@@ -423,7 +424,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                 )
                 minibatches = jax.tree_util.tree_map(
                     lambda x: jnp.reshape(
-                        x, [config.NUM_MINIBATCHES, -1] + list(x.shape[1:])
+                        x, [cfg.NUM_MINIBATCHES, -1] + list(x.shape[1:])
                     ),
                     shuffled_batch,
                 )
@@ -436,16 +437,16 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 
             update_state = (train_state, traj_batch, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(
-                _update_epoch, update_state, None, config.update_epochs
+                _update_epoch, update_state, None, cfg.update_epochs
             )
             train_state = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
-            if config.DEBUG:
+            if cfg.DEBUG:
                 def callback(info, steps_prev_complete):
                     return_values = info["returned_episode_returns"][info["returned_episode"]]
                     timesteps = info["timestep"][info["returned_episode"]
-                                                 ] * config.n_envs
+                                                 ] * cfg.n_envs
                     for t in range(len(timesteps)):
                         print(
                             f"global step={timesteps[t]}, episodic return={return_values[t]}")
@@ -460,28 +461,28 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             # NOTE: If you vmap the train function, both of these branches will (most probably)
             # be evaluated each time.                  
             evo_state: EvoState = jax.lax.cond(
-                runner_state.update_i % config.evo_freq == 0,
+                (runner_state.update_i % cfg.evo_freq == 0) and (cfg.evo_freq != -1),
                 lambda: apply_evo(
                     rng=rng, env=env, ind=evo_individual, evo_state=evo_state, 
                     network_params=network_params, network=network,
-                    config=config,
+                    config=cfg,
                     discount_factor_matrix=discount_factors_matrix),
                 lambda: evo_state)
 
             elite_env_params = evo_state.env_params
             # Tile and slice env_params so that we have `n_envs` many
-            n_reps = int(np.ceil(config.n_envs / config.evo_pop_size))
-            train_env_params = distribute_evo_envs_to_train(config, elite_env_params)
+            n_reps = int(np.ceil(cfg.n_envs / cfg.evo_pop_size))
+            train_env_params = distribute_evo_envs_to_train(cfg, elite_env_params)
             # Now when we step the environments, each will reset to `queued` 
             # env_params on next reset (inside PlayEnv.step())
             env_state = env_state.replace(env_state = env_state.env_state.replace(queued_params=train_env_params))
 
             # Create a tensorboard writer
-            writer = SummaryWriter(get_exp_dir(config))
+            writer = SummaryWriter(cfg._rl_exp_dir)
 
             def log_callback(metric, steps_prev_complete):
                 timesteps = metric["timestep"][metric["returned_episode"]
-                                               ] * config.n_envs
+                                               ] * cfg.n_envs
                 if len(timesteps) > 0:
                     t = timesteps[0]
                     ep_return = (metric["returned_episode_returns"]
@@ -491,8 +492,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                                   [metric["returned_episode"]].mean())
 
                     # Add a row to csv with ep_return
-                    with open(os.path.join(get_exp_dir(config),
-                                           "progress.csv"), "a") as f:
+                    with open(os.path.join(cfg._rl_exp_dir), "a") as f:
                         f.write(f"{t},{ep_return}\n")
 
                     writer.add_scalar("ep_return", ep_return, t)
@@ -501,7 +501,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
                     #     writer.add_scalar(k, v, t)
 
             # FIXME: shouldn't assume size of render map.
-            frames_shape = (config.n_render_eps * 1 * env.max_episode_steps, 
+            frames_shape = (cfg.n_render_eps * 1 * env.max_episode_steps, 
                             env.tile_size * (env.map_shape[0] + 2),
                             env.tile_size * (env.map_shape[1] + 2), 4)
 
@@ -531,7 +531,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
             return runner_state, metric
 
         runner_state, metric = jax.lax.scan(
-            _update_step, runner_state, None, config.NUM_UPDATES
+            _update_step, runner_state, None, cfg.NUM_UPDATES
         )
 
         jax.debug.callback(save_checkpoint, runner_state,
@@ -539,7 +539,7 @@ def make_train(config: TrainAccelConfig, restored_ckpt, checkpoint_manager):
 
         return {"runner_state": runner_state, "metrics": metric}
 
-    return lambda rng: train(rng, config)
+    return lambda rng: train(rng, cfg)
 
 
 # def plot_ep_returns(ep_returns, config):
@@ -554,7 +554,7 @@ def init_checkpointer(config: RLConfig):
     # This will not affect training, just for initializing dummy env etc. to load checkpoint.
     rng = jax.random.PRNGKey(30)
     # Set up checkpointing
-    ckpt_dir = get_ckpt_dir(config)
+    ckpt_dir = get_rl_ckpt_dir(config)
     # Get absolute path
     ckpt_dir = os.path.join(os.getcwd(), ckpt_dir)
 
@@ -619,31 +619,35 @@ def init_checkpointer(config: RLConfig):
     
 
 @hydra.main(version_base=None, config_path='gen_env/configs', config_name='train_accel')
-def main(config: GenEnvConfig):
-    config = init_config(config, evo=False)
-    rng = jax.random.PRNGKey(config.seed)
+def main(cfg: RLConfig):
+    init_config(cfg)
+    latest_gen = init_il_config(cfg)
+    init_rl_config(cfg)
 
-    exp_dir = get_exp_dir(config)
+    train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
+    train_env_params = jax.tree.map(lambda x: x[:cfg.n_envs], train_elites)
+
+    rng = jax.random.PRNGKey(cfg.seed)
 
     # Need to do this before setting up checkpoint manager so that it doesn't refer to old checkpoints.
-    if config.overwrite and os.path.exists(exp_dir):
-        shutil.rmtree(exp_dir)
+    if cfg.overwrite and os.path.exists(cfg._rl_exp_dir):
+        shutil.rmtree(cfg._rl_exp_dir)
 
-    checkpoint_manager, restored_ckpt = init_checkpointer(config)
+    checkpoint_manager, restored_ckpt = init_checkpointer(cfg)
 
     # if restored_ckpt is not None:
     #     ep_returns = restored_ckpt['runner_state'].ep_returns
     #     plot_ep_returns(ep_returns, config)
     # else:
     if restored_ckpt is None:
-        progress_csv_path = os.path.join(exp_dir, "progress.csv")
+        progress_csv_path = os.path.join(cfg._rl_exp_dir, "progress.csv")
         assert not os.path.exists(progress_csv_path), "Progress csv already exists, but have no checkpoint to restore " +\
             "from. Run with `overwrite=True` to delete the progress csv."
         # Create csv for logging progress
-        with open(os.path.join(exp_dir, "progress.csv"), "w") as f:
+        with open(os.path.join(cfg._rl_exp_dir, "progress.csv"), "w") as f:
             f.write("timestep,ep_return\n")
 
-    train_jit = jax.jit(make_train(config, restored_ckpt, checkpoint_manager))
+    train_jit = jax.jit(make_train(cfg, restored_ckpt, checkpoint_manager, train_env_params))
     out = train_jit(rng)
 
 #   ep_returns = out["runner_state"].ep_returns
