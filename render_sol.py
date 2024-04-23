@@ -3,7 +3,7 @@ from timeit import default_timer as timer
 import hydra
 import jax
 
-from gen_env.utils import init_base_env, validate_config
+from gen_env.utils import init_base_env, init_evo_config
 from gen_env.configs.config import GenEnvConfig
 from search_agent import bfs, batched_bfs
 

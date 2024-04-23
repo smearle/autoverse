@@ -16,7 +16,7 @@ from gen_env.games import GAMES
 from gen_env.rules import RuleData, compile_rule, gen_rand_rule
 
 
-def validate_config(cfg: GenEnvConfig):
+def init_config(cfg: GenEnvConfig):
     env_exp_name = (f"{cfg.game}_{'mutRule_' if cfg.mutate_rules else ''}{'fixMap_' if cfg.fix_map else ''}" + 
         f"exp-{cfg.env_exp_id}")
 
@@ -27,6 +27,8 @@ def validate_config(cfg: GenEnvConfig):
     cfg._log_dir_player_common = os.path.join(cfg._log_dir_common, player_exp_name)
     cfg._log_dir_rl = os.path.join(cfg._log_dir_player_common, cfg.runs_dir_rl)
     cfg._log_dir_il = os.path.join(cfg._log_dir_player_common, cfg.runs_dir_il)
+
+
     # cfg.log_dir_evo = os.path.join(cfg.workspace, cfg.runs_dir_evo, f"exp-{cfg.exp_id}")
     cfg._log_dir_evo = os.path.join(cfg._log_dir_common, cfg.runs_dir_evo)
 

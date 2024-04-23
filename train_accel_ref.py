@@ -22,7 +22,7 @@ from gen_env.envs.play_env import GenEnvParams
 from evo_accel import EvoState, apply_evo, gen_discount_factors_matrix
 from purejaxrl.experimental.s5.wrappers import LogWrapper
 from gen_env.utils import init_base_env
-from pcgrl_utils import (get_ckpt_dir, get_exp_dir, get_network, gymnax_pcgrl_make,
+from pcgrl_utils import (get_rl_ckpt_dir, get_exp_dir, get_network, gymnax_pcgrl_make,
                    init_config)
 
 
@@ -585,7 +585,7 @@ def init_checkpointer(config: RLConfig):
     # This will not affect training, just for initializing dummy env etc. to load checkpoint.
     rng = jax.random.PRNGKey(30)
     # Set up checkpointing
-    ckpt_dir = get_ckpt_dir(config)
+    ckpt_dir = get_rl_ckpt_dir(config)
 
     # Create a dummy checkpoint so we can restore it to the correct dataclasses
     # env, env_params = gymnax_pcgrl_make(config.env_name, config=config)

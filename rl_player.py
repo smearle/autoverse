@@ -11,7 +11,7 @@ from stable_baselines3.common.vec_env.subproc_vec_env import SubprocVecEnv
 import torch as th
 
 from gen_env.configs.config import GenEnvConfig
-from gen_env.utils import init_base_env, validate_config
+from gen_env.utils import init_base_env, init_evo_config
 
 
 # Don't need to inherit yet...
@@ -30,7 +30,7 @@ def callback(_locals, _globals):
 
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="rl")
 def main(cfg: GenEnvConfig):
-    validate_config(cfg)
+    init_evo_config(cfg)
 
     gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.npz"))
     gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]

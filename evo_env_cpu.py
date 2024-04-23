@@ -24,7 +24,7 @@ from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
 from gen_env.evo.individual import IndividualData
 from gen_env.rules import is_valid
-from gen_env.utils import init_base_env, load_game_to_env, validate_config
+from gen_env.utils import init_base_env, load_game_to_env, init_evo_config
 
 
 
@@ -190,7 +190,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def main(cfg: GenEnvConfig):
-    validate_config(cfg)
+    init_evo_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
     
     overwrite, n_proc, render = cfg.overwrite, cfg.n_proc, cfg.render

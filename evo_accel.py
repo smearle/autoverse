@@ -12,7 +12,6 @@ import numpy as np
 from gen_env.configs.config import TrainAccelConfig, TrainConfig
 from gen_env.envs.play_env import PlayEnv, GenEnvParams
 from gen_env.evo.individual import Individual
-from pcgrl_utils import get_exp_dir
 
 
 def fill_row_rolled(i, row, n_rows):

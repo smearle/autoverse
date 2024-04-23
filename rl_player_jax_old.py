@@ -19,7 +19,7 @@ from tensorboardX import SummaryWriter
 from gen_env.configs.config import RLConfig, TrainConfig, GenEnvConfig
 from gen_env.utils import init_base_env
 from purejaxrl.experimental.s5.wrappers import LogWrapper
-from pcgrl_utils import (get_ckpt_dir, get_exp_dir, get_network,
+from pcgrl_utils import (get_rl_ckpt_dir, get_exp_dir, get_network,
                    init_config)
 
 
@@ -515,7 +515,7 @@ def init_checkpointer(config: RLConfig):
     # This will not affect training, just for initializing dummy env etc. to load checkpoint.
     rng = jax.random.PRNGKey(30)
     # Set up checkpointing
-    ckpt_dir = get_ckpt_dir(config)
+    ckpt_dir = get_rl_ckpt_dir(config)
     # Get absolute path
     ckpt_dir = os.path.join(os.getcwd(), ckpt_dir)
 
