@@ -27,7 +27,7 @@ from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.eval import evaluate_multi, evaluate
 from gen_env.evo.individual import Individual, IndividualData, IndividualPlaytraceData, hash_individual
 from gen_env.rules import compile_rule
-from gen_env.utils import gen_rand_env_params, init_base_env, init_evo_config
+from gen_env.utils import gen_rand_env_params, init_base_env, init_config
 from gen_env.evo.individual import Individual, IndividualData, hash_individual
 from utils import concatenate_leaves, stack_leaves
 
@@ -325,7 +325,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def main(cfg: GenEnvConfig):
-    init_evo_config(cfg)
+    init_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
     
     overwrite, n_proc, render = cfg.overwrite, cfg.n_proc, cfg.render
@@ -457,8 +457,6 @@ def main(cfg: GenEnvConfig):
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
-        if cfg.eval_freq != -1 and n_gen % cfg.eval_freq == 0:
-            eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
         # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
         parents = np.random.choice(elite_inds, size=cfg.evo_pop_size, replace=True)
         offspring_inds = []
@@ -519,6 +517,8 @@ def main(cfg: GenEnvConfig):
             #     os.mkdir(os.path.join(cfg._log_dir_evo, "elite_games"))
             # for i, e in enumerate(elite_inds):
             #     ind.save(os.path.join(elite_games_dir, f"{i}.yaml"))
+        if cfg.eval_freq != -1 and n_gen % cfg.eval_freq == 0:
+            eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
 
 
 def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):

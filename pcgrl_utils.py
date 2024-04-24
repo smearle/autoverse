@@ -9,7 +9,7 @@ from models import ActorCritic, AutoEncoder, ConvForward, Dense, NCA, SeqNCA
 
 
 def get_rl_ckpt_dir(cfg: RLConfig):
-    return os.path.join(cfg._rl_exp_dir, 'ckpts')
+    return os.path.join(cfg._log_dir_rl, 'ckpts')
 
 
 def get_network(env: PlayEnv, env_params: GenEnvParams, config: RLConfig):

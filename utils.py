@@ -1,9 +1,11 @@
 import glob
 import os
+from typing import Tuple
 import jax
 from jax import numpy as jnp
 
 from gen_env.configs.config import GenEnvConfig, ILConfig, RLConfig
+from gen_env.evo.individual import IndividualPlaytraceData
 
 # Function to stack leaves of PyTrees
 def stack_leaves(trees):
@@ -40,7 +42,7 @@ def concatenate_leaves(trees):
     return jax.tree.unflatten(treedefs[0], concatenated_leaves)
 
 
-def load_elite_envs(cfg, latest_gen):
+def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
     # elites = np.load(os.path.join(cfg.log_dir_evo, "unique_elites.npz"), allow_pickle=True)['arr_0']
     # train_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_train_elites.npz"), allow_pickle=True)['arr_0']
     # val_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_val_elites.npz"), allow_pickle=True)['arr_0']
@@ -69,45 +71,7 @@ def init_il_config(cfg: ILConfig):
     return latest_gen
 
 
-def init_rl_config(config: RLConfig, evo=True):
-    config._n_gpus = jax.local_device_count()
-    config._rl_exp_dir = get_rl_exp_dir(config)
-    if evo and hasattr(config, 'n_envs') and hasattr(config, 'evo_pop_size'):
-        assert config.n_envs % (config.evo_pop_size * 2) == 0, "n_envs must be divisible by evo_pop_size * 2"
-    return config
-
-
-def get_rl_exp_dir(config: RLConfig):
-    # if config.env_name == 'PCGRL':
-    #     ctrl_str = '_ctrl_' + '_'.join(config.ctrl_metrics) if len(config.ctrl_metrics) > 0 else '' 
-    #     exp_dir = os.path.join(
-    #         'saves',
-    #         f'{config.problem}{ctrl_str}_{config.representation}_{config.model}-' +
-    #         f'{config.activation}_w-{config.map_width}_vrf-{config.vrf_size}_' +
-    #         (f'cp-{config.change_pct}' if config.change_pct > 0 else '') +
-    #         f'arf-{config.arf_size}_sp-{config.static_tile_prob}_' + \
-    #         f'bs-{config.max_board_scans}_' + \
-    #         f'fz-{config.n_freezies}_' + \
-    #         f'act-{"x".join([str(e) for e in config.act_shape])}_' + \
-    #         f'nag-{config.n_agents}_' + \
-    #         f'{config.seed}_{config.exp_name}')
-    # elif config.env_name == 'PlayPCGRL':
-    #     exp_dir = os.path.join(
-    #         'saves',
-    #         f'play_w-{config.map_width}_' + \
-    #         f'{config.model}-{config.activation}_' + \
-    #         f'vrf-{config.vrf_size}_arf-{config.arf_size}_' + \
-    #         f'{config.seed}_{config.exp_name}',
-    #     )
-    # elif config.env_name == 'Candy':
-    #     exp_dir = os.path.join(
-    #         'saves',
-    #         'candy_' + \
-    #         f'{config.seed}_{config.exp_name}',
-    #     )
-    exp_dir = os.path.join(
-        'saves',
-        f'{config.env_name}-{config.game}' + \
-        f'_{config.seed}_{config.exp_name}',
-    )
-    return exp_dir
+def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
+    cfg._n_gpus = jax.local_device_count()
+    cfg._log_dir_rl +=  f'_{cfg.seed}_{cfg.exp_name}'
+    return cfg
