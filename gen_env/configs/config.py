@@ -80,7 +80,6 @@ class ILConfig(GenEnvConfig):
 @dataclass
 class RLConfig(ILConfig):
     lr: float = 1.0e-4
-    n_envs: int = 4
     num_steps: int = 128
     total_timesteps: int = int(5e7)
     update_epochs: int = 10
@@ -116,7 +115,6 @@ class RLConfig(ILConfig):
     gif_frame_duration: int = 25
 
     """ DO NOT USE. WILL BE OVERWRITTEN. """
-    _rl_exp_dir: Optional[str] = None
     _n_gpus: int = 1
 
 @dataclass

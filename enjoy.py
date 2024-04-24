@@ -6,39 +6,53 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 
-from evo_accel import distribute_evo_envs_to_train, RunnerState
+from evo_accel import distribute_evo_envs_to_train
 from gen_env.configs.config import EnjoyConfig
 # from envs.pcgrl_env import PCGRLEnv, render_stats
 from gen_env.envs.play_env import PlayEnv
 from gen_env.utils import init_base_env
-from rl_player_jax import init_checkpointer
-from pcgrl_utils import get_exp_dir, get_network, init_config
+from train_accel import RunnerState, init_checkpointer
+from pcgrl_utils import get_network
+from gen_env.utils import init_config
+from utils import init_il_config, init_rl_config, load_elite_envs
 
 
 @hydra.main(version_base=None, config_path='gen_env/configs/', config_name='enjoy_xlife')
-def main_enjoy(config: EnjoyConfig):
-    config = init_config(config)
+def main_enjoy(cfg: EnjoyConfig):
+    init_config(cfg)
+    latest_gen = init_il_config(cfg)
+    init_rl_config(cfg, latest_gen)
+
+    train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
+    # Select random elites to train on\
+    idxs = jax.random.permutation(jax.random.PRNGKey(cfg.seed), jnp.arange(train_elites.fitness.shape[0]))[:cfg.n_eps]
+
+    # We'll render on these different maps/rules
+    env_params_v = jax.tree.map(lambda x: x[idxs], train_elites.env_params)
+
+    # This is just for reference
+    env_params = jax.tree_map(lambda x: x[0], env_params_v)
+
 
     # Convenienve HACK so that we can render progress without stopping training. Uncomment this or 
     # set JAX_PLATFORM_NAME=cpu in your terminal environment before running this script to run it on cpu.
     # WARNING: Be sure to set it back to gpu before training again!
     # os.system("export JAX_PLATFORM_NAME=cpu")
 
-    exp_dir = get_exp_dir(config)
-    if not config.random_agent:
-        checkpoint_manager, restored_ckpt = init_checkpointer(config)
+    if not cfg.random_agent:
+        checkpoint_manager, restored_ckpt = init_checkpointer(cfg)
         runner_state: RunnerState = restored_ckpt['runner_state']
         network_params = runner_state.train_state.params
-    elif not os.path.exists(exp_dir):
-        os.makedirs(exp_dir)
+    elif not os.path.exists(cfg._log_dir_rl):
+        os.makedirs(cfg._log_dir_rl)
 
     env: PlayEnv
-    env, env_params = init_base_env(config)
+    env, _ = init_base_env(cfg)
     # env.prob.init_graphics()
-    network = get_network(env, env_params, config)
+    network = get_network(env, env_params, cfg)
 
-    rng = jax.random.PRNGKey(config.seed)
-    rng_reset = jax.random.split(rng, config.n_eps)
+    rng = jax.random.PRNGKey(cfg.seed)
+    rng_reset = jax.random.split(rng, cfg.n_eps)
 
     # frz_map = jnp.zeros(env.map_shape, dtype=jnp.int8)
     # frz_map = frz_map.at[7, 3:-3].set(1)
@@ -46,24 +60,24 @@ def main_enjoy(config: EnjoyConfig):
 
     # obs, env_state = env.reset(rng, env_params)
 
-    obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(rng_reset, env_params)
+    obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(rng_reset, env_params_v)
     # As above, but explicitly jit
 
     def step_env(carry, _):
         rng, obs, env_state = carry
         rng, rng_act = jax.random.split(rng)
-        if config.random_agent:
+        if cfg.random_agent:
             action = env.action_space(env_params).sample(rng_act)
         else:
             # obs = jax.tree_map(lambda x: x[None, ...], obs)
             action = network.apply(network_params, obs)[
                 0].sample(seed=rng_act)
-        rng_step = jax.random.split(rng, config.n_eps)
+        rng_step = jax.random.split(rng, cfg.n_eps)
         # obs, env_state, reward, done, info = env.step(
         #     rng_step, env_state, action[..., 0], env_params
         # )
-        obs, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
-            rng_step, env_state, action, env_params
+        obs, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
+            rng_step, env_state, action, env_params_v
 
         )
         # frames = jax.vmap(env.render, in_axes=(0))(env_state, env_params)
@@ -82,7 +96,7 @@ def main_enjoy(config: EnjoyConfig):
 
     # Bring things onto the cpu to make rendering faster
     # jax.device_put(states, jax.devices('cpu'))
-    jax.tree_map(lambda x: jax.device_put(x, jax.devices('cpu')[0]), states)
+    jax.tree.map(lambda x: jax.device_put(x, jax.devices('cpu')[0]), states)
     
     print('Rendering gifs:')
     # Since we can't jit our render function (yet)
@@ -90,8 +104,9 @@ def main_enjoy(config: EnjoyConfig):
     for ep_i in range(states.ep_rew.shape[1]):
         ep_frames = []
         for step_i in range(states.ep_rew.shape[0]):
-            state_i = jax.tree_map(lambda x: x[step_i, ep_i], states)
-            ep_frames.append(env.render(state_i, env_params, mode='rgb_array'))
+            state_i = jax.tree.map(lambda x: x[step_i, ep_i], states)
+            env_params_i = jax.tree_map(lambda x: x[ep_i], env_params_v)
+            ep_frames.append(env.render(state_i, env_params_i, mode='rgb_array'))
         frames.append(ep_frames)
         # Print reward
         print(f'Ep {ep_i}: {states.ep_rew[:, ep_i].sum()}')
@@ -102,12 +117,12 @@ def main_enjoy(config: EnjoyConfig):
 
     # assert len(frames) == config.n_eps * env.max_episode_steps, \
     #     "Not enough frames collected"
-    assert frames.shape[0] == config.n_eps and frames.shape[1] == env.max_episode_steps, \
+    assert frames.shape[0] == cfg.n_eps and frames.shape[1] == env.max_episode_steps, \
         "`frames` has wrong shape"
 
 
     # Save gifs.
-    for ep_i in range(config.n_eps):
+    for ep_i in range(cfg.n_eps):
         # ep_frames = frames[ep_is*env.max_steps:(ep_is+1)*env.max_steps]
         ep_frames = frames[ep_i]
 
@@ -124,18 +139,18 @@ def main_enjoy(config: EnjoyConfig):
             new_ep_frames.append(frame)
         ep_frames = new_ep_frames
 
-        gif_name = f"{exp_dir}/anim_ep-{ep_i}" + \
-            f"{('_randAgent' if config.random_agent else '')}.gif"
+        gif_name = f"{cfg._log_dir_rl}/anim_ep-{ep_i}" + \
+            f"{('_randAgent' if cfg.random_agent else '')}.gif"
         imageio.v3.imwrite(
             gif_name,
             ep_frames,
-            duration=config.gif_frame_duration
+            duration=cfg.gif_frame_duration
         )
 
-        vid_name = f"{exp_dir}/anim_ep-{ep_i}" + \
-            f"{('_randAgent' if config.random_agent else '')}.mp4"
+        vid_name = f"{cfg._log_dir_rl}/anim_ep-{ep_i}" + \
+            f"{('_randAgent' if cfg.random_agent else '')}.mp4"
 
-        imageio.mimwrite(vid_name, frames[0], fps=25, quality=8, macro_block_size=1)
+        imageio.mimwrite(vid_name, frames[0], fps=10, quality=8, macro_block_size=1)
 
 
 
