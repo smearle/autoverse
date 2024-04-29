@@ -73,5 +73,5 @@ def init_il_config(cfg: ILConfig):
 
 def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
     cfg._n_gpus = jax.local_device_count()
-    cfg._log_dir_rl +=  f'_{cfg.seed}_{cfg.exp_name}'
+    cfg._log_dir_rl +=  f'_{cfg.rl_seed}_{cfg.rl_exp_name}'
     return cfg

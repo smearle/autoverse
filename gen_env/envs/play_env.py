@@ -56,7 +56,8 @@ class GenEnvState(struct.PyTreeNode):
     player_rot: int
     player_pos: Tuple[int]
     ep_rew: int
-    queued_params: GenEnvParams
+    params: GenEnvParams
+    # queued_params: GenEnvParams
     rule_activations: chex.Array = None
 
 
@@ -257,7 +258,7 @@ class PlayEnv(gym.Env):
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
             player_rot=0, ep_rew=0.0,
             player_pos=player_pos,
-            queued_params=params,
+            params=params,
             # FIXME: padding is hard-coded here. Not a huge deal but will result in rendering issues if map/rule shape changes.
             rule_activations=jnp.zeros((len(rules.rule), map_arr.shape[1]+4, map_arr.shape[2]+4)),
         )
@@ -271,7 +272,8 @@ class PlayEnv(gym.Env):
         key: chex.PRNGKey,
         state: GenEnvState,
         action: Union[int, float],
-        params: Optional[GenEnvParams] = None,
+        params: GenEnvParams,
+        reset_params: GenEnvParams,
     ) -> Tuple[chex.Array, GenEnvState, float, bool, dict]:
         """Performs step transitions in the environment."""
         # Use default env parameters if no others specified
@@ -279,7 +281,7 @@ class PlayEnv(gym.Env):
         #     params = self.default_params
 
         # This feels kind of sketchy but it does the trick        
-        reset_params = state.queued_params
+        # reset_params = state.queued_params
 
         action = action.astype(jnp.int32)
         key, key_reset = jax.random.split(key)

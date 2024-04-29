@@ -24,7 +24,7 @@ class GenEnvConfig:
     save_freq: int = 1
     render: bool = False
     record: bool = True
-    workspace: str = "saves_evo"
+    workspace: str = "saves"
     runs_dir_evo: str = "evo_env"
     runs_dir_rl: str = "rl_player"
     runs_dir_il: str = "il_player"
@@ -79,6 +79,8 @@ class ILConfig(GenEnvConfig):
 
 @dataclass
 class RLConfig(ILConfig):
+    rl_seed: int = 0
+    rl_exp_name: str = "0"
     lr: float = 1.0e-4
     num_steps: int = 128
     total_timesteps: int = int(5e7)
@@ -98,6 +100,7 @@ class RLConfig(ILConfig):
     representation: str = "narrow"
 
     evo_freq: int = 10
+    val_freq: int = 10
     n_envs: int = 20
     evo_pop_size: int = 10
     evo_mutate_prob: float = 0.1

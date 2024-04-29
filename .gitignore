@@ -1,7 +1,6 @@
 *.DS_Store
 runs
-runs_evo
-saves_evo
+saves
 runs_il
 outputs
 # Ignore files ending in .pyc
@@ -11,4 +10,3 @@ multirun
 *.egg-info
 sol_*.mp4
 *workspace
-saves/*

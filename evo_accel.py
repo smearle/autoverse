@@ -1,7 +1,10 @@
 '''
 get the fitness of the evolved frz map (or other thingys we want to evolve)
 '''
+import math
 import os
+import distrax
+from flax import linen as nn
 from flax import struct
 from typing import Optional
 import chex
@@ -30,10 +33,10 @@ def gen_discount_factors_matrix(gamma, max_episode_steps):
     return matrix
 
 
-def distribute_evo_envs_to_train(config: TrainAccelConfig, evo_env_params: GenEnvParams):
-    n_reps = max(1, config.n_envs // config.evo_pop_size)
+def distribute_evo_envs_to_train(cfg: TrainAccelConfig, evo_env_params: GenEnvParams):
+    n_reps = max(1, cfg.n_envs // cfg.evo_pop_size)
     return jax.tree_map(lambda x: jnp.concatenate([x for _ in range(n_reps)])
-                        [:config.n_envs], evo_env_params)
+                        [:cfg.n_envs], evo_env_params)
 
 
 @struct.dataclass # need to make a carrier for for the fitness to the tensorboard logging? hmm unnecessary
@@ -43,37 +46,63 @@ class EvoState:
 
 
 def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_params, network,
-              config: TrainConfig, discount_factor_matrix):
+              cfg: TrainConfig, discount_factor_matrix):
     '''
     - copy and mutate the environments
     - get the fitness of the envs
     - rank the envs based on the fitness
     - discard the worst envs and return the best
     '''
-    rng, _rng = jax.random.split(rng)
-    evo_rng = jax.random.split(_rng, config.evo_pop_size)
-    
-    # frz_maps = frz_maps[:config.evo_pop_size]
+    network: nn.Module
     evo_env_params = evo_state.env_params
-    # Just mutating all elites once atm
+    rng, _rng = jax.random.split(rng)
+
+    # TODO: In case of very large initial train populations, we may not want to re-evaluate everything here.
+    n_envs =  evo_env_params.map.shape[0]
+
+    evo_rng = jax.random.split(_rng, n_envs)
     mutate_fn = jax.vmap(ind.mutate, in_axes=(0, 0, 0, None))
     maps, ruless = mutate_fn(evo_rng, evo_env_params.map, evo_env_params.rules, env.tiles)
     new_env_params = evo_env_params.replace(map=maps, rules=ruless)
     all_env_params = jax.tree_map(lambda x, y: jnp.vstack([x, y]), evo_env_params, new_env_params)
- 
-    def eval_params(env_params, network_params):
-        env_params = distribute_evo_envs_to_train(config, env_params)
-        # queued_state = QueuedState(ctrl_trgs=jnp.zeros(len(env.prob.stat_trgs)))
-        # queued_state = jax.vmap(env.queue_frz_map, in_axes=(None, 0))(queued_state, env_params)
-        eval_rng = jax.random.split(rng, config.n_envs)
 
+    n_candidate_envs = all_env_params.map.shape[0]
+
+    n_eps = 1
+ 
+    def eval_params(carry, unused):
+        all_env_params, network_params, next_env_idxs = carry
+        eval_rng = jax.random.split(rng, cfg.n_envs)
+
+        curr_env_params = jax.tree.map(lambda x: x[next_env_idxs], all_env_params)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
-                eval_rng, env_params
+                eval_rng, curr_env_params
         )
 
+        def step_env_evo_eval(carry, _):
+            rng, obs, env_state, network_params = carry
+            rng, _rng = jax.random.split(rng)
+
+            pi: distrax.Categorical
+            pi, value = network.apply(network_params, obs)
+            action = pi.sample(seed=rng)
+            # action_r = jnp.full(action_r.shape, 0) # FIXME dumdum Debugging evo 
+
+            rng_step = jax.random.split(_rng, cfg.n_envs)
+
+            # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
+            vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
+            # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
+            obs, env_state, reward, done, info = vmap_step_fn(
+                            rng_step, env_state, action,
+                            env_state.env_state.params, env_state.env_state.params)
+    
+            return (rng, obs, env_state, network_params),\
+                (env_state, reward, done, info, value)
+
         _, (states, rewards, dones, infos, values) = jax.lax.scan(
-            step_env_evo_eval, (rng, obsv, env_state, env_params, network_params),
-            None, 1*env.max_episode_steps)
+            step_env_evo_eval, (rng, obsv, env_state, network_params),
+            None, n_eps*env.max_episode_steps)
 
         n_steps = rewards.shape[0]
 
@@ -92,56 +121,27 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
         # is frozen, reward should decrease.
         # vf_errs = returns - values
 
-
         fits = vf_errs.sum(axis=0)
+
+        next_env_idxs += cfg.n_envs
         
-        # regret value
-        # def calc_regret_value(carry, t_step):
-        #     '''
-        #     for each env (axis = 0)
-        #     rewards = [r1, r2, r3, r4, ..., ]
-        #     discount_factors = [gamma^0, ^1, ^2, ^3, ..., ]
-        #     values = [v1, v2, v3, v4, ..., ]
-        #     '''
-        #     rewards, discount_factors, values = carry
-        #     breakpoint()
-        #     # discount_factors = discount_factors[::-1][:t_step]
-        #     # Need to use jax.lax.dynamic_slice
-        #     rewards, values = rewards[:t_step, ...], values[:t_step, ...]
-        #     return jnp.abs(rewards * discount_factors - values) 
+        return (all_env_params, network_params, next_env_idxs), (fits, states)
 
-
-        # _, fits = jax.lax.scan(calc_regret_value, (rewards, discount_factors, values), jnp.arange(values.shape[0]))
-        # fits = jax.lax.fori_loop(0, values.shape[0], calc_regret_value, (rewards, discount_factors, values))
-        # fits = fits.sum(axis=0)
-        # fits = rewards.sum(axis=0)
-        return fits, states
-
-    def step_env_evo_eval(carry, _):
-        rng_r, obs_r, env_state_r, env_params, network_params = carry
-        rng_r, _rng_r = jax.random.split(rng_r)
-
-        pi, value = network.apply(network_params, obs_r)
-        action_r = pi.sample(seed=rng_r)
-        # action_r = jnp.full(action_r.shape, 0) # FIXME dumdum Debugging evo 
-
-        rng_step = jax.random.split(_rng_r, config.n_envs)
-
-        # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
-        vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0))
-        # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
-        obs_r, env_state_r, reward_r, done_r, info_r = vmap_step_fn(
-                        rng_step, env_state_r, action_r,
-                        env_params)
-        
-        return (rng_r, obs_r, env_state_r, env_params, network_params),\
-            (env_state_r, reward_r, done_r, info_r, value)
     
-    fits, states = eval_params(all_env_params, network_params)    
-    fits = fits.reshape((-1, config.evo_pop_size*2)).mean(axis=0)
+    n_eval_batches = math.ceil(n_candidate_envs / cfg.n_envs)
+
+    # fits, states = eval_params(all_env_params, network_params, n_eps)    
+    next_env_idxs = jnp.arange(cfg.n_envs)
+
+    _, (fits, states) = jax.lax.scan(
+        eval_params, (all_env_params, network_params, next_env_idxs),
+        None, n_eval_batches
+    )
+
+    fits = fits.reshape((-1, n_candidate_envs)).mean(axis=0)
     # sort the top frz maps based on the fitness
     # Get indices of the top 5 largest elements
-    top_indices = jnp.argpartition(-fits, config.evo_pop_size)[:config.evo_pop_size] # We negate arr to get largest elements
+    top_indices = jnp.argpartition(-fits, cfg.evo_pop_size)[:n_envs] # We negate arr to get largest elements
     # top = frz_maps[:2 * config.evo_pop_size][top_indices]
     elite_params = jax.tree_map(lambda x: x[top_indices], all_env_params)
     

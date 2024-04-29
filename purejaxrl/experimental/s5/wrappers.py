@@ -82,9 +82,10 @@ class LogWrapper(GymnaxWrapper):
         key: chex.PRNGKey,
         state: environment.EnvState,
         action: Union[int, float],
-        params: Optional[environment.EnvParams] = None,
+        params: Optional[environment.EnvParams],
+        reset_params: Optional[environment.EnvParams],
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(key, state.env_state, action, params)
+        obs, env_state, reward, done, info = self._env.step(key, state.env_state, action, params, reset_params)
         new_episode_return = state.episode_returns + reward
         new_episode_length = state.episode_lengths + 1
         state = LogEnvState(

@@ -490,7 +490,7 @@ def make_train(config: TrainConfig, restored_ckpt, checkpoint_manager):
                 lambda: apply_evo(
                     rng, frz_maps, env, env_params, 
                     network_params=network_params, network=network,
-                    config=config,
+                    cfg=config,
                     discount_factor_matrix=discount_factor_matrix),
                 lambda: evo_state)
             
