@@ -105,9 +105,9 @@ def eval(rng: jax.random.PRNGKey, cfg: TrainConfig, env: PlayEnv, env_params: Ge
         # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
         vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
         # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
-        obs, env_state, reward_r, done_r, info_r = vmap_step_fn(
+        obs, env_state, reward_r, done_r, info_r, env_params = vmap_step_fn(
                         rng_step, env_state, action_r,
-                        env_state.env_state.params, next_params)
+                        env_params, next_params)
         
         return (rng, obs, env_state, env_params, network_params),\
             (env_state, reward_r, done_r, info_r, value)
@@ -577,13 +577,15 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
                         discount_factor_matrix=discount_factors_matrix),
                     lambda: evo_state)
 
-                train_env_params = evo_state.env_params
+                next_train_env_params = evo_state.env_params
                 # Tile and slice env_params so that we have `n_envs` many
                 # n_reps = int(np.ceil(cfg.n_envs / cfg.evo_pop_size))
                 # train_env_params = distribute_evo_envs_to_train(cfg, elite_env_params)
                 # Now when we step the environments, each will reset to `queued` 
                 # env_params on next reset (inside PlayEnv.step())
                 # env_state = env_state.replace(env_state = env_state.env_state.replace(queued_params=train_env_params))
+            else:
+                next_train_env_params = train_env_params
 
             # FIXME: shouldn't assume size of render map.
             # frames_shape = (cfg.n_render_eps * 1 * env.max_episode_steps, 
@@ -623,7 +625,7 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
 
             runner_state = runner_state.replace(
                 train_state=train_state, env_state=env_state, last_obs=last_obs, rng=rng,
-                update_i=runner_state.update_i+1, evo_state=evo_state, train_env_params=train_env_params)
+                update_i=runner_state.update_i+1, evo_state=evo_state, train_env_params=next_train_env_params)
 
             return runner_state, metric
 

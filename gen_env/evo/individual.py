@@ -18,10 +18,10 @@ from gen_env.tiles import TileType, TileSet
 @struct.dataclass
 class IndividualData:
     env_params: GenEnvParams
-    fitnesses: Iterable[float]
+    fitness: Iterable[float]
     # bc_0: float
     # bc_1: float
-    action_seqs: Iterable[chex.Array]
+    action_seq: Iterable[chex.Array]
     # obs_seq: chex.Array
 
 

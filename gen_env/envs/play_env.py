@@ -56,7 +56,7 @@ class GenEnvState(struct.PyTreeNode):
     player_rot: int
     player_pos: Tuple[int]
     ep_rew: int
-    params: GenEnvParams
+    # params: GenEnvParams
     # queued_params: GenEnvParams
     rule_activations: chex.Array = None
 
@@ -258,7 +258,7 @@ class PlayEnv(gym.Env):
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
             player_rot=0, ep_rew=0.0,
             player_pos=player_pos,
-            params=params,
+            # params=params,
             # FIXME: padding is hard-coded here. Not a huge deal but will result in rendering issues if map/rule shape changes.
             rule_activations=jnp.zeros((len(rules.rule), map_arr.shape[1]+4, map_arr.shape[2]+4)),
         )
@@ -298,10 +298,13 @@ class PlayEnv(gym.Env):
         obs = jax.tree_map(
             lambda x, y: jax.lax.select(done, x, y), obs_re, obs_st
         )
+        params = jax.tree_map(
+            lambda x, y: jax.lax.select(done, x, y), reset_params, params
+        )
 
         # Print action and donw
         # jax.debug.print("action {action} done {done}", action=action, done=done)
-        return obs, state, reward, done, info
+        return obs, state, reward, done, info, params
 
 
     @partial(jax.jit, static_argnums=(0,))
@@ -665,6 +668,7 @@ class PlayEnv(gym.Env):
         rule_ims = []
         # for rule in self.rules:
         for rule_i, (rule_int, rule) in enumerate(zip(params.rules.rule, self.rules)):
+            # print(rule_int.shape)
             # Select the first rotation-variant (subrule) of the rule
             in_out = rule_int[0]
             # Get the tile images corresponding to the in_out pattern
@@ -672,9 +676,9 @@ class PlayEnv(gym.Env):
             i, o = in_out
             for p in (i, o):
                 row_ims = []
-                for j in range(p.shape[0]):
+                for j in range(p.shape[1]):
                     col_ims = []
-                    for k in range(p.shape[1]):
+                    for k in range(p.shape[2]):
                         cell_im = self.render_cell(p[:, j, k], tile_size)
                         col_ims.append(cell_im)
                     row_ims.append(np.concatenate(col_ims, axis=1))
@@ -920,6 +924,13 @@ class PlayEnv(gym.Env):
     #     # TODO: setting variables and event graph.
 
     def hashable(self, state: GenEnvState):
+        # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
+        search_state = state.map[self._search_tile_idxs]
+        player_rot = state.player_rot
+        # Uniquely hash based on player rotation and search tile states
+        return hash((player_rot.item(), search_state.astype(bool).tobytes()))
+
+    def _hashable(self, state: GenEnvState):
         # assert hash(state['map_arr'].tobytes()) == hash(state['map_arr'].tobytes())
         search_state = state.map[self._search_tile_idxs]
         player_rot = state.player_rot
@@ -1193,7 +1204,7 @@ def gen_random_map(key: jax.random.PRNGKey, game_def: GameDef, map_shape):
     # int_map = np.random.choice(len(game_def.tiles), size=map_shape, p=tile_probs)
     int_map = jax.random.choice(key, len(game_def.tiles), shape=map_shape, p=jnp.array(tile_probs))
     # map_coords = np.argwhere(int_map != -1)
-    map_coords = jnp.argwhere(int_map != -1)
+    map_coords = jnp.argwhere(int_map != -1, size=math.prod(map_shape))
     # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
     n_fixed = sum([tile.num for tile in game_def.tiles if tile.num is not None])
     fixed_coords = map_coords[jax.random.choice(key, map_coords.shape[0], shape=(n_fixed,), replace=False)]
