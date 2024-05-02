@@ -29,6 +29,7 @@ from gen_env.evo.individual import Individual, IndividualData, IndividualPlaytra
 from gen_env.rules import compile_rule
 from gen_env.utils import gen_rand_env_params, init_base_env, init_config
 from gen_env.evo.individual import Individual, IndividualData, hash_individual
+from search_agent import bfs_multi_env
 from utils import concatenate_leaves, stack_leaves
 
 
@@ -61,14 +62,14 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
             elite: IndividualData
             n_evaluated += 1
             e_hash = hash_individual(elite)
-            if e_hash not in elites or elites[e_hash].fitnesses.item() < elite.fitnesses[0].item():
+            if e_hash not in elites or elites[e_hash].fitnesses.item() < elite.fitness[0].item():
                 if not hasattr(elite, 'fitnesses'):
                     breakpoint()
 
                 # HACK which kind of runs counter to naming
-                elite = elite.replace(fitnesses=jnp.array(elite.fitnesses[0]))
-                action_seq = jnp.pad(jnp.array(elite.action_seqs[0]),
-                                     (0, max_episode_steps + 1 - len(elite.action_seqs[0])),
+                elite = elite.replace(fitnesses=jnp.array(elite.fitness[0]))
+                action_seq = jnp.pad(jnp.array(elite.action_seq[0]),
+                                     (0, max_episode_steps + 1 - len(elite.action_seq[0])),
                                      constant_values=-1)
                 elite = elite.replace(action_seqs=action_seq)
 
@@ -207,7 +208,7 @@ def replay_episode_jax(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
 
     # print(f"Fitness: {elite.fitness}")
     # action_seq = elite.action_seqs[best_i]
-    action_seq = elite.action_seqs
+    action_seq = elite.action_seq
     # action_seq_jnp = jnp.array(action_seq)
     params = elite.env_params
     # load_game_to_env(env, elite)
@@ -265,7 +266,7 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
                    record: bool = False, best_i: int = 0):
     """Re-play the episode, recording observations and rewards (for imitation learning)."""
     # print(f"Fitness: {elite.fitness}")
-    action_seq = elite.action_seqs[best_i]
+    action_seq = elite.action_seq[best_i]
     params = elite.env_params
     # load_game_to_env(env, elite)
     obs_seq = []
@@ -429,62 +430,76 @@ def main(cfg: GenEnvConfig):
         # rule_rewards = base_params.rules.reward
         map = base_params.map
 
-        offspring_params = []
-        for _ in range(pop_size):
-            key, _ = jax.random.split(key)
-            o_params = gen_rand_env_params(cfg, key, game_def, rules)
-            # o_map, o_rules = ind.mutate(key=key, map=map, rules=rules, 
-            #                         tiles=tiles)
-            # o_params = base_params.replace(map=o_map, rules=o_rules)
-            offspring_params.append(o_params)
-
+        # offspring_params = []
+        # for _ in range(pop_size):
+        #     key, _ = jax.random.split(key)
+        #     o_params = gen_rand_env_params(cfg, key, game_def, rules)
+        #     # o_map, o_rules = ind.mutate(key=key, map=map, rules=rules, 
+        #     #                         tiles=tiles)
+        #     # o_params = base_params.replace(map=o_map, rules=o_rules)
+        #     offspring_params.append(o_params)
+    
+        # Generate offspring params using vmap
+        rng_o = jax.random.split(key, pop_size)
+        offspring_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
+            cfg, rng_o, game_def, rules
+        )
+        fitnesses, action_seqs = evaluate_multi(key, env, offspring_params, trg_n_iter, pop_size)
+        fitnesses, action_seqs = fitnesses[:, 0], action_seqs[:, 0]
         offspring_inds = []
-        if n_proc == 1:
-            for o_params in offspring_params:
-                fitnesses, action_seqs = evaluate(key, env, o_params, render, trg_n_iter)
-                o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
-                offspring_inds.append(o_ind)
-        else:
-            with Pool(processes=n_proc) as pool:
-                offspring_fits = multiproc_eval_offspring(offspring_params)
-            for o_params, fit in zip(offspring_params, offspring_fits):
-                o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
-                offspring_inds.append(o_ind)
+        # for o_i, o_params in enumerate(offspring_params):
+        #     o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses[o_i], action_seqs=action_seqs[o_i])
+        #     offspring_inds.append(o_ind)
 
-        elite_inds = offspring_inds
+        # elite_inds = offspring_inds
+        elite_inds = IndividualData(
+            env_params=offspring_params,
+            fitness=fitnesses,
+            action_seq=action_seqs
+        )
 
     # Training loop
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=cfg._log_dir_evo)
     for n_gen in range(n_gen, 10000):
         # parents = np.random.choice(elite_inds, size=cfg.batch_size, replace=True)
-        parents = np.random.choice(elite_inds, size=cfg.evo_pop_size, replace=True)
-        offspring_inds = []
-        if n_proc == 1:
-            for p_ind in parents:
-                p_params = p_ind.env_params
-                # o: Individual = copy.deepcopy(p)
-                key, _ = jax.random.split(key)
-                map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
-                o_params = p_params.replace(map=map, rules=rules)
-                fitnesses, action_seqs = evaluate(key, env, o_params, render, trg_n_iter)
-                o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
-                offspring_inds.append(o_ind)
-        else:
-            with Pool(processes=n_proc) as pool:
-                offspring_inds = multiproc_eval_offspring(p_params, env.tiles)
-
-        elite_inds = np.concatenate((elite_inds, offspring_inds))
+        # parents = np.random.choice(elite_inds, size=cfg.evo_pop_size, replace=True)
+        # offspring_inds = []
+        # if n_proc == 1:
+        #     for p_ind in parents:
+        #         p_params = p_ind.env_params
+        #         # o: Individual = copy.deepcopy(p)
+        #         key, _ = jax.random.split(key)
+        #         map, rules = ind.mutate(key, p_params.map, p_params.rules, env.tiles)
+        #         o_params = p_params.replace(map=map, rules=rules)
+        #         fitnesses, action_seqs = evaluate(key, env, o_params, render, trg_n_iter)
+        #         o_ind = IndividualData(env_params=o_params, fitnesses=fitnesses, action_seqs=action_seqs)
+        #         offspring_inds.append(o_ind)
+        maps, rules = jax.vmap(ind.mutate, in_axes=(0, 0, 0, None))(
+            jax.random.split(key, pop_size), elite_inds.env_params.map, elite_inds.env_params.rules, env.tiles
+        )
+        offspring_params = elite_inds.env_params.replace(map=maps, rules=rules)
+        fitnesses, action_seqs = evaluate_multi(key, env, offspring_params, trg_n_iter, pop_size)
+        fitnesses, action_seqs = fitnesses[:, 0], action_seqs[:, 0]
+        offspring_inds = IndividualData(
+            env_params=offspring_params,
+            fitness=fitnesses,
+            action_seq=action_seqs
+        )
+        # else:
+        #     with Pool(processes=n_proc) as pool:
+        #         offspring_inds = multiproc_eval_offspring(p_params, env.tiles)
+        # elite_inds = np.concatenate((elite_inds, offspring_inds))
+        elite_inds = jax.tree.map(lambda x, y: jnp.concatenate((x, y)), elite_inds, offspring_inds)
         # Discard the weakest.
-        for e in elite_inds:
-            if e.fitnesses[0] is None:
-                raise ValueError("Fitness is None.")
-        elite_idxs = np.argpartition(np.array([o.fitnesses[0] for o in elite_inds]), cfg.evo_pop_size)[:cfg.evo_pop_size]
-        elite_inds = np.delete(elite_inds, elite_idxs)
-        fits = [e.fitnesses[0] for e in elite_inds]
-        max_fit = max(fits)
-        mean_fit = np.mean(fits)
-        min_fit = min(fits) 
+        # for e in elite_inds:
+        #     if e.fitnesses[0] is None:
+        #         raise ValueError("Fitness is None.")
+        elite_idxs = jnp.argpartition(-elite_inds.fitness, cfg.evo_pop_size)[:cfg.evo_pop_size]
+        elite_inds = jax.tree.map(lambda x: x[elite_idxs], elite_inds)
+        max_fit = jnp.max(elite_inds.fitness)
+        mean_fit = np.mean(elite_inds.fitness)
+        min_fit = min(elite_inds.fitness) 
         # Log stats to tensorboard.
         writer.add_scalar('fitness/best', max_fit, n_gen)
         writer.add_scalar('fitness/mean', mean_fit, n_gen)
@@ -493,9 +508,9 @@ def main(cfg: GenEnvConfig):
         print(f"Generation {n_gen}")
         print(f"Best fitness: {max_fit}")
         print(f"Average fitness: {mean_fit}")
-        print(f"Median fitness: {np.median(fits)}")
+        print(f"Median fitness: {np.median(elite_inds.fitness)}")
         print(f"Worst fitness: {min_fit}")
-        print(f"Standard deviation: {np.std(fits)}")
+        print(f"Standard deviation: {np.std(elite_inds.fitness)}")
         print()
         # Increment trg_n_iter if the best fitness is within 10 of it.
         # if max_fit > trg_n_iter - 10:
@@ -524,16 +539,16 @@ def main(cfg: GenEnvConfig):
 def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):
     """ Evaluate elites."""
     # Sort elites by fitness.
-    elites = sorted(elites, key=lambda e: e.fitnesses[0], reverse=True)
+    elites = sorted(elites, key=lambda e: e.fitness[0], reverse=True)
     for e_idx, e in enumerate(elites[:10]):
-        for best_i in range(len(e.fitnesses)):
-            print(f"Trace {best_i}, actions: {e.action_seqs[best_i]}")
+        for best_i in range(len(e.fitness)):
+            print(f"Trace {best_i}, actions: {e.action_seq[best_i]}")
             playtraces, frames = replay_episode(cfg, env, e, record=cfg.record, best_i=best_i)
             if cfg.record:
                 # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
                 # Save as mp4
                 # imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
-                imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_trace-{best_i}_fitness-{e.fitnesses[best_i]}.mp4"), frames, fps=10)
+                imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_trace-{best_i}_fitness-{e.fitness[best_i]}.mp4"), frames, fps=10)
                 # Save elite as yaml
                 # ind.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
 

@@ -115,7 +115,7 @@ class RLConfig(ILConfig):
     # max_board_scans: float = 1.0
 
     # How many milliseconds to wait between frames of the rendered gifs
-    gif_frame_duration: int = 25
+    gif_frame_duration: int = 50
 
     """ DO NOT USE. WILL BE OVERWRITTEN. """
     _n_gpus: int = 1

@@ -45,6 +45,7 @@ def main_enjoy(cfg: EnjoyConfig):
     if not cfg.random_agent:
         checkpoint_manager, restored_ckpt = init_checkpointer(cfg, env_params_v, val_params_v)
         runner_state: RunnerState = restored_ckpt['runner_state']
+        env_params_v = jax.tree.map(lambda x: x[idxs], runner_state.train_env_params)
         network_params = runner_state.train_state.params
     elif not os.path.exists(cfg._log_dir_rl):
         os.makedirs(cfg._log_dir_rl)
@@ -62,8 +63,6 @@ def main_enjoy(cfg: EnjoyConfig):
     # env.queue_frz_map(frz_map)
 
     # obs, env_state = env.reset(rng, env_params)
-
-    breakpoint()
 
     obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(rng_reset, env_params_v)
     # As above, but explicitly jit
@@ -106,7 +105,8 @@ def main_enjoy(cfg: EnjoyConfig):
 
     for ep_i in range(states.ep_rew.shape[1]):
         train_elite_i: IndividualPlaytraceData = jax.tree_map(lambda x: x[ep_i], train_elites)
-        print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}. Search reward: {train_elite_i.rew_seq.sum()}')
+        # print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}. Search reward: {train_elite_i.rew_seq.sum()}')
+        print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}')
 
     states = jax.device_put(states, jax.devices('cpu')[0])
     
@@ -153,18 +153,16 @@ def main_enjoy(cfg: EnjoyConfig):
             new_ep_frames.append(frame)
         ep_frames = new_ep_frames
 
-        gif_name = f"{cfg._log_dir_rl}/anim_ep-{ep_i}" + \
+        gif_name = f"{cfg._log_dir_rl}/anim_update-{runner_state.update_i}_ep-{ep_i}" + \
             f"{('_randAgent' if cfg.random_agent else '')}.gif"
+        vid_name = gif_name[:-4] + ".mp4"
         imageio.v3.imwrite(
             gif_name,
             ep_frames,
-            duration=cfg.gif_frame_duration
+            duration=100,
+            loop=0,
         )
-
-        vid_name = f"{cfg._log_dir_rl}/anim_update-{runner_state.update_i}_ep-{ep_i}" + \
-            f"{('_randAgent' if cfg.random_agent else '')}.mp4"
-
-        imageio.mimwrite(vid_name, frames[0], fps=10, quality=8, macro_block_size=1)
+        # imageio.mimwrite(vid_name, ep_frames, fps=10, quality=8, macro_block_size=1)
 
 
 

@@ -6,6 +6,7 @@ from pdb import set_trace as TT
 import random
 from typing import Iterable
 
+import chex
 from fire import Fire
 from flax import struct
 import gym
@@ -15,6 +16,7 @@ import numpy as np
 
 from gen_env.games import (hamilton, maze, maze_backtracker, maze_npc, power_line, sokoban)
 from gen_env.envs.play_env import GenEnvParams, GenEnvState, PlayEnv, Rule, TileType
+from utils import stack_leaves
 
 
 # For debugging. Render every environment state that is visited during search.
@@ -247,6 +249,256 @@ def bfs(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
                 frontier.append((state, action_seq, child_rew))
 
     return best_state_actionss, best_rewards, n_iter_bests, n_iter
+
+    
+@struct.dataclass
+class FrontierState:
+    params: GenEnvParams
+    env_state: GenEnvState
+    action_seq: chex.Array
+    reward: int
+    done: chex.Array
+
+
+@partial(jax.jit, static_argnames=('env'))
+def expand_frontier_action(env: PlayEnv, frontier: FrontierState, params: GenEnvParams, action: int):
+    print('tracing expand_frontier_action')
+    key = jax.random.PRNGKey(0)
+    parent_state = frontier.env_state
+    obs, state, rew, done, info = \
+        env.step_env(key=key, action=action, state=parent_state, params=frontier.params)
+    child_rew = state.ep_rew
+    action_seq = frontier.action_seq.at[state.n_step-1].set(action)
+    next_frontier = FrontierState(
+        params=params,
+        env_state=state,
+        action_seq=action_seq,
+        reward=child_rew,
+        done=done,
+    )
+    return next_frontier
+
+def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
+          max_steps: int = inf, max_episode_steps: int = 100, n_best_to_keep: int = 1):
+    """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
+    # print('Tracing bfs_multi_env')
+    n_envs = int(params.map.shape[0])
+    key = jax.random.PRNGKey(0)
+    state_is = [jax.tree.map(lambda x: x[i], state) for i in range(n_envs)]
+    params_is = [jax.tree.map(lambda x: x[i], params) for i in range(n_envs)]
+    frontier_lst = [[FrontierState(
+        params=params_i,
+        env_state=state_i,
+        # action_seq=jnp.full((n_envs, max_episode_steps), fill_value=-1),
+        action_seq=jnp.full((max_episode_steps,), fill_value=-1),
+        # reward=jnp.empty(n_envs),
+        # done = jnp.zeros(n_envs, dtype=jnp.bool),
+        done = False,
+        reward=0,
+    )] for params_i, state_i in zip(params_is, state_is)]
+    visited = [{hash(env, jax.tree.map(lambda x: x[i], state)): -inf} for i in range(n_envs)]
+    # best_action_seqs = [[None] * n_best_to_keep] * n_envs
+    best_action_seqs = jnp.full((n_envs, n_best_to_keep, max_episode_steps), fill_value=-1)
+    best_rewards = jnp.full((n_envs, n_best_to_keep), fill_value=-jnp.inf)
+    n_iter_bests = jnp.zeros((n_envs, n_best_to_keep))
+    n_iter = 0
+
+    if isinstance(env.action_space, gym.spaces.Discrete):
+        possible_actions = np.array(list(range(env.action_space.n)))
+    else:
+        raise NotImplementedError
+
+    # while jnp.any(frontier) > 0:
+    # while len(frontier_lst) > 0:
+    while n_iter < max_steps:
+        n_iter += 1
+        print(n_iter)
+        # if n_iter > max_steps:
+        #     break
+        # Find the idx of the best state in the frontier
+        best_idxs = [jnp.argmax(jnp.array([f.reward for f in env_frontier])) for env_frontier in frontier_lst]
+
+        frontier = [frontier_lst[i].pop(j) for i, j in enumerate(best_idxs)]
+        # Now turn this into a single pytree
+        frontier = stack_leaves(frontier)
+
+        def expand_frontier_env(frontier: FrontierState, params: GenEnvParams):
+            # vmapping over actions
+            f = jax.vmap(expand_frontier_action, in_axes=(None, None, None, 0))(env, frontier, params, possible_actions)
+            return f
+
+        def expand_frontier(frontier: FrontierState, params: GenEnvParams):
+            # vmapping over envs
+            return jax.vmap(expand_frontier_env, in_axes=(0, 0))(frontier, params)
+
+        # (n_envs, n_expansions/actions, ...)
+        next_frontier = expand_frontier(frontier, params)
+        print('expanded')
+
+        next_frontier_lst = [[] for _ in range(n_envs)]
+        for env_i in range(n_envs):
+            visited_i = visited[env_i]
+            for action_i in range(next_frontier.done.shape[1]):
+                frontier_i = jax.tree.map(lambda x: x[env_i, action_i], next_frontier)
+                reward_i = frontier_i.reward
+                hashed_state = hash(env, frontier_i.env_state)
+                # if hashed_state in visited and child_rew > visited[hashed_state]:
+                #     breakpoint()
+                if (hashed_state in visited_i) and (reward_i <= visited_i[hashed_state]):
+                    # print(f'already visited {hashed_state}')
+                    continue
+                # visited[env.player_pos] = state
+                # visited[tuple(action_seq)] = state
+                visited_i[hashed_state] = reward_i
+                # print(len(visited))
+                # visited_0.append(state)
+                # print([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()])
+                # if not np.all([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()]):
+                    # TT()
+        
+                next_frontier_lst[env_i].append(frontier_i)
+        print('hashed')
+
+        
+        for env_i in range(n_envs):
+            frontier_env_i = next_frontier_lst[env_i]
+            for frontier_i in frontier_env_i:
+                reward_i = frontier_i.reward
+                for i in range(n_best_to_keep):
+                    if reward_i > best_rewards[env_i][i]:
+                        # best_action_seqs[env_i] = best_action_seqs[env_i][:i] + [(frontier_i, frontier_i.action_seq)] + \
+                        #     best_action_seqs[env_i][i+1:]
+                        new_best_action_seqs = best_action_seqs.at[env_i, i:i+1].set(frontier_i.action_seq)
+                        new_best_action_seqs = new_best_action_seqs.at[env_i, i+1:].set(best_action_seqs[env_i, i:-1])
+                        best_action_seqs = new_best_action_seqs
+                        # best_rewards = best_rewards[env_i][:i] + [reward_i] + best_rewards[env_i][i+1:]
+                        new_best_rewards = best_rewards.at[env_i, i:i+1].set(reward_i)
+                        new_best_rewards = new_best_rewards.at[env_i, i+1:].set(best_rewards[env_i, i:-1])
+                        best_rewards = new_best_rewards
+                        # n_iter_bests = n_iter_bests[env_i][:i] + [n_iter] + n_iter_bests[env_i][i+1:]
+                        new_n_iter_bests = n_iter_bests.at[env_i, i].set(n_iter)
+                        new_n_iter_bests = new_n_iter_bests.at[env_i, i+1:].set(n_iter_bests[env_i, i:-1])
+                        n_iter_bests = new_n_iter_bests
+                        # print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+                        break
+                if not frontier_i.done:
+                    # Add this state to the frontier so can we can continue searching from it later
+                    frontier_lst[env_i].append(frontier_i)
+            
+
+    return best_action_seqs, best_rewards, n_iter_bests, n_iter
+
+
+# @partial(jax.jit, static_argnames=('env', 'max_steps', 'max_episode_steps', 'n_best_to_keep'))
+def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
+          max_steps: int = inf, max_episode_steps: int = 100, n_best_to_keep: int = 1):
+    """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
+    # print('Tracing bfs_multi_env')
+    n_envs = int(params.map.shape[0])
+    key = jax.random.PRNGKey(0)
+    state_is = [jax.tree.map(lambda x: x[i], state) for i in range(n_envs)]
+    params_is = [jax.tree.map(lambda x: x[i], params) for i in range(n_envs)]
+    frontier_lst = [[FrontierState(
+        params=params_i,
+        env_state=state_i,
+        # action_seq=jnp.full((n_envs, max_episode_steps), fill_value=-1),
+        action_seq=jnp.full((max_episode_steps,), fill_value=-1),
+        # reward=jnp.empty(n_envs),
+        # done = jnp.zeros(n_envs, dtype=jnp.bool),
+        done = False,
+        reward=0,
+    )] for params_i, state_i in zip(params_is, state_is)]
+    visited = [{hash(env, jax.tree.map(lambda x: x[i], state)): -inf} for i in range(n_envs)]
+    # best_action_seqs = [[None] * n_best_to_keep] * n_envs
+    best_action_seqs = jnp.full((n_envs, n_best_to_keep, max_episode_steps), fill_value=-1)
+    best_rewards = jnp.full((n_envs, n_best_to_keep), fill_value=-jnp.inf)
+    n_iter_bests = jnp.zeros((n_envs, n_best_to_keep))
+    n_iter = 0
+
+    if isinstance(env.action_space, gym.spaces.Discrete):
+        possible_actions = np.array(list(range(env.action_space.n)))
+    else:
+        raise NotImplementedError
+
+    # while jnp.any(frontier) > 0:
+    # while len(frontier_lst) > 0:
+    while n_iter < max_steps:
+        n_iter += 1
+        print(n_iter)
+        # if n_iter > max_steps:
+        #     break
+        # Find the idx of the best state in the frontier
+        best_idxs = [jnp.argmax(jnp.array([f.reward for f in env_frontier])) for env_frontier in frontier_lst]
+
+        frontier = [frontier_lst[i].pop(j) for i, j in enumerate(best_idxs)]
+        # Now turn this into a single pytree
+        frontier = stack_leaves(frontier)
+
+        def expand_frontier_env(frontier: FrontierState, params: GenEnvParams):
+            # vmapping over actions
+            f = jax.vmap(expand_frontier_action, in_axes=(None, None, None, 0))(env, frontier, params, possible_actions)
+            return f
+
+        def expand_frontier(frontier: FrontierState, params: GenEnvParams):
+            # vmapping over envs
+            return jax.vmap(expand_frontier_env, in_axes=(0, 0))(frontier, params)
+
+        # (n_envs, n_expansions/actions, ...)
+        next_frontier = expand_frontier(frontier, params)
+        print('expanded')
+
+        next_frontier_lst = [[] for _ in range(n_envs)]
+        for env_i in range(n_envs):
+            visited_i = visited[env_i]
+            for action_i in range(next_frontier.done.shape[1]):
+                frontier_i = jax.tree.map(lambda x: x[env_i, action_i], next_frontier)
+                # reward_i = frontier_i.reward
+        #         hashed_state = hash(env, frontier_i.env_state)
+        #         # if hashed_state in visited and child_rew > visited[hashed_state]:
+        #         #     breakpoint()
+        #         if (hashed_state in visited_i) and (reward_i <= visited_i[hashed_state]):
+        #             # print(f'already visited {hashed_state}')
+        #             continue
+        #         # visited[env.player_pos] = state
+        #         # visited[tuple(action_seq)] = state
+        #         visited_i[hashed_state] = reward_i
+        #         # print(len(visited))
+        #         # visited_0.append(state)
+        #         # print([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()])
+        #         # if not np.all([np.any(state['map_arr'] != s['map_arr']) for s in visited.values()]):
+        #             # TT()
+        
+                next_frontier_lst[env_i].append(frontier_i)
+        # print('hashed')
+
+        
+        for env_i in range(n_envs):
+            frontier_env_i = next_frontier_lst[env_i]
+            for frontier_i in frontier_env_i:
+                reward_i = frontier_i.reward
+                for i in range(n_best_to_keep):
+                    if reward_i > best_rewards[env_i][i]:
+                        # best_action_seqs[env_i] = best_action_seqs[env_i][:i] + [(frontier_i, frontier_i.action_seq)] + \
+                        #     best_action_seqs[env_i][i+1:]
+                        new_best_action_seqs = best_action_seqs.at[env_i, i:i+1].set(frontier_i.action_seq)
+                        new_best_action_seqs = new_best_action_seqs.at[env_i, i+1:].set(best_action_seqs[env_i, i:-1])
+                        best_action_seqs = new_best_action_seqs
+                        # best_rewards = best_rewards[env_i][:i] + [reward_i] + best_rewards[env_i][i+1:]
+                        new_best_rewards = best_rewards.at[env_i, i:i+1].set(reward_i)
+                        new_best_rewards = new_best_rewards.at[env_i, i+1:].set(best_rewards[env_i, i:-1])
+                        best_rewards = new_best_rewards
+                        # n_iter_bests = n_iter_bests[env_i][:i] + [n_iter] + n_iter_bests[env_i][i+1:]
+                        new_n_iter_bests = n_iter_bests.at[env_i, i].set(n_iter)
+                        new_n_iter_bests = new_n_iter_bests.at[env_i, i+1:].set(n_iter_bests[env_i, i:-1])
+                        n_iter_bests = new_n_iter_bests
+                        # print(f'found new best: {best_reward} at {n_iter_best} iterations step {state.n_step} action sequence length {len(action_seq)}')
+                        break
+                if not frontier_i.done:
+                    # Add this state to the frontier so can we can continue searching from it later
+                    frontier_lst[env_i].append(frontier_i)
+            
+
+    return best_action_seqs, best_rewards, n_iter_bests, n_iter
 
 
 def hash(env: PlayEnv, state):
