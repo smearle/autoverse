@@ -1,6 +1,7 @@
 *.DS_Store
 runs
 saves
+saves_evo
 runs_il
 outputs
 # Ignore files ending in .pyc

@@ -312,7 +312,6 @@ def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
     # while len(frontier_lst) > 0:
     while n_iter < max_steps:
         n_iter += 1
-        print(n_iter)
         # if n_iter > max_steps:
         #     break
         # Find the idx of the best state in the frontier
@@ -333,7 +332,6 @@ def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
 
         # (n_envs, n_expansions/actions, ...)
         next_frontier = expand_frontier(frontier, params)
-        print('expanded')
 
         next_frontier_lst = [[] for _ in range(n_envs)]
         for env_i in range(n_envs):
@@ -357,7 +355,6 @@ def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
                     # TT()
         
                 next_frontier_lst[env_i].append(frontier_i)
-        print('hashed')
 
         
         for env_i in range(n_envs):
@@ -390,7 +387,7 @@ def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
 
 
 # @partial(jax.jit, static_argnames=('env', 'max_steps', 'max_episode_steps', 'n_best_to_keep'))
-def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
+def bfs_multi_env_(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
           max_steps: int = inf, max_episode_steps: int = 100, n_best_to_keep: int = 1):
     """Apply a search algorithm to find the sequence of player actions leading to the highest possible reward."""
     # print('Tracing bfs_multi_env')
@@ -424,7 +421,6 @@ def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
     # while len(frontier_lst) > 0:
     while n_iter < max_steps:
         n_iter += 1
-        print(n_iter)
         # if n_iter > max_steps:
         #     break
         # Find the idx of the best state in the frontier
@@ -445,7 +441,6 @@ def bfs_multi_env(env: PlayEnv, state: GenEnvState, params: GenEnvParams,
 
         # (n_envs, n_expansions/actions, ...)
         next_frontier = expand_frontier(frontier, params)
-        print('expanded')
 
         next_frontier_lst = [[] for _ in range(n_envs)]
         for env_i in range(n_envs):

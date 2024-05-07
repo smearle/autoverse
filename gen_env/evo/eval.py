@@ -23,7 +23,7 @@ def evaluate_multi(key: jax.random.PRNGKey, env: PlayEnv, env_params: GenEnvPara
     # obs, init_state = env.reset(key=key, params=env_params)
     _, init_state = jax.vmap(env.reset, in_axes=(0, 0))(jax.random.split(key, n_envs), env_params)
     best_action_seqs, best_rewards, n_iter_bests, n_iter = \
-        bfs_multi_env(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=3)
+        bfs_multi_env(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=1)
     best_state_actions, best_reward, n_iter_best = best_action_seqs[0], best_rewards[0], n_iter_bests[0]
     action_seq = None
     # if best_state_actions is not None:
@@ -50,7 +50,7 @@ def evaluate(key: jax.random.PRNGKey,
     # individual.map = env.map.copy()
     # assert individual.map[4].sum() == 0, "Extra force tile!" # Specific to maze tiles only
     best_state_actionss, best_rewards, n_iter_bests, n_iter = \
-        bfs(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=3)
+        bfs(env, init_state, env_params, max_steps=trg_n_iter, n_best_to_keep=1)
     best_state_actions, best_reward, n_iter_best = best_state_actionss[0], best_rewards[0], n_iter_bests[0]
     action_seq = None
     if best_state_actions is not None:

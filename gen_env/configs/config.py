@@ -9,7 +9,8 @@ from omegaconf import DictConfig
 @dataclass
 class GenEnvConfig:
     seed: int = 0
-    map_width: int = 10
+    map_width: int = 16
+    map_shape: tuple = (16, 16)
     max_episode_steps: int = 100
     env_exp_id: int = 0
     player_exp_id: int = 0
@@ -20,7 +21,7 @@ class GenEnvConfig:
     mutate_rules: bool = True
     fix_map: bool = False
     evaluate: bool = False
-    eval_freq: int = 1
+    eval_freq: int = -1
     save_freq: int = 1
     render: bool = False
     record: bool = True
@@ -28,6 +29,7 @@ class GenEnvConfig:
     runs_dir_evo: str = "evo_env"
     runs_dir_rl: str = "rl_player"
     runs_dir_il: str = "il_player"
+    # When collecting elite envs/playtraces from evolution, latest gen to include (if None, include all).
     load_gen: Optional[int] = None
     collect_elites: bool = False
     load_game: Optional[str] = None
@@ -47,8 +49,6 @@ class GenEnvConfig:
 
     hide_rules: bool = False
     
-    map_shape: tuple = (10, 10)
-
     window_scale: float = 1.0
 
     activation: str = "relu"
