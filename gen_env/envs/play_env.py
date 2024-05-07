@@ -729,6 +729,9 @@ class PlayEnv(gym.Env):
             pad_h = max(0, p_ims.shape[0] - color_map.shape[0])
             pad_w = max(0, p_ims.shape[1] - color_map.shape[1])
             color_map = np.pad(color_map, ((0, pad_h), (0, pad_w), (0, 0)), mode='constant', constant_values=0)
+            pad_h = max(0, color_map.shape[0] - p_ims.shape[0])
+            pad_w = max(0, color_map.shape[1] - p_ims.shape[1])
+            p_ims = np.pad(p_ims, ((0, pad_h), (0, pad_w), (0, 0)), mode='constant', constant_values=0)
 
             p_ims = np.concatenate([p_ims, color_map], axis=0)
             rule_ims.append(p_ims)

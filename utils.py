@@ -61,14 +61,17 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
     
 def init_il_config(cfg: ILConfig):
     # glob files of form `gen-XX*elites.npz` and get highest gen number
-    gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.pkl"))
-    gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
-    latest_gen = max(gen_nums)
+    if cfg.load_gen is None:
+        gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.pkl"))
+        gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
+        latest_gen = max(gen_nums)
 
-    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
-    cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
+        cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
+        cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
 
-    return latest_gen
+        return latest_gen
+
+    else: return cfg.load_gen
 
 
 def init_rl_config(cfg: RLConfig, latest_evo_gen: int):

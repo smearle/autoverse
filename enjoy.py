@@ -26,7 +26,7 @@ def main_enjoy(cfg: EnjoyConfig):
 
     train_elites: IndividualPlaytraceData
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
-    # Select random elites to train on\
+    # Select random elites to run inference on
     idxs = jax.random.permutation(jax.random.PRNGKey(cfg.seed), jnp.arange(train_elites.fitness.shape[0]))[:cfg.n_eps]
 
     # We'll render on these different maps/rules
@@ -46,6 +46,7 @@ def main_enjoy(cfg: EnjoyConfig):
         checkpoint_manager, restored_ckpt = init_checkpointer(cfg, env_params_v, val_params_v)
         runner_state: RunnerState = restored_ckpt['runner_state']
         env_params_v = jax.tree.map(lambda x: x[idxs], runner_state.train_env_params)
+        # env_params_v = jax.tree.map(lambda x: x[:cfg.n_eps], runner_state.evo_state.env_params)
         network_params = runner_state.train_state.params
     elif not os.path.exists(cfg._log_dir_rl):
         os.makedirs(cfg._log_dir_rl)
@@ -56,6 +57,7 @@ def main_enjoy(cfg: EnjoyConfig):
     network = get_network(env, dummy_env_params, cfg)
 
     rng = jax.random.PRNGKey(cfg.seed)
+    n_train_envs = env_params_v.rule_dones.shape[0]
     rng_reset = jax.random.split(rng, cfg.n_eps)
 
     # frz_map = jnp.zeros(env.map_shape, dtype=jnp.int8)

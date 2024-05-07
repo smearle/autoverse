@@ -27,7 +27,7 @@ from gen_env.evo.individual import Individual
 from evo_accel import EvoState, apply_evo, distribute_evo_envs_to_train, gen_discount_factors_matrix
 from gen_env.configs.config import (RLConfig, TrainConfig, TrainAccelConfig, 
                                     GenEnvConfig)
-from gen_env.utils import init_base_env, init_config
+from gen_env.utils import gen_rand_env_params, init_base_env, init_config
 from purejaxrl.experimental.s5.wrappers import LogWrapper
 from pcgrl_utils import get_rl_ckpt_dir, get_network
 
@@ -585,6 +585,7 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
                 # env_params on next reset (inside PlayEnv.step())
                 # env_state = env_state.replace(env_state = env_state.env_state.replace(queued_params=train_env_params))
             else:
+                # If we're not evolving the envs, just keep the same training set.
                 next_train_env_params = train_env_params
 
             # FIXME: shouldn't assume size of render map.
@@ -729,8 +730,13 @@ def main(cfg: RLConfig):
 
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
     # train_env_params = jax.tree.map(lambda x: x[:cfg.n_envs], train_elites.env_params)
-    train_env_params = train_elites.env_params
     val_env_params = val_elites.env_params
+    if cfg.blank_env_start:
+        env, env_params = init_base_env(cfg)
+        train_env_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
+            cfg, jax.random.split(rng, cfg.n_envs), env.game_def, env_params.rules)
+    else:
+        train_env_params = train_elites.env_params
 
     # Get 20 random indices for train envs
     # idxs = jax.random.permutation(jax.random.PRNGKey(cfg.seed), jnp.arange(train_env_params.rule_dones.shape[0]))[:cfg.n_envs]
