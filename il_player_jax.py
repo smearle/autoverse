@@ -9,6 +9,7 @@ import chex
 import flax
 from flax import linen as nn
 from flax import struct
+from flax.training import orbax_utils
 from flax.training.train_state import TrainState
 import gymnax
 import hydra
@@ -22,7 +23,7 @@ import tqdm
 
 from gen_env.configs.config import GenEnvConfig, ILConfig
 from gen_env.envs.gen_env import GenEnv
-from gen_env.utils import init_base_env, init_evo_config
+from gen_env.utils import init_base_env, init_config
 from pcgrl_utils import get_network
 from purejaxrl.experimental.s5.wrappers import LogWrapper
 from utils import init_il_config, load_elite_envs
@@ -374,13 +375,15 @@ from orbax import checkpoint as ocp
 
 
 def save_checkpoint(config, ckpt_manager, train_state, t):
-    ckpt_manager.save(t, args=ocp.args.StandardSave(train_state))
+    save_args = flax.training.orbax_utils.save_args_from_target(train_state)
+    ckpt_manager.save(t, train_state, save_kwargs={'save_args': save_args})
+    # ckpt_manager.save(t, args=ocp.args.StandardSave(train_state))
     ckpt_manager.wait_until_finished() 
 
 
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: ILConfig):
-    init_evo_config(cfg)
+    init_config(cfg)
     latest_gen = init_il_config(cfg)
 
     # Environment class doesn't matter and will be overwritten when we load in an individual.
@@ -434,7 +437,8 @@ def main(cfg: ILConfig):
     options = ocp.CheckpointManagerOptions(
         max_to_keep=2, create=True)
     checkpoint_manager = ocp.CheckpointManager(
-        cfg._il_ckpt_dir, options=options)
+        cfg._il_ckpt_dir,
+        checkpointers=ocp.Checkpointer(ocp.PyTreeCheckpointHandler()), options=options)
 
     if checkpoint_manager.latest_step() is not None:
         t = checkpoint_manager.latest_step()
