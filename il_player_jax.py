@@ -442,7 +442,9 @@ def main(cfg: ILConfig):
 
     if checkpoint_manager.latest_step() is not None:
         t = checkpoint_manager.latest_step()
-        train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
+        restore_args = flax.training.orbax_utils.save_args_from_target(train_state)
+        train_state = checkpoint_manager.restore(t, items=train_state, restore_kwargs={'restore_args': restore_args})
+        # train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
         checkpoint_manager.wait_until_finished()
         agent.train_state = train_state
     else: 

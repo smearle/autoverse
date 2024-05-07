@@ -5,8 +5,6 @@ defaults:
   - override hydra/launcher: submitit_local
   # - override hydra/launcher: submitit_slurm
 
-load_gen: null
-# aggregate_playtraces: false
 
 hydra:
   # sweeper:

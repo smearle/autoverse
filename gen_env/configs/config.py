@@ -9,7 +9,7 @@ from omegaconf import DictConfig
 @dataclass
 class GenEnvConfig:
     seed: int = 0
-    map_width: int = 16
+    # map_width: int = 16
     map_shape: tuple = (16, 16)
     max_episode_steps: int = 100
     env_exp_id: int = 0
@@ -33,6 +33,7 @@ class GenEnvConfig:
     load_gen: Optional[int] = None
     collect_elites: bool = False
     load_game: Optional[str] = None
+    load_gen: Optional[int] = None
 
     _log_dir_il: Optional[str] = None
     _log_dir_rl: Optional[str] = None
@@ -104,6 +105,7 @@ class RLConfig(ILConfig):
     n_envs: int = 20
     evo_pop_size: int = 10
     evo_mutate_prob: float = 0.1
+    blank_env_start: bool = False
 
     # change_pct: float = -1.0
 
