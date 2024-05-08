@@ -11,3 +11,4 @@ networkx
 opencv-python
 pygame
 tensorboardX
+tqdm

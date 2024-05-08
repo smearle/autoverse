@@ -975,7 +975,7 @@ def apply_subrule(map: np.ndarray, subrule_int: np.ndarray):
     # Use jax to apply a convolution to the map
     sr_activs = jax.lax.conv(map, inp, window_strides=(1, 1), padding='SAME')
     # How many tiles are expected in the input pattern. Not summing absence of tiles here
-    inp_posi = np.clip(inp, 0, 1)
+    inp_posi = jnp.clip(inp, 0, 1)
     n_constraints = inp_posi.sum()
     # Identify positions at which all constraints were met
     sr_activs = (sr_activs == n_constraints).astype(jnp.float32)

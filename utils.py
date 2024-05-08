@@ -66,12 +66,13 @@ def init_il_config(cfg: ILConfig):
         gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
         latest_gen = max(gen_nums)
 
-        cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
-        cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
+    else:
+        latest_gen = cfg.load_gen
 
-        return latest_gen
+    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
+    cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
 
-    else: return cfg.load_gen
+    return latest_gen
 
 
 def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
