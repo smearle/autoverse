@@ -65,7 +65,7 @@ class GenEnvConfig:
 
 @dataclass
 class ILConfig(GenEnvConfig):
-    il_max_steps: int = int(1e9)
+    il_max_steps: int = int(1e8)
     il_batch_size: int = 4096
     il_tqdm: bool = True
     il_lr: float = 1.0e-4
