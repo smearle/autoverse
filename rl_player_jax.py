@@ -1,14 +1,14 @@
 from functools import partial
 import os
 import shutil
+import sys
 from timeit import default_timer as timer
+import traceback
 from typing import NamedTuple, Tuple
 
-from gen_env.envs.play_env import GenEnvParams, GenEnvState, PlayEnv
 import hydra
 import jax
 import logging
-
 import numpy as np
 
 from purejaxrl.wrappers import LogEnvState
@@ -27,6 +27,7 @@ from gen_env.evo.individual import Individual
 from evo_accel import EvoState, apply_evo, distribute_evo_envs_to_train, gen_discount_factors_matrix
 from gen_env.configs.config import (RLConfig, TrainConfig, TrainAccelConfig, 
                                     GenEnvConfig)
+from gen_env.envs.play_env import GenEnvParams, GenEnvState, PlayEnv
 from gen_env.utils import gen_rand_env_params, init_base_env, init_config
 from purejaxrl.experimental.s5.wrappers import LogWrapper
 from pcgrl_utils import get_rl_ckpt_dir, get_network
@@ -122,7 +123,7 @@ def eval(rng: jax.random.PRNGKey, cfg: TrainConfig, env: PlayEnv, env_params: Ge
     )
 
     _, (states, rewards, dones, infos, values) = jax.lax.scan(
-        step_env, (rng, obsv, env_state, env_params, network_params),
+        step_env, (rng, obsv, env_state, curr_env_params, network_params),
         None, n_eps*env.max_episode_steps)
 
     returns = rewards.sum(axis=0)
@@ -391,7 +392,7 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
             def _env_step(carry: Tuple[RunnerState, GenEnvParams], unused):
-                runner_state, next_env_params = carry
+                runner_state, curr_env_params, next_env_params = carry
                 train_state, env_state, evo_state, last_obs, rng, update_i = (
                     runner_state.train_state, runner_state.env_state,
                     runner_state.evo_state,
@@ -413,8 +414,8 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
                 # Note that we are mapping across environment parameters as well to train on different environments
                 vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
                 # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
-                obsv, env_state, reward, done, info = vmap_step_fn(
-                    rng_step, env_state, action, env_state.env_state.params, next_env_params
+                obsv, env_state, reward, done, info, curr_env_params = vmap_step_fn(
+                    rng_step, env_state, action, curr_env_params, next_env_params
                 )
                 transition = Transition(
                     done, action, value, reward, log_prob, last_obs, info
@@ -422,7 +423,7 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
                 runner_state = runner_state.replace(
                     train_state=train_state, env_state=env_state, last_obs=obsv, rng=rng,
                     update_i=update_i, evo_state=evo_state)
-                return (runner_state, next_env_params), transition
+                return (runner_state, curr_env_params, next_env_params), transition
 
             # TODO: Move this inside env_step (in case of long rollouts) and make sure no slowdown results.
             # Randomly sample new environments from the training set to be used in case of reset during rollout.
@@ -432,9 +433,9 @@ def make_train(cfg: TrainAccelConfig, restored_ckpt, checkpoint_manager, train_e
             # next_env_params = runner_state.train_env_params
 
             runner_state_next_env_params, traj_batch = jax.lax.scan(
-                _env_step, (runner_state, next_env_params), None, cfg.num_steps
+                _env_step, (runner_state, curr_env_params, next_env_params), None, cfg.num_steps
             )
-            runner_state, next_env_params = runner_state_next_env_params
+            runner_state, _, _ = runner_state_next_env_params
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, rng, evo_state = \
@@ -720,8 +721,17 @@ def init_checkpointer(config: RLConfig, train_env_params: GenEnvParams, val_env_
 
     
 
-@hydra.main(version_base=None, config_path='gen_env/configs', config_name='train_accel')
+@hydra.main(version_base=None, config_path='gen_env/configs', config_name='rl')
 def main(cfg: RLConfig):
+    # Try/except to avoid submitit-launcher-plugin swallowing up our error tracebacks.
+    try:
+        _main(cfg)
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+        raise
+
+
+def _main(cfg: RLConfig):
     init_config(cfg)
     latest_gen = init_il_config(cfg)
     init_rl_config(cfg, latest_gen)

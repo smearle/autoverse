@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 
 @dataclass
 class GenEnvConfig:
+    evo_seed: int = 0
     seed: int = 0
     # map_width: int = 16
     map_shape: tuple = (16, 16)
@@ -15,7 +16,7 @@ class GenEnvConfig:
     env_exp_id: int = 0
     player_exp_id: int = 0
     overwrite: bool = False
-    n_proc: int = 4
+    n_proc: int = 1
     evo_pop_size: int = 40
     game: str = "blank_for_evo"
     mutate_rules: bool = True
@@ -187,10 +188,10 @@ class BatchConfig(TrainConfig):
 
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=GenEnvConfig)
-cs.store(name="rl_config", node=RLConfig)
+cs.store(name="rl_config_old", node=RLConfig)
 cs.store(name="il_config", node=ILConfig)
 cs.store(name="train_xlife", node=TrainConfig)
-cs.store(name="train_accel_xlife", node=TrainAccelConfig)
+cs.store(name="rl_config", node=TrainAccelConfig)
 cs.store(name="enjoy_xlife", node=EnjoyConfig)
 cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
 cs.store(name="eval_xlife", node=EvalConfig)

@@ -64,6 +64,8 @@ def init_il_config(cfg: ILConfig):
     if cfg.load_gen is None:
         gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.pkl"))
         gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
+        if len(gen_nums) == 0:
+            raise FileExistsError(f"No elite files found in {cfg._log_dir_common}")
         latest_gen = max(gen_nums)
 
     else:

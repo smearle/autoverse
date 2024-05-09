@@ -3,6 +3,8 @@ import functools
 import glob
 import os
 import shutil
+import sys
+import traceback
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import chex
@@ -383,6 +385,15 @@ def save_checkpoint(config, ckpt_manager, train_state, t):
 
 @hydra.main(version_base="1.3", config_path="gen_env/configs", config_name="il")
 def main(cfg: ILConfig):
+    # Try/except to avoid submitit-launcher-plugin swallowing up our error tracebacks.
+    try:
+        _main(cfg)
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+        raise
+
+
+def _main(cfg: ILConfig):
     init_config(cfg)
     latest_gen = init_il_config(cfg)
 
@@ -424,7 +435,7 @@ def main(cfg: ILConfig):
         cfg._log_dir_il, 'video', 'eval')
 
 
-    kwargs = dict(cfg)
+    kwargs = cfg.__dict__
     kwargs['num_steps'] = cfg.il_max_steps
     agent = BCLearner(cfg=cfg, seed=cfg.seed,
                       observations=env.observation_space.sample()[np.newaxis],

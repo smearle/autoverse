@@ -85,7 +85,7 @@ class LogWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams],
         reset_params: Optional[environment.EnvParams],
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(key, state.env_state, action, params, reset_params)
+        obs, env_state, reward, done, info, params = self._env.step(key, state.env_state, action, params, reset_params)
         new_episode_return = state.episode_returns + reward
         new_episode_length = state.episode_lengths + 1
         state = LogEnvState(
@@ -100,7 +100,7 @@ class LogWrapper(GymnaxWrapper):
         info["returned_episode_lengths"] = state.returned_episode_lengths
         info["timestep"] = state.timestep
         info["returned_episode"] = done
-        return obs, state, reward, done, info
+        return obs, state, reward, done, info, params
 
 # class BraxGymnaxWrapper:
 #     def __init__(self, env_name, backend="positional"):
