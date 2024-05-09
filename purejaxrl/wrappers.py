@@ -110,7 +110,7 @@ class LogWrapper(GymnaxWrapper):
         info["returned_episode_lengths"] = state.returned_episode_lengths
         info["timestep"] = state.timestep
         info["returned_episode"] = done
-        return obs, state, reward, done, info
+        return obs, state, reward, done, info, params
 
 
 # class BraxGymnaxWrapper:

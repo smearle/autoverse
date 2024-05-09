@@ -2,6 +2,7 @@ defaults:
   - base_config
   - _self_
 
+  # - override hydra/launcher: basic
   # - override hydra/launcher: submitit_local
   - override hydra/launcher: submitit_slurm
 
@@ -9,7 +10,9 @@ defaults:
 hydra:
   sweeper:
     params:
-      env_exp_id: 14, 15, 16
+      # env_exp_id: 14, 15, 16
+      env_exp_id: 14
+      evo_seed: 1, 2
   
 
   launcher:

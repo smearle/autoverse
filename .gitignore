@@ -2,6 +2,7 @@
 runs
 saves
 saves_evo
+submitit_logs*
 runs_il
 outputs
 # Ignore files ending in .pyc

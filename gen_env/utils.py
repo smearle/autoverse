@@ -18,7 +18,7 @@ from gen_env.rules import RuleData, compile_rule, gen_rand_rule
 
 def init_config(cfg: GenEnvConfig):
     env_exp_name = (f"{cfg.game}_{'mutRule_' if cfg.mutate_rules else ''}{'fixMap_' if cfg.fix_map else ''}" + 
-        f"exp-{cfg.env_exp_id}")
+        (f's-{cfg.evo_seed}_' if cfg.evo_seed != 0 else '') + f"exp-{cfg.env_exp_id}")
 
     cfg._log_dir_common = os.path.join(cfg.workspace, env_exp_name)
 

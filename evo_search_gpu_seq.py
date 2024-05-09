@@ -6,7 +6,9 @@ from pdb import set_trace as TT
 import pickle
 import random
 import shutil
+import sys
 from timeit import default_timer as timer
+import traceback
 from typing import Iterable, List
 
 import chex
@@ -324,9 +326,16 @@ def replay_episode(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
     return playtrace, None
 
 
-# def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def main(cfg: GenEnvConfig):
+    # Try/except to avoid submitit-launcher-plugin swallowing up our error tracebacks.
+    try:
+        _main(cfg)
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+        raise
+
+def _main(cfg: GenEnvConfig):
     init_config(cfg)
     vid_dir = os.path.join(cfg._log_dir_evo, 'videos')
     
@@ -395,7 +404,7 @@ def main(cfg: GenEnvConfig):
     env, base_params = init_base_env(cfg)
     env.tiles
     ind = Individual(cfg, env.tiles)
-    key = jax.random.PRNGKey(0)
+    key = jax.random.PRNGKey(cfg.evo_seed)
     env_state, obs = env.reset(key=key, params=base_params)
     # if num_proc > 1:
     #     envs, params = zip(*[init_base_env(cfg) for _ in range(num_proc)])
@@ -546,7 +555,8 @@ if __name__ == '__main__':
     # We use CPU multiprocessing to do search with hash tables (which are not
     # easily implemented in jax), so we need to set the jax platform to CPU
     # (otherwise we'll run into multiprocessing errors).
+    # NOTE: Actually, seems like jax uses the GPU anyway :D Let's not touch this for now haha.
     jax_platform_name = os.system(' echo $JAX_PLATFORM_NAME')
     os.system('export JAX_PLATFORM_NAME=cpu')
-    main()
+    _main()
     os.system(f'export JAX_PLATFORM_NAME={jax_platform_name}')

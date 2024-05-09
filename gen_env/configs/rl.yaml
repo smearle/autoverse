@@ -1,6 +1,31 @@
 defaults:
-  - il
+  - rl_config
   - _self_
+
+  - override hydra/launcher: basic
+  # - override hydra/launcher: submitit_local
+  # - override hydra/launcher: submitit_slurm
+
+
+hydra:
+  # launcher:
+  #   tasks_per_node: 1
+  #   cpus_per_task: 1
+  #   gpus_per_node: 1
+  #   timeout_min: 2880
+  #   mem_gb: 30
+
+  job:
+    # Prevent hydra from automatically changing the working directory of each experiment.
+    chdir: False
+
+  sweeper:
+    params:
+      # load_gen: 5, 10, 15, 20
+      load_gen: 5, 10
+
+
+env_exp_id: 14
 
 load_il: True
 load_rl: False
