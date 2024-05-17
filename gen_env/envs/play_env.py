@@ -176,6 +176,7 @@ class PlayEnv(gym.Env):
         # max_rule_shape = max([r._in_out.shape for r in self.rules])
         max_rule_shape = max(params.rules.rule.shape[-2:])
         self.map_padding = (max_rule_shape + 1) // 2
+        self.ROTATE_LEFT_ACTION = 0
 
     def init_obs_space(self, params: GenEnvParams):
         # self.observation_space = spaces.Box(0, 1, (self.w, self.h, len(self.tiles)))
