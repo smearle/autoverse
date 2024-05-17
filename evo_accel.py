@@ -12,7 +12,7 @@ import jax
 from jax import numpy as jnp
 import numpy as np
 
-from gen_env.configs.config import TrainAccelConfig, TrainConfig
+from gen_env.configs.config import RLConfig
 from gen_env.envs.play_env import PlayEnv, GenEnvParams
 from gen_env.evo.individual import Individual
 
@@ -33,7 +33,7 @@ def gen_discount_factors_matrix(gamma, max_episode_steps):
     return matrix
 
 
-def distribute_evo_envs_to_train(cfg: TrainAccelConfig, evo_env_params: GenEnvParams):
+def distribute_evo_envs_to_train(cfg: RLConfig, evo_env_params: GenEnvParams):
     n_reps = max(1, cfg.n_envs // cfg.evo_pop_size)
     return jax.tree_map(lambda x: jnp.concatenate([x for _ in range(n_reps)])
                         [:cfg.n_envs], evo_env_params)
@@ -46,7 +46,7 @@ class EvoState:
 
 
 def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_params, network,
-              cfg: TrainConfig, discount_factor_matrix):
+              cfg: RLConfig, discount_factor_matrix):
     '''
     - copy and mutate the environments
     - get the fitness of the envs
@@ -80,7 +80,7 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
         )
 
         def step_env_evo_eval(carry, _):
-            rng, obs, env_state, network_params = carry
+            rng, obs, env_state, curr_env_params, network_params = carry
             rng, _rng = jax.random.split(rng)
 
             pi: distrax.Categorical
@@ -93,15 +93,15 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
             # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
             vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
             # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
-            obs, env_state, reward, done, info = vmap_step_fn(
+            obs, env_state, reward, done, info, curr_env_params = vmap_step_fn(
                             rng_step, env_state, action,
-                            env_state.env_state.params, env_state.env_state.params)
+                            curr_env_params, curr_env_params)
     
-            return (rng, obs, env_state, network_params),\
+            return (rng, obs, env_state, curr_env_params, network_params),\
                 (env_state, reward, done, info, value)
 
         _, (states, rewards, dones, infos, values) = jax.lax.scan(
-            step_env_evo_eval, (rng, obsv, env_state, network_params),
+            step_env_evo_eval, (rng, obsv, env_state, curr_env_params, network_params),
             None, n_eps*env.max_episode_steps)
 
         n_steps = rewards.shape[0]

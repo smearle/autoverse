@@ -49,11 +49,14 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
     # test_elites = np.load(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.npz"), allow_pickle=True)['arr_0']
     # load with pickle instead
     import pickle
-    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_train_elites.pkl"), 'rb') as f:
+    # with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_train_elites.pkl"), 'rb') as f:
+    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_filtered_train_elites.pkl"), 'rb') as f:
         train_elites = pickle.load(f)
-    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_val_elites.pkl"), 'rb') as f:
+    # with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_val_elites.pkl"), 'rb') as f:
+    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_filtered_val_elites.pkl"), 'rb') as f:
         val_elites = pickle.load(f)
-    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.pkl"), 'rb') as f:
+    # with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.pkl"), 'rb') as f:
+    with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_filtered_test_elites.pkl"), 'rb') as f:
         test_elites = pickle.load(f)
 
     return train_elites, val_elites, test_elites
@@ -61,7 +64,7 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
     
 def init_il_config(cfg: ILConfig):
     # glob files of form `gen-XX*elites.npz` and get highest gen number
-    if cfg.load_gen is None:
+    if cfg.load_gen == -1:
         gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.pkl"))
         gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
         if len(gen_nums) == 0:
@@ -79,5 +82,13 @@ def init_il_config(cfg: ILConfig):
 
 def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
     cfg._n_gpus = jax.local_device_count()
-    cfg._log_dir_rl +=  f'_{cfg.rl_seed}_{cfg.rl_exp_name}'
-    return cfg
+    if cfg.load_il:
+        il_ckpt_files = glob.glob(os.path.join(cfg._il_ckpt_dir, "[0-9]*"))
+        update_steps = [os.path.basename(f) for f in il_ckpt_files]
+        update_steps = [int(us) for us in update_steps if us.isnumeric()]
+        latest_il_update_step = max(update_steps)
+    else:
+        latest_il_update_step = None
+    cfg._log_dir_rl +=  f'_evogen-{cfg.load_gen}_accel-{cfg.evo_freq}_' + \
+        (f'ilstep-{latest_il_update_step}_' if latest_il_update_step is not None else '') + f's-{cfg.rl_seed}_{cfg.rl_exp_name}'
+    return latest_il_update_step

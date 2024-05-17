@@ -25,6 +25,7 @@ import tqdm
 
 from gen_env.configs.config import GenEnvConfig, ILConfig
 from gen_env.envs.gen_env import GenEnv
+from gen_env.envs.play_env import PlayEnv
 from gen_env.utils import init_base_env, init_config
 from pcgrl_utils import get_network
 from purejaxrl.experimental.s5.wrappers import LogWrapper
@@ -392,10 +393,41 @@ def main(cfg: ILConfig):
         traceback.print_exc(file=sys.stderr)
         raise
 
+    
+def init_bc_agent(cfg: ILConfig, env: PlayEnv):
+    agent = BCLearner(cfg=cfg, seed=cfg.seed,
+                      observations=env.observation_space.sample()[np.newaxis],
+                      actions=np.array(env.action_space.sample())[np.newaxis], actor_lr=cfg.il_lr,
+                      num_steps=cfg.il_max_steps)
+
+    # FIXME this is silly, lift this out!
+    train_state = agent.train_state
+
+    options = ocp.CheckpointManagerOptions(
+        max_to_keep=2, create=True)
+    checkpoint_manager = ocp.CheckpointManager(
+        cfg._il_ckpt_dir,
+        checkpointers=ocp.Checkpointer(ocp.PyTreeCheckpointHandler()), options=options)
+
+    if checkpoint_manager.latest_step() is not None:
+        t = checkpoint_manager.latest_step()
+        restore_args = flax.training.orbax_utils.save_args_from_target(train_state)
+        train_state = checkpoint_manager.restore(t, items=train_state, restore_kwargs={'restore_args': restore_args})
+        # train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
+        checkpoint_manager.wait_until_finished()
+        agent.train_state = train_state
+    else: 
+        t = 0
+
+    return agent, t, checkpoint_manager
+
 
 def _main(cfg: ILConfig):
     init_config(cfg)
     latest_gen = init_il_config(cfg)
+    assert latest_gen is not None, \
+            "Must select an evo-gen from which to load playtraces for imitation learning when running IL script." +\
+            "Set `load_gen=-1` to load latest generation for which playtraces have been aggregated."
 
     # Environment class doesn't matter and will be overwritten when we load in an individual.
     # env = maze.make_env(10, 10)
@@ -437,29 +469,7 @@ def _main(cfg: ILConfig):
 
     kwargs = cfg.__dict__
     kwargs['num_steps'] = cfg.il_max_steps
-    agent = BCLearner(cfg=cfg, seed=cfg.seed,
-                      observations=env.observation_space.sample()[np.newaxis],
-                      actions=np.array(env.action_space.sample())[np.newaxis], actor_lr=cfg.il_lr,
-                      num_steps=cfg.il_max_steps)
-
-    # FIXME this is silly, lift this out!
-    train_state = agent.train_state
-
-    options = ocp.CheckpointManagerOptions(
-        max_to_keep=2, create=True)
-    checkpoint_manager = ocp.CheckpointManager(
-        cfg._il_ckpt_dir,
-        checkpointers=ocp.Checkpointer(ocp.PyTreeCheckpointHandler()), options=options)
-
-    if checkpoint_manager.latest_step() is not None:
-        t = checkpoint_manager.latest_step()
-        restore_args = flax.training.orbax_utils.save_args_from_target(train_state)
-        train_state = checkpoint_manager.restore(t, items=train_state, restore_kwargs={'restore_args': restore_args})
-        # train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
-        checkpoint_manager.wait_until_finished()
-        agent.train_state = train_state
-    else: 
-        t = 0
+    agent, t, checkpoint_manager = init_bc_agent(cfg, env)
 
     eval_returns = []
     for i in tqdm.tqdm(range(t, cfg.il_max_steps + 1),

@@ -21,14 +21,14 @@ hydra:
 
   sweeper:
     params:
-      # load_gen: 5, 10, 15, 20
-      load_gen: 5, 10
+      load_gen: 5, 10, 15, 20
+      # load_gen: 15
+      load_il: True, False
+      evo_freq: -1, 1, 10
 
 
 env_exp_id: 14
 
-load_il: True
 load_rl: False
-save_freq: 1
 eval_freq: 1
 # n_iters: 1000000
