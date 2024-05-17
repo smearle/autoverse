@@ -46,6 +46,7 @@ class GenEnvParams:
     rule_dones: chex.Array
     map: chex.Array
     player_placeable_tiles: chex.Array
+    env_idx: Optional[int] = None
 
 
 @struct.dataclass
@@ -304,7 +305,7 @@ class PlayEnv(gym.Env):
 
         # Print action and donw
         # jax.debug.print("action {action} done {done}", action=action, done=done)
-        return obs, state, reward, done, info, params
+        return obs, state, reward, done, info, params.env_idx
 
 
     @partial(jax.jit, static_argnums=(0,))

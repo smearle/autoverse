@@ -58,8 +58,15 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
     # with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_test_elites.pkl"), 'rb') as f:
     with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_filtered_test_elites.pkl"), 'rb') as f:
         test_elites = pickle.load(f)
+    
+    elites = []
+    for e in [train_elites, val_elites, test_elites]:
+        e: IndividualPlaytraceData
+        n_elites = e.env_params.rule_dones.shape[0]
+        e = e.replace(env_params=e.env_params.replace(env_idx=jnp.arange(n_elites)))
+        elites.append(e)
 
-    return train_elites, val_elites, test_elites
+    return elites
 
     
 def init_il_config(cfg: ILConfig):
@@ -90,5 +97,7 @@ def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
     else:
         latest_il_update_step = None
     cfg._log_dir_rl +=  f'_evogen-{cfg.load_gen}_accel-{cfg.evo_freq}_' + \
-        (f'ilstep-{latest_il_update_step}_' if latest_il_update_step is not None else '') + f's-{cfg.rl_seed}_{cfg.rl_exp_name}'
+        f'ilstep-{latest_il_update_step}_' + \
+        f'tenvs-{cfg.n_train_envs}_' + \
+        f's-{cfg.rl_seed}_{cfg.rl_exp_name}'
     return latest_il_update_step
