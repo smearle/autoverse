@@ -35,6 +35,7 @@ class GenEnvConfig:
     collect_elites: bool = False
     load_game: Optional[str] = None
     load_gen: Optional[int] = None
+    render_all: bool = False
 
     _log_dir_il: Optional[str] = None
     _log_dir_rl: Optional[str] = None
@@ -66,7 +67,7 @@ class GenEnvConfig:
 
 @dataclass
 class ILConfig(GenEnvConfig):
-    il_max_steps: int = int(1e8)
+    il_max_steps: int = int(16e6)
     il_batch_size: int = 4096
     il_tqdm: bool = True
     il_lr: float = 1.0e-4
@@ -85,7 +86,7 @@ class RLConfig(ILConfig):
     rl_exp_name: str = "0"
     lr: float = 1.0e-4
     num_steps: int = 128
-    total_timesteps: int = int(5e7)
+    total_timesteps: int = int(1e9)
     update_epochs: int = 10
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
@@ -101,12 +102,18 @@ class RLConfig(ILConfig):
     problem: str = "binary"
     representation: str = "narrow"
 
-    evo_freq: int = 10
+    # Mostly for debugging, in case we want to train only on a subset of the available training envs.
+    n_train_envs: int = -1
+
+    evo_freq: int = -1
     val_freq: int = 10
-    n_envs: int = 20
+    n_envs: int = 800
     evo_pop_size: int = 10
     evo_mutate_prob: float = 0.1
     blank_env_start: bool = False
+
+    render: bool = False
+    n_render_eps: int = 1
 
     # change_pct: float = -1.0
 
@@ -123,8 +130,6 @@ class RLConfig(ILConfig):
     """ DO NOT USE. WILL BE OVERWRITTEN. """
     _n_gpus: int = 1
 
-@dataclass
-class TrainConfig(RLConfig):
     overwrite: bool = False
 
     # Save a checkpoint after (at least) this many timesteps
@@ -143,12 +148,12 @@ class TrainConfig(RLConfig):
     MINIBATCH_SIZE: Optional[int] = None
     ###########################################################################
 
-@dataclass
-class TrainAccelConfig(TrainConfig):
-    evo_freq: int = 10
-    n_envs: int = 20
-    evo_pop_size: int = 10
-    evo_mutate_prob: float = 0.1
+# @dataclass
+# class TrainAccelConfig(TrainConfig):
+#     evo_freq: int = 10
+#     n_envs: int = 20
+#     evo_pop_size: int = 10
+#     evo_mutate_prob: float = 0.1
 
 
 @dataclass
@@ -158,11 +163,11 @@ class EnjoyConfig(RLConfig):
     n_eps: int = 10
 
 
-@dataclass
-class EnjoyAccelConfig(TrainAccelConfig, EnjoyConfig):
-    random_agent: bool = False
-    # How many episodes to render as gifs
-    n_eps: int = 10
+# @dataclass
+# class EnjoyAccelConfig(TrainAccelConfig, EnjoyConfig):
+#     random_agent: bool = False
+#     # How many episodes to render as gifs
+#     n_eps: int = 10
 
     
 @dataclass
@@ -181,7 +186,7 @@ class ProfileEnvConfig(RLConfig):
 
 
 @dataclass
-class BatchConfig(TrainConfig):
+class BatchConfig(RLConfig):
     mode: str = 'train'
     slurm: bool = True
 
@@ -190,10 +195,10 @@ cs = ConfigStore.instance()
 cs.store(name="base_config", node=GenEnvConfig)
 cs.store(name="rl_config_old", node=RLConfig)
 cs.store(name="il_config", node=ILConfig)
-cs.store(name="train_xlife", node=TrainConfig)
-cs.store(name="rl_config", node=TrainAccelConfig)
+# cs.store(name="train_xlife", node=TrainConfig)
+cs.store(name="rl_config", node=RLConfig)
 cs.store(name="enjoy_xlife", node=EnjoyConfig)
-cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
+# cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
 cs.store(name="eval_xlife", node=EvalConfig)
 cs.store(name="profile_xlife", node=ProfileEnvConfig)
 cs.store(name="batch_xlife", node=BatchConfig)

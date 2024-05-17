@@ -12,53 +12,58 @@ from gen_env.configs.config import EnjoyConfig
 from gen_env.envs.play_env import GenEnvParams, GenEnvState, PlayEnv
 from gen_env.evo.individual import IndividualPlaytraceData
 from gen_env.utils import init_base_env
-from train_accel import RunnerState, init_checkpointer
+from rl_player_jax import RunnerState, init_checkpointer
 from pcgrl_utils import get_network
 from gen_env.utils import init_config
 from utils import init_il_config, init_rl_config, load_elite_envs
 
 
-@hydra.main(version_base=None, config_path='gen_env/configs/', config_name='enjoy_xlife')
-def main_enjoy(cfg: EnjoyConfig):
-    init_config(cfg)
-    latest_gen = init_il_config(cfg)
-    init_rl_config(cfg, latest_gen)
+# @hydra.main(version_base=None, config_path='gen_env/configs/', config_name='enjoy_xlife')
+# def main_enjoy(cfg: EnjoyConfig):
+#     init_config(cfg)
+#     latest_gen = init_il_config(cfg)
+#     init_rl_config(cfg, latest_gen)
 
-    train_elites: IndividualPlaytraceData
-    train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
-    # Select random elites to run inference on
-    idxs = jax.random.permutation(jax.random.PRNGKey(cfg.seed), jnp.arange(train_elites.fitness.shape[0]))[:cfg.n_eps]
+#     train_elites: IndividualPlaytraceData
+#     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
+#     # Select random elites to run inference on
+#     idxs = jax.random.permutation(jax.random.PRNGKey(cfg.seed), jnp.arange(train_elites.fitness.shape[0]))[:cfg.n_eps]
 
-    # We'll render on these different maps/rules
-    env_params_v = jax.tree.map(lambda x: x[idxs], train_elites.env_params)
-    val_params_v = val_elites.env_params
+#     # We'll render on these different maps/rules
+#     env_params_v = jax.tree.map(lambda x: x[idxs], train_elites.env_params)
+#     val_params_v = val_elites.env_params
 
-    # This is just for reference
-    dummy_env_params = jax.tree.map(lambda x: x[0], env_params_v)
+#     # This is just for reference
+#     dummy_env_params = jax.tree.map(lambda x: x[0], env_params_v)
 
 
-    # Convenienve HACK so that we can render progress without stopping training. Uncomment this or 
-    # set JAX_PLATFORM_NAME=cpu in your terminal environment before running this script to run it on cpu.
-    # WARNING: Be sure to set it back to gpu before training again!
-    # os.system("export JAX_PLATFORM_NAME=cpu")
+#     # Convenienve HACK so that we can render progress without stopping training. Uncomment this or 
+#     # set JAX_PLATFORM_NAME=cpu in your terminal environment before running this script to run it on cpu.
+#     # WARNING: Be sure to set it back to gpu before training again!
+#     # os.system("export JAX_PLATFORM_NAME=cpu")
 
-    if not cfg.random_agent:
-        checkpoint_manager, restored_ckpt = init_checkpointer(cfg, env_params_v, val_params_v)
-        runner_state: RunnerState = restored_ckpt['runner_state']
-        env_params_v = jax.tree.map(lambda x: x[idxs], runner_state.train_env_params)
-        # env_params_v = jax.tree.map(lambda x: x[:cfg.n_eps], runner_state.evo_state.env_params)
-        network_params = runner_state.train_state.params
-    elif not os.path.exists(cfg._log_dir_rl):
-        os.makedirs(cfg._log_dir_rl)
+#     if not cfg.random_agent:
+#         checkpoint_manager, restored_ckpt = init_checkpointer(cfg, env_params_v, val_params_v)
+#         runner_state: RunnerState = restored_ckpt['runner_state']
+#         env_params_v = jax.tree.map(lambda x: x[idxs], runner_state.train_env_params)
+#         # env_params_v = jax.tree.map(lambda x: x[:cfg.n_eps], runner_state.evo_state.env_params)
+#         network_params = runner_state.train_state.params
+#     elif not os.path.exists(cfg._log_dir_rl):
+#         os.makedirs(cfg._log_dir_rl)
 
-    env: PlayEnv
-    env, _ = init_base_env(cfg)
-    # env.prob.init_graphics()
-    network = get_network(env, dummy_env_params, cfg)
+#     env: PlayEnv
+#     env, _ = init_base_env(cfg)
+#     # env.prob.init_graphics()
+#     network = get_network(env, dummy_env_params, cfg)
+
+def main_enjoy(train_env_params, env, cfg, network, network_params, runner_state):
 
     rng = jax.random.PRNGKey(cfg.seed)
-    n_train_envs = env_params_v.rule_dones.shape[0]
+    n_train_envs = train_env_params.rule_dones.shape[0]
     rng_reset = jax.random.split(rng, cfg.n_eps)
+
+    # This is just for reference
+    dummy_env_params = jax.tree.map(lambda x: x[0], train_env_params)
 
     # frz_map = jnp.zeros(env.map_shape, dtype=jnp.int8)
     # frz_map = frz_map.at[7, 3:-3].set(1)
@@ -105,10 +110,10 @@ def main_enjoy(cfg: EnjoyConfig):
     # jax.device_put(states, jax.devices('cpu'))
     jax.tree.map(lambda x: jax.device_put(x, jax.devices('cpu')[0]), states)
 
-    for ep_i in range(states.ep_rew.shape[1]):
-        train_elite_i: IndividualPlaytraceData = jax.tree_map(lambda x: x[ep_i], train_elites)
-        # print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}. Search reward: {train_elite_i.rew_seq.sum()}')
-        print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}')
+    # for ep_i in range(states.ep_rew.shape[1]):
+    #     train_elite_i: IndividualPlaytraceData = jax.tree_map(lambda x: x[ep_i], train_elites)
+    #     # print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}. Search reward: {train_elite_i.rew_seq.sum()}')
+    #     print(f'Ep {ep_i}. RL reward: {states.ep_rew[:, ep_i].sum()}')
 
     states = jax.device_put(states, jax.devices('cpu')[0])
     

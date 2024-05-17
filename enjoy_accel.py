@@ -10,22 +10,22 @@ from evo_accel import distribute_evo_envs_to_train
 from gen_env.configs.config import EnjoyConfig
 # from envs.pcgrl_env import PCGRLEnv, render_stats
 from gen_env.envs.play_env import PlayEnv
-from gen_env.utils import init_base_env
-from train_accel import init_checkpointer, RunnerState
-from pcgrl_utils import get_exp_dir, get_network, init_config
+from gen_env.utils import init_base_env, init_config
+from rl_player_jax import init_checkpointer, RunnerState
+from pcgrl_utils import get_network
 
 
 @hydra.main(version_base=None, config_path='gen_env/configs/',
             config_name='enjoy_accel_xlife')
 def main_enjoy(config: EnjoyConfig):
-    config = init_config(config)
+    init_config(config)
+    exp_dir = config._log_dir_rl
 
     # Convenienve HACK so that we can render progress without stopping training. Uncomment this or 
     # set JAX_PLATFORM_NAME=cpu in your terminal environment before running this script to run it on cpu.
     # WARNING: Be sure to set it back to gpu before training again!
     # os.system("export JAX_PLATFORM_NAME=cpu")
 
-    exp_dir = get_exp_dir(config)
     if not config.random_agent:
         checkpoint_manager, restored_ckpt = init_checkpointer(config)
         runner_state: RunnerState = restored_ckpt['runner_state']

@@ -8,19 +8,20 @@ defaults:
 
 
 hydra:
-  sweeper:
-    params:
-      # env_exp_id: 14, 15, 16
-      env_exp_id: 14
-      evo_seed: 1, 2
-  
-
   launcher:
     tasks_per_node: 1
     cpus_per_task: 1
     gpus_per_node: 1
     timeout_min: 2880
     mem_gb: 30
+
+  sweeper:
+    params:
+      # env_exp_id: 14, 15, 16
+      env_exp_id: 14
+      # evo_seed: 0, 1, 2
+      evo_seed: 3, 4, 5
+  
 
   job:
     # Prevent hydra from automatically changing the working directory of each experiment.

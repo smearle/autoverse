@@ -32,7 +32,7 @@ from gen_env.evo.individual import Individual, IndividualData, IndividualPlaytra
 from gen_env.rules import compile_rule
 from gen_env.utils import gen_rand_env_params, init_base_env, init_config
 from gen_env.evo.individual import Individual, IndividualData, hash_individual
-from utils import concatenate_leaves, stack_leaves
+from utils import concatenate_leaves, load_elite_envs, stack_leaves
 
 
 
@@ -43,7 +43,7 @@ class Playtrace:
     reward_seq: List[float]
     done_seq: chex.Array
 
-
+    
 def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
 
     # If overwriting, or elites have not previously been aggregated, then collect all unique games.
@@ -56,18 +56,22 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
         latest_gen = max(gen_nums)
     else:
         latest_gen = cfg.load_gen
-        elite_files = [ef for gn, ef in zip(gen_nums, elite_files) if gn <= latest_gen]
+        elite_files_gns = [(ef, gn) for gn, ef in zip(gen_nums, elite_files) if gn <= latest_gen]
     # An elite is a set of game rules, a game map, and a solution/playtrace
     # elite_hashes = set()
     elites = {}
     n_evaluated = 0
-    for f in elite_files:
+    n_filtered = 0
+    for f, gn in elite_files_gns:
         save_dict = np.load(f, allow_pickle=True)['arr_0'].item()
         elites_i = save_dict['elites']
         for elite in elites_i:
             elite: IndividualData
             n_evaluated += 1
             e_hash = hash_individual(elite)
+            if elite.fitness[0].item() < 2:
+                n_filtered += 1
+                continue
             if e_hash not in elites or elites[e_hash].fitness.item() < elite.fitness[0].item():
                 # HACK which kind of runs counter to naming
                 elite = elite.replace(fitness=jnp.array(elite.fitness[0]))
@@ -75,9 +79,9 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
                                      (0, max_episode_steps + 1 - len(elite.action_seq[0])),
                                      constant_values=-1)
                 elite = elite.replace(action_seq=action_seq)
-
                 elites[e_hash] = elite
-    print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals.")
+    print(f"Aggregated {len(elites)} unique elites from {n_evaluated} evaluated individuals. Filtered {n_filtered} " + \
+          f"elites with fitness < 2.")
     # Replay episodes, recording obs and rewards and attaching to individuals
     env, env_params = init_base_env(cfg)
     elites = list(elites.values())
@@ -138,13 +142,13 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
     # Save elites to file
     # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)
     # User pickle instead
-    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.pkl'), 'wb') as f:
+    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_train_elites.pkl'), 'wb') as f:
         pickle.dump(train_elites, f)
     # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.npz'), val_elites)
-    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.pkl'), 'wb') as f:
+    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_val_elites.pkl'), 'wb') as f:
         pickle.dump(val_elites, f)
     # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.npz'), test_elites)
-    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.pkl'), 'wb') as f:
+    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_test_elites.pkl'), 'wb') as f:
         pickle.dump(test_elites, f)
 
     # Save unique elites to npz file
@@ -417,6 +421,16 @@ def _main(cfg: GenEnvConfig):
         eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
         return
 
+    if cfg.render_all:    
+        save_files = glob.glob(os.path.join(cfg._log_dir_evo, 'gen-*.npz'))
+        for save_file in save_files:
+            save_dict = np.load(save_file, allow_pickle=True)['arr_0'].item()
+            n_gen = save_dict['n_gen']
+            elite_inds = save_dict['elites']
+            trg_n_iter = save_dict['trg_n_iter']
+            eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir, overwrite=False)
+        return
+
     def multiproc_eval_offspring(offspring):
         eval_offspring = []
         while len(offspring) > 0:
@@ -534,19 +548,23 @@ def _main(cfg: GenEnvConfig):
             eval_elites(cfg, env, elite_inds, n_gen=n_gen, vid_dir=vid_dir)
 
 
-def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str):
+def eval_elites(cfg: GenEnvConfig, env: PlayEnv, elites: Iterable[IndividualData], n_gen: int, vid_dir: str,
+                overwrite=True):
     """ Evaluate elites."""
     # Sort elites by fitness.
     elites = sorted(elites, key=lambda e: e.fitness[0], reverse=True)
     for e_idx, e in enumerate(elites[:10]):
         for best_i in range(len(e.fitness)):
+            vid_path = os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_trace-{best_i}_fitness-{e.fitness[best_i]}.mp4")
+            if not overwrite and os.path.isfile(vid_path):
+                continue
             print(f"Trace {best_i}, actions: {e.action_seq[best_i]}")
             playtraces, frames = replay_episode(cfg, env, e, record=cfg.record, best_i=best_i)
             if cfg.record:
                 # imageio.mimsave(os.path.join(log_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.gif"), frames, fps=10)
                 # Save as mp4
                 # imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.mp4"), frames, fps=10)
-                imageio.mimsave(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_trace-{best_i}_fitness-{e.fitness[best_i]}.mp4"), frames, fps=10)
+                imageio.mimsave(vid_path, frames, fps=10)
                 # Save elite as yaml
                 # ind.save(os.path.join(vid_dir, f"gen-{n_gen}_elite-{e_idx}_fitness-{e.fitness}.yaml"))
 
@@ -558,5 +576,5 @@ if __name__ == '__main__':
     # NOTE: Actually, seems like jax uses the GPU anyway :D Let's not touch this for now haha.
     jax_platform_name = os.system(' echo $JAX_PLATFORM_NAME')
     os.system('export JAX_PLATFORM_NAME=cpu')
-    _main()
+    main()
     os.system(f'export JAX_PLATFORM_NAME={jax_platform_name}')

@@ -6,14 +6,15 @@ from gen_env.configs.config import ILConfig
 from il_player_jax import main as train_il
 
 
-@dataclass
-class ILSweepParams:
-    load_gen: Tuple = (5, 10, 15, 20)
+# @dataclass
+# class ILSweepParams:
+#     load_gen: Tuple = (5, 10, 15, 20)
 
 
 def main():
     sweep_cfgs = []
-    for load_gen in (5, 10, 15, 20):
+    for load_gen in (5, 10, 15, 20, 65):
+    # for load_gen in (65,):
         cfg = ILConfig(
             load_gen=load_gen,
             env_exp_id=14,

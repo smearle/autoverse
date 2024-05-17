@@ -3,7 +3,7 @@ import os
 import jax
 import numpy as np
 
-from gen_env.configs.config import RLConfig, TrainConfig
+from gen_env.configs.config import RLConfig
 from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from models import ActorCritic, AutoEncoder, ConvForward, Dense, NCA, SeqNCA
 
