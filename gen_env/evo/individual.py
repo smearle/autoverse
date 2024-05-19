@@ -34,7 +34,6 @@ class IndividualPlaytraceData:
     obs_seq: chex.Array
     rew_seq: chex.Array
     done_seq: chex.Array
-    noop_ep_rew: Optional[int] = None
 
     
 def hash_individual(individual: IndividualData) -> int:
