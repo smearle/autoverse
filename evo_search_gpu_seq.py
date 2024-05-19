@@ -247,20 +247,20 @@ def replay_episode_jax(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
         obs, state, reward, done, info = env.step_env(key, state=state, action=action, params=params)    
 
         # Put a fake done here in case we have fewer actions than max_episode_steps. For IL dataset, just in case (?)
-        done = jax.lax.select(action_seq[i+1] == -1, True, done)
+        done = jax.lax.select(action_seq[i+1] == -1, jnp.array([True]), jnp.array([done]))
 
         i += 1
         rng, _ = jax.random.split(rng)
         # return (rng, obs, state, reward, done, i)
         return (rng, state, i), (obs, state, reward, done)
 
-    _, (obs_seq, state, rew_seq, done_seq) = jax.lax.scan(step_env, (key, state, 0), None, length=env.max_episode_steps)
+    _, (obs_seq, state, rew_seq, done_seq) = jax.lax.scan(step_env, (key, state, jnp.array([0])), None, length=env.max_episode_steps)
     # rng, obs_seq, state, rew_seq, done, i = jax.lax.while_loop(step_while, step_env, (key, obs, state, 0, False, 0))
 
     init_obs = jax.tree.map(lambda x: x[None], init_obs)
     obs_seq = concatenate_leaves((obs_seq, init_obs))
-    rew_seq = concatenate_leaves((rew_seq, jnp.array([0.0])))
-    done_seq = concatenate_leaves((done_seq, jnp.array([False])))
+    rew_seq = concatenate_leaves((rew_seq, jnp.array([[0.0]])))
+    done_seq = concatenate_leaves((done_seq, jnp.array([[False]])))
 
     playtrace = Playtrace(obs_seq=obs_seq, action_seq=action_seq,
                           reward_seq=rew_seq, done_seq=done_seq)

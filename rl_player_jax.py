@@ -664,7 +664,9 @@ def init_checkpointer(config: RLConfig, train_env_params: GenEnvParams, val_env_
 
 def restore_checkpoint(checkpoint_manager, runner_state, config):
     steps_prev_complete = checkpoint_manager.latest_step()
-    runner_state = checkpoint_manager.restore(steps_prev_complete, items=runner_state)
+    items = {'runner_state': runner_state, 'config': config, 'step_i': 0}
+    ckpt = checkpoint_manager.restore(steps_prev_complete, items=items)
+    runner_state = ckpt['runner_state']
     return runner_state
     
 
@@ -699,6 +701,7 @@ def _main(cfg: RLConfig):
     rng = jax.random.PRNGKey(cfg.seed)
 
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_evo_gen)
+
     # train_env_params = jax.tree.map(lambda x: x[:cfg.n_envs], train_elites.env_params)
     val_env_params = val_elites.env_params
 

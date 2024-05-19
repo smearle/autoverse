@@ -77,6 +77,9 @@ class ILConfig(GenEnvConfig):
     render_freq: int = 1
     model: str = "conv"
 
+    # In case we want to train only on a subset of the available training envs.
+    n_train_envs: int = -1
+
     _il_ckpt_dir: Optional[str] = None
 
 
@@ -101,9 +104,6 @@ class RLConfig(ILConfig):
     exp_name: str = "0"
     problem: str = "binary"
     representation: str = "narrow"
-
-    # Mostly for debugging, in case we want to train only on a subset of the available training envs.
-    n_train_envs: int = -1
 
     evo_freq: int = -1
     val_freq: int = 10

@@ -318,6 +318,7 @@ class AutoverseILDataset(Dataset):
                  clip_to_eps: bool = True,
                  eps: float = 1e-5):
 
+            # Dataset leaves have shape (n. eps, n. steps, ...), we flatten these two dimensions.
             dataset = jax.tree.map(lambda x: jnp.concatenate(x, 0), dataset)
 
             # Remove all entries where the action is -1 (early episode termination due to search iteration cap)

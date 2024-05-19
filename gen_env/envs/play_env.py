@@ -46,7 +46,16 @@ class GenEnvParams:
     rule_dones: chex.Array
     map: chex.Array
     player_placeable_tiles: chex.Array
+
     env_idx: Optional[int] = None
+    noop_ep_rew: Optional[int] = None
+    random_ep_rew: Optional[int] = None
+    search_ep_rew: Optional[int] = None
+    best_rl_ep_rew: Optional[int] = None
+    best_ep_rew: Optional[int] = None
+
+    rew_bias: float = 0
+    rew_scale: float = 1
 
 
 @struct.dataclass
@@ -116,7 +125,7 @@ class PlayEnv(gym.Env):
         # FIXME: too hardcoded (for maze_for_evo) rn
         self._n_fixed_rules = 0
 
-        self.ep_rew = 0
+        self.ep_rew = jnp.array([0])
         self._done = False
         if search_tiles is None:
             self._search_tiles = tiles
@@ -191,7 +200,7 @@ class PlayEnv(gym.Env):
         #     'player_rot': spaces.Discrete(4),
         #     'rules': spaces.Box(0, 1, (len_rule_obs * len(self.rules),))
         # })
-        self.observation_space = spaces.MultiBinary((self.view_size * 2 + 1) * (self.view_size * 2 + 1) * len(self.tiles) + 4 + len_rule_obs)
+        self.observation_space = spaces.MultiBinary((self.view_size * 2 + 1) * (self.view_size * 2 + 1) * len(self.tiles) + 4 + len_rule_obs + 2)
 
     def queue_games(self, maps: Iterable[np.ndarray], rules: Iterable[np.ndarray]):
         self._map_queue = maps
@@ -238,7 +247,7 @@ class PlayEnv(gym.Env):
             # rules = queued_params.rules
             # map_arr = queued_params.map_arr 
 
-        self.ep_rew = 0
+        self.ep_rew = jnp.array([0])
         self._has_applied_rule = False
         # Reset rules.
         # self.rules = copy.copy(self._init_rules)
@@ -258,7 +267,7 @@ class PlayEnv(gym.Env):
         player_pos = jnp.argwhere(map_arr[self.player_idx] == 1, size=1)[0]
         state = GenEnvState(
             n_step=self.n_step, map=map_arr, #, obj_set=obj_set,
-            player_rot=0, ep_rew=0.0,
+            player_rot=jnp.array([0]), ep_rew=jnp.array([0.0]),
             player_pos=player_pos,
             # params=params,
             # FIXME: padding is hard-coded here. Not a huge deal but will result in rendering issues if map/rule shape changes.
@@ -329,6 +338,7 @@ class PlayEnv(gym.Env):
         # self.event_graph.tick(self)
         state = self.act(action=action, state=state, params=params)
         state, reward, done = self.tick(state, params)
+        reward = (reward + params.rew_bias / self.max_episode_steps) * params.rew_scale
         n_step = state.n_step + 1
         ep_rew = state.ep_rew + reward
         state = state.replace(n_step=n_step, ep_rew=ep_rew)
@@ -417,14 +427,18 @@ class PlayEnv(gym.Env):
         map_obs = self.observe_map(state.map, state.player_pos)
         flat_obs = jnp.concatenate((
             jnp.eye(4)[state.player_rot].astype(jnp.float32).flatten(),
-            self.observe_rules(params).flatten()))
+            self.observe_rules(params).flatten(),
+        #     flat_obs, jnp.array([params.rew_bias / self.max_episode_steps, params.rew_scale])
+        ))
         return GenEnvObs(map_obs, flat_obs)
         
     def gen_dummy_obs(self, params: GenEnvParams):
         map_obs = self.observe_map(jnp.zeros(self.map_shape), (0, 0))
         flat_obs = jnp.concatenate((
             jnp.eye(4)[0].astype(jnp.float32).flatten(),
-            self.observe_rules(params).flatten()))
+            self.observe_rules(params).flatten(),
+            # jnp.zeros((2,))
+        ))
         return GenEnvObs(map_obs[None], flat_obs[None])
 
     def repair_map(key, map: chex.Array, fixed_tile_nums: chex.Array):

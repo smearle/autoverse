@@ -66,6 +66,12 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
         e = e.replace(env_params=e.env_params.replace(env_idx=jnp.arange(n_elites)))
         elites.append(e)
 
+    # Sort train elites by fitness (seems to be already sorted but... just in case!)
+    train_elites = elites[0]
+    fit_idxs = jnp.argsort(train_elites.fitness, axis=0)
+    train_elites = jax.tree_map(lambda x: x[fit_idxs[:, 0]], train_elites)
+    elites[0] = train_elites
+
     return elites
 
     
