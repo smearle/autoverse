@@ -40,13 +40,15 @@ def eval_elite_noop(params, env):
     return ep_reward
 
 
-def eval_elite_random(params, env):
+def eval_elite_random(params, env, n_eps=100):
     rng = jax.random.PRNGKey(0)  # inconsequential
     _step_env_random = partial(step_env_random, env=env)
     obs, state = env.reset(rng, params) 
-    _, rewards = jax.lax.scan(_step_env_random, (obs, state, params), None, env.max_episode_steps * 100)
-    ep_reward = rewards.sum() / 100
-    return ep_reward
+    _, rewards = jax.lax.scan(_step_env_random, (obs, state, params), None, env.max_episode_steps * n_eps)
+    ep_reward_mean = rewards.mean()
+    ep_reward_std = rewards.std()
+    ep_reward_max = rewards.max()
+    return ep_reward_mean, ep_reward_std, ep_reward_max
 
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
@@ -55,7 +57,7 @@ def main(cfg: GenEnvConfig):
     env, dummy_params = init_base_env(cfg)
     env: PlayEnv
     _eval_elite_noop = partial(eval_elite_noop, env=env)
-    _eval_elite_random = partial(eval_elite_noop, env=env)
+    _eval_elite_random = partial(eval_elite_random, env=env)
     rng = jax.random.PRNGKey(cfg.seed)
 
     train_elites, val_elites, test_elites = load_elite_envs(cfg, cfg.load_gen)
@@ -71,19 +73,22 @@ def main(cfg: GenEnvConfig):
         # TODO: May need to batch this vmapping to prevent OOM
         noop_ep_rewards = jax.vmap(_eval_elite_noop, in_axes=(0))(e_params)
         e = e.replace(env_params=e.env_params.replace(noop_ep_rew=noop_ep_rewards))
-        random_ep_rewards = jax.vmap(_eval_elite_random, in_axes=(0))(e_params)
-        e = e.replace(env_params=e.env_params.replace(random_ep_rew=random_ep_rewards))
+        random_ep_reward_means, random_ep_reward_stds, random_ep_reward_maxs = \
+            jax.vmap(_eval_elite_random, in_axes=(0))(e_params)
+        e = e.replace(env_params=e.env_params.replace(random_ep_rew=random_ep_reward_means))
         e = e.replace(env_params=e.env_params.replace(search_ep_rew=e.rew_seq.sum(1)))
 
-        stacked_ep_rews = jnp.stack([e.env_params.noop_ep_rew, e.env_params.random_ep_rew, e.env_params.search_ep_rew[:, 0]], axis=1)
+        # stacked_ep_rews = jnp.stack([e.env_params.noop_ep_rew, e.env_params.random_ep_rew, e.env_params.search_ep_rew[:, 0]], axis=1)
+        stacked_ep_rews = jnp.stack([e.env_params.noop_ep_rew, random_ep_reward_maxs], axis=1)
 
         best_ep_rew = jnp.max(stacked_ep_rews, axis=1)
         worst_ep_rew = jnp.min(stacked_ep_rews, axis=1)
 
-        reward_bias = -random_ep_rewards
+        reward_bias = -random_ep_reward_means
         e = e.replace(env_params=e.env_params.replace(rew_bias=reward_bias))
         # Note that since we have integer rewards, this will always be a decimal
-        reward_scale = 1 / (best_ep_rew - worst_ep_rew) 
+        # reward_scale = 1 / random_ep_reward_stds
+        reward_scale = 1 / (best_ep_rew - worst_ep_rew)
         reward_scale = jnp.where(jnp.isinf(reward_scale), 1, reward_scale)
         e = e.replace(env_params=e.env_params.replace(rew_scale=reward_scale))
         
