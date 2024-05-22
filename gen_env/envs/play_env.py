@@ -428,7 +428,7 @@ class PlayEnv(gym.Env):
         flat_obs = jnp.concatenate((
             jnp.eye(4)[state.player_rot].astype(jnp.float32).flatten(),
             self.observe_rules(params).flatten(),
-        #     flat_obs, jnp.array([params.rew_bias / self.max_episode_steps, params.rew_scale])
+            jnp.array([params.rew_bias / self.max_episode_steps, params.rew_scale])
         ))
         return GenEnvObs(map_obs, flat_obs)
         
@@ -437,7 +437,7 @@ class PlayEnv(gym.Env):
         flat_obs = jnp.concatenate((
             jnp.eye(4)[0].astype(jnp.float32).flatten(),
             self.observe_rules(params).flatten(),
-            # jnp.zeros((2,))
+            jnp.zeros((2,))
         ))
         return GenEnvObs(map_obs[None], flat_obs[None])
 
