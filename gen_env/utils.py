@@ -20,7 +20,9 @@ def init_config(cfg: GenEnvConfig):
     env_exp_name = (f"{cfg.game}_{'mutRule_' if cfg.mutate_rules else ''}{'fixMap_' if cfg.fix_map else ''}" + 
         (f's-{cfg.evo_seed}_' if cfg.evo_seed != 0 else '') + f"exp-{cfg.env_exp_id}")
 
-    cfg._log_dir_common = os.path.join(cfg.workspace, env_exp_name)
+    # Get path to parent directory of this file
+    grandparent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cfg._log_dir_common = os.path.join(grandparent_dir, cfg.workspace, env_exp_name)
 
     player_exp_name = (f"player{'_hideRule' if cfg.hide_rules else ''}")
 

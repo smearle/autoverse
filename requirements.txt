@@ -11,4 +11,6 @@ networkx
 opencv-python
 pygame
 tensorboardX
+tensorflow
+tf_keras
 tqdm

@@ -2,14 +2,13 @@ from dataclasses import dataclass
 import itertools
 from typing import Tuple
 
+import hydra
 import submitit
 
-from gen_env.configs.config import RLConfig
+from gen_env.configs.config import SweepRLConfig, RLConfig
+from plot import main as plot_rl
 from rl_player_jax import main as train_rl
 
-
-# mode = 'local'
-mode = 'slurm'
 
 # hypers = {
 #     'load_gen': (5, 10, 15, 20, 65),
@@ -26,24 +25,29 @@ class HyperParams:
     load_il: Tuple[bool] = (False,)
     evo_freq: Tuple[int] = (-1, 1, 10)
     # evo_freq: Tuple[int] = (-1,)
-    n_train_envs: Tuple[int] = (5, 10, 50, 100, -1)
+    n_train_envs: Tuple[int] = (5, 10, 50, 100,)
 
 
-def main():
+@hydra.main(config_path="gen_env/configs", config_name="sweep_rl_config")
+def main(cfg):
+    if cfg.mode == 'train':
+        main_fn = train_rl
+    elif cfg.mode == 'plot':
+        main_fn = plot_rl
     hypers = HyperParams()
     h_ks, h_vs = zip(*hypers.__dict__.items())
     all_hyper_combos = list(itertools.product(*h_vs))
     all_hyper_combos = [dict(zip(h_ks, h_v)) for h_v in all_hyper_combos]
     sweep_cfgs = []
     for h in all_hyper_combos:
-        cfg = RLConfig(
+        e_cfg = RLConfig(
             **h,
             env_exp_id=14,
             overwrite=True,
         )
-        sweep_cfgs.append(cfg)
-
-    if mode == 'slurm':
+        sweep_cfgs.append(e_cfg)
+    
+    if cfg.slurm:
         executor = submitit.AutoExecutor(folder='submitit_logs_rl')
         executor.update_parameters(
                 job_name=f"rl",
@@ -54,9 +58,15 @@ def main():
                 timeout_min=2880,
                 slurm_gres='gpu:1',
             )
-        executor.map_array(train_rl, sweep_cfgs)
+        executor.map_array(main_fn, sweep_cfgs)
     else:
-        ret = [train_rl(sc) for sc in sweep_cfgs]
+        ret = []
+        for sc in sweep_cfgs:
+            try:
+                ret.append(main_fn(sc))
+            except Exception as e:
+                print(f"Failed with: \n{e}")
+        return ret
 
 
 if __name__ == '__main__':
