@@ -54,14 +54,17 @@ def eval_elite_random(params, env, n_eps=100):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def main(cfg: GenEnvConfig):
     init_config(cfg)
+    train_elites, val_elites, test_elites = load_elite_envs(cfg, cfg.load_gen)
+    return compute_noop_rewards(cfg, train_elites, val_elites, test_elites)
+
+
+def compute_noop_rewards(cfg: GenEnvConfig, train_elites: IndividualPlaytraceData,
+                         val_elites: IndividualPlaytraceData, test_elites: IndividualPlaytraceData):
     env, dummy_params = init_base_env(cfg)
     env: PlayEnv
     _eval_elite_noop = partial(eval_elite_noop, env=env)
     _eval_elite_random = partial(eval_elite_random, env=env)
     rng = jax.random.PRNGKey(cfg.seed)
-
-    train_elites, val_elites, test_elites = load_elite_envs(cfg, cfg.load_gen)
-
     new_elite_sets = []
     for e in [train_elites, val_elites, test_elites]:
         e: IndividualPlaytraceData
