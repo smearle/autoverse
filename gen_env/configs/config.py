@@ -186,19 +186,19 @@ class ProfileEnvConfig(RLConfig):
 
 
 @dataclass
-class BatchConfig(RLConfig):
+class SweepRLConfig():
     mode: str = 'train'
     slurm: bool = True
 
 
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=GenEnvConfig)
-cs.store(name="rl_config_old", node=RLConfig)
+# cs.store(name="rl_config_old", node=RLConfig)
 cs.store(name="il_config", node=ILConfig)
 # cs.store(name="train_xlife", node=TrainConfig)
 cs.store(name="rl_config", node=RLConfig)
+cs.store(name="sweep_rl_config", node=SweepRLConfig)
 cs.store(name="enjoy_xlife", node=EnjoyConfig)
 # cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
 cs.store(name="eval_xlife", node=EvalConfig)
 cs.store(name="profile_xlife", node=ProfileEnvConfig)
-cs.store(name="batch_xlife", node=BatchConfig)
