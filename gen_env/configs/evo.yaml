@@ -19,8 +19,9 @@ hydra:
     params:
       # env_exp_id: 14, 15, 16
       env_exp_id: 14
-      # evo_seed: 0, 1, 2
-      evo_seed: 3, 4, 5
+      # evo_seed: 0
+      evo_seed: 0, 1, 2, 3, 4, 5
+      # evo_seed: 3, 4, 5
   
 
   job:

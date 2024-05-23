@@ -21,12 +21,12 @@ mode = 'slurm'
 
 @dataclass
 class HyperParams:
-    load_gen: Tuple[int] = (5, 10, 15, 20, 65)
+    load_gen: Tuple[int] = (5, 10, 50, 100)
     # load_il: Tuple[bool] = (True, False)
     load_il: Tuple[bool] = (False,)
-    # evo_freq: Tuple[int] = (-1, 1, 10)
-    evo_freq: Tuple[int] = (-1,)
-    n_train_envs: Tuple[int] = (1, 5, 10, 50, 100, -1)
+    evo_freq: Tuple[int] = (-1, 1, 10)
+    # evo_freq: Tuple[int] = (-1,)
+    n_train_envs: Tuple[int] = (5, 10, 50, 100, -1)
 
 
 def main():

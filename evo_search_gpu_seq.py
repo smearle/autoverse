@@ -12,6 +12,7 @@ import traceback
 from typing import Iterable, List
 
 import chex
+from compute_noop_rewards import compute_noop_rewards
 from einops import rearrange
 from flax import struct
 import hydra
@@ -139,17 +140,20 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
         os.mkdir(cfg._log_dir_player_common)
 
     train_elites, val_elites, test_elites = split_elites(cfg, playtraces)
+
+    compute_noop_rewards(cfg, train_elites, val_elites, test_elites)
+    
     # Save elites to file
     # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)
     # User pickle instead
-    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_train_elites.pkl'), 'wb') as f:
-        pickle.dump(train_elites, f)
-    # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.npz'), val_elites)
-    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_val_elites.pkl'), 'wb') as f:
-        pickle.dump(val_elites, f)
-    # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.npz'), test_elites)
-    with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_test_elites.pkl'), 'wb') as f:
-        pickle.dump(test_elites, f)
+    # with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_train_elites.pkl'), 'wb') as f:
+    #     pickle.dump(train_elites, f)
+    # # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_val_elites.npz'), val_elites)
+    # with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_val_elites.pkl'), 'wb') as f:
+    #     pickle.dump(val_elites, f)
+    # # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_test_elites.npz'), test_elites)
+    # with open(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_filtered_test_elites.pkl'), 'wb') as f:
+    #     pickle.dump(test_elites, f)
 
     # Save unique elites to npz file
     # If not overwriting, load existing elites
