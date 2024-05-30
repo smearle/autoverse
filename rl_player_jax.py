@@ -32,7 +32,7 @@ from gen_env.utils import gen_rand_env_params, init_base_env, init_config
 from il_player_jax import init_bc_agent
 from purejaxrl.experimental.s5.wrappers import LogWrapper
 from pcgrl_utils import get_rl_ckpt_dir, get_network
-from utils import init_il_config, init_rl_config, load_elite_envs
+from utils import evaluate_on_env_params, get_rand_train_envs, init_il_config, init_rl_config, load_elite_envs
 logging.getLogger('jax').setLevel(logging.INFO)
 
 
@@ -89,72 +89,6 @@ def log_callback(metric, steps_prev_complete, cfg: RLConfig, writer, train_start
         writer.add_scalar("rl/fps", fps, t)
 
         print(f"fps: {fps}")
-
-        
-def get_rand_train_envs(train_env_params: GenEnvParams, n_envs: int, rng: jax.random.PRNGKey, replace=False):
-    """From available `train_env_params, randomly sample `n_envs` many environments. First, tile `train_env_params` if 
-    there are not enough."""
-    n_avail_train_envs = train_env_params.rule_dones.shape[0]
-    n_reps = int(np.ceil(n_envs / n_avail_train_envs))
-    train_env_params = jax.tree.map(lambda x: jnp.repeat(x, n_reps, axis=0), train_env_params)
-    n_avail_train_envs = train_env_params.rule_dones.shape[0]
-    rand_idxs = jax.random.choice(rng, n_avail_train_envs, (n_envs,), replace=replace)
-    return jax.tree.map(lambda x: x[rand_idxs], train_env_params)
-
-
-def eval(rng: jax.random.PRNGKey, cfg: RLConfig, env: PlayEnv, env_params: GenEnvParams, network, network_params,
-         update_i: int, writer, n_eps: int = 1):
-
-    def step_env(carry, _):
-        env_state: LogEnvState
-        rng, obs, env_state, curr_env_param_idxs, network_params = carry
-        rng, _rng = jax.random.split(rng)
-
-        next_params = get_rand_train_envs(env_params, cfg.n_envs, _rng)
-        curr_env_params = jax.tree.map(lambda x: x[curr_env_param_idxs], env_params)
-
-        pi, value = network.apply(network_params, obs)
-        action_r = pi.sample(seed=rng)
-        rng_step = jax.random.split(_rng, cfg.n_envs)
-
-        # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
-        vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
-        # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
-        obs, env_state, reward_r, done_r, info_r, curr_env_param_idxs = vmap_step_fn(
-                        rng_step, env_state, action_r,
-                        curr_env_params, next_params)
-        
-        return (rng, obs, env_state, curr_env_param_idxs, network_params),\
-            (env_state, reward_r, done_r, info_r, value)
-
-    eval_rng = jax.random.split(rng, cfg.n_envs)
-
-    curr_env_params = get_rand_train_envs(env_params, cfg.n_envs, rng, replace=True)
-    rng = jax.random.split(rng)[0]
-
-    obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
-            eval_rng, curr_env_params
-    )
-
-    _, (states, rewards, dones, infos, values) = jax.lax.scan(
-        step_env, (rng, obsv, env_state, curr_env_params.env_idx, network_params),
-        None, n_eps*env.max_episode_steps)
-
-    returns = rewards.sum(axis=0)
-
-    _eval_log_callback = partial(eval_log_callback, writer=writer)
-
-    jax.experimental.io_callback(_eval_log_callback, None, metric={
-        'mean_return': returns.mean(),
-        'max_return': returns.max(),
-        'min_return': returns.min(),
-    }, t=update_i)
-
-
-def eval_log_callback(metric, writer, t):
-    writer.add_scalar("rl/eval/ep_return", metric['mean_return'], t)
-    writer.add_scalar("rl/eval/ep_return_max", metric['max_return'], t)
-    writer.add_scalar("rl/eval/ep_return_min", metric['min_return'], t)
 
 
 def render(train_env_params, env, cfg, network, network_params, runner_state):
@@ -578,7 +512,8 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
             if cfg.val_freq != -1:
                 do_eval = runner_state.update_i % cfg.val_freq == 0
                 jax.lax.cond(do_eval,
-                             lambda: eval(rng, cfg, env, val_env_params, network, train_state.params, runner_state.update_i,
+                             lambda: evaluate_on_env_params(rng, cfg, env, val_env_params, network.apply,
+                                                            train_state.params, runner_state.update_i,
                                           writer),
                              lambda: None)
 
@@ -639,11 +574,13 @@ def init_checkpointer(config: RLConfig, train_env_params: GenEnvParams, val_env_
     reset_rng = jax.random.split(_rng, config.n_envs)
 
     # reset_rng_r = reset_rng.reshape((config.n_gpus, -1) + reset_rng.shape[1:])
-    vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, None))
+    vmap_reset_fn = jax.vmap(env.reset, in_axes=(0, 0))
     # pmap_reset_fn = jax.pmap(vmap_reset_fn, in_axes=(0, None))
+    curr_env_params = get_rand_train_envs(train_env_params, config.n_envs, _rng)
+    curr_env_param_idxs = curr_env_params.env_idx
     obsv, env_state = vmap_reset_fn(
         reset_rng, 
-        env_params, 
+        curr_env_params, 
     )
     n_train_envs = train_env_params.rule_dones.shape[0]
     # evo_env_params = jax.tree.map(lambda x: jnp.array([x for _ in range(n_train_envs)]), env_params)
@@ -652,7 +589,7 @@ def init_checkpointer(config: RLConfig, train_env_params: GenEnvParams, val_env_
                                train_env_params=train_env_params, val_env_params=val_env_params,
                                # ep_returns=jnp.full(config.num_envs, jnp.nan), 
                                rng=rng, update_i=0, evo_state=evo_state,
-                               curr_env_param_idxs=get_rand_train_envs(train_env_params, config.n_envs, _rng).env_idx
+                               curr_env_param_idxs=curr_env_param_idxs,
                             )
     options = orbax.checkpoint.CheckpointManagerOptions(
         max_to_keep=2, create=True)

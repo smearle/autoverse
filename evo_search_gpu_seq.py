@@ -110,6 +110,11 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
     
     # _, elites = jax.lax.scan(_replay_episode, None, jnp.arange(len(elites)), length=len(elites))
     # Actually, we can vmap this
+    elites_v = elites_v.replace(
+        env_params=elites_v.env_params.replace(
+            rew_scale=jnp.ones((n_elites,)), rew_bias=jnp.zeros((n_elites,))
+        )
+    )
     _, playtraces = jax.vmap(_replay_episode, in_axes=(0))(elites_v)
 
     # for e_idx, elite in enumerate(elites):
@@ -263,7 +268,7 @@ def replay_episode_jax(cfg: GenEnvConfig, env: PlayEnv, elite: IndividualData,
 
     init_obs = jax.tree.map(lambda x: x[None], init_obs)
     obs_seq = concatenate_leaves((obs_seq, init_obs))
-    rew_seq = concatenate_leaves((rew_seq, jnp.array([[0.0]])))
+    rew_seq = concatenate_leaves((rew_seq, jnp.array([0.0])))
     done_seq = concatenate_leaves((done_seq, jnp.array([[False]])))
 
     playtrace = Playtrace(obs_seq=obs_seq, action_seq=action_seq,
