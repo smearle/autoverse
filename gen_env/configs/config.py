@@ -67,6 +67,7 @@ class GenEnvConfig:
 
 @dataclass
 class ILConfig(GenEnvConfig):
+    il_exp_name: str = "0"
     il_max_steps: int = int(16e6)
     il_batch_size: int = 4096
     il_tqdm: bool = True
@@ -76,6 +77,7 @@ class ILConfig(GenEnvConfig):
     ckpt_interval: int = 1000
     render_freq: int = 1
     model: str = "conv"
+    n_envs: int = 100
 
     # In case we want to train only on a subset of the available training envs.
     n_train_envs: int = -1

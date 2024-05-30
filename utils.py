@@ -1,11 +1,16 @@
+from functools import partial
 import glob
 import os
 from typing import Tuple
+
 import jax
 from jax import numpy as jnp
+import numpy as np
 
 from gen_env.configs.config import GenEnvConfig, ILConfig, RLConfig
+from gen_env.envs.play_env import GenEnvParams, PlayEnv
 from gen_env.evo.individual import IndividualPlaytraceData
+from purejaxrl.wrappers import LogEnvState
 
 # Function to stack leaves of PyTrees
 def stack_leaves(trees):
@@ -74,6 +79,73 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
 
     return elites
 
+        
+def get_rand_train_envs(train_env_params: GenEnvParams, n_envs: int, rng: jax.random.PRNGKey, replace=False):
+    """From available `train_env_params, randomly sample `n_envs` many environments. First, tile `train_env_params` if 
+    there are not enough."""
+    n_avail_train_envs = train_env_params.rule_dones.shape[0]
+    n_reps = int(np.ceil(n_envs / n_avail_train_envs))
+    train_env_params = jax.tree.map(lambda x: jnp.repeat(x, n_reps, axis=0), train_env_params)
+    n_avail_train_envs = train_env_params.rule_dones.shape[0]
+    rand_idxs = jax.random.choice(rng, n_avail_train_envs, (n_envs,), replace=replace)
+    return jax.tree.map(lambda x: x[rand_idxs], train_env_params)
+
+
+def eval_log_callback(metric, writer, t, mode, params_type):
+    writer.add_scalar(f"{mode}/eval/{params_type}_ep_return", metric['mean_return'], t)
+    writer.add_scalar(f"{mode}/eval/{params_type}_ep_return_max", metric['max_return'], t)
+    writer.add_scalar(f"{mode}/eval/{params_type}_ep_return_min", metric['min_return'], t)
+
+
+def evaluate_on_env_params(rng: jax.random.PRNGKey, cfg: RLConfig, env: PlayEnv, env_params: GenEnvParams,
+                           network_apply_fn, network_params, update_i: int, writer, n_eps: int = 1, mode: str = "rl",
+                           params_type: str = "val", search_rewards=None):
+
+    def step_env(carry, _):
+        env_state: LogEnvState
+        rng, obs, env_state, curr_env_param_idxs, network_params = carry
+        rng, _rng = jax.random.split(rng)
+
+        next_params = get_rand_train_envs(env_params, cfg.n_envs, _rng)
+        curr_env_params = jax.tree.map(lambda x: x[curr_env_param_idxs], env_params)
+
+        pi, value = network_apply_fn(network_params, obs)
+        action_r = pi.sample(seed=rng)
+        rng_step = jax.random.split(_rng, cfg.n_envs)
+
+        # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
+        vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
+        # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
+        obs, env_state, reward_r, done_r, info_r, curr_env_param_idxs = vmap_step_fn(
+                        rng_step, env_state, action_r,
+                        curr_env_params, next_params)
+        
+        return (rng, obs, env_state, curr_env_param_idxs, network_params),\
+            (env_state, reward_r, done_r, info_r, value)
+
+    eval_rng = jax.random.split(rng, cfg.n_envs)
+
+    curr_env_params = get_rand_train_envs(env_params, cfg.n_envs, rng, replace=True)
+    rng = jax.random.split(rng)[0]
+
+    obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
+            eval_rng, curr_env_params
+    )
+
+    _, (states, rewards, dones, infos, values) = jax.lax.scan(
+        step_env, (rng, obsv, env_state, curr_env_params.env_idx, network_params),
+        None, n_eps*env.max_episode_steps)
+
+    returns = rewards.sum(axis=0)
+
+    _eval_log_callback = partial(eval_log_callback, writer=writer, mode=mode, params_type=params_type)
+
+    jax.experimental.io_callback(_eval_log_callback, None, metric={
+        'mean_return': returns.mean(),
+        'max_return': returns.max(),
+        'min_return': returns.min(),
+    }, t=update_i)
+
     
 def init_il_config(cfg: ILConfig):
     # glob files of form `gen-XX*elites.npz` and get highest gen number
@@ -87,7 +159,7 @@ def init_il_config(cfg: ILConfig):
     else:
         latest_gen = cfg.load_gen
 
-    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}"
+    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}_{cfg.il_exp_name}"
     cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
 
     return latest_gen

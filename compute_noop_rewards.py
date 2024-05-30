@@ -72,7 +72,7 @@ def compute_noop_rewards(cfg: GenEnvConfig, train_elites: IndividualPlaytraceDat
         e_params = e.env_params
 
         # Backward compatibility HACK
-        e_params = e_params.replace(rew_scale=jnp.ones((n_elites,)), rew_bias=jnp.zeros((n_elites,)))
+        # e_params = e_params.replace(rew_scale=jnp.ones((n_elites,)), rew_bias=jnp.zeros((n_elites,)))
         # TODO: May need to batch this vmapping to prevent OOM
         noop_ep_rewards = jax.vmap(_eval_elite_noop, in_axes=(0))(e_params)
         e = e.replace(env_params=e.env_params.replace(noop_ep_rew=noop_ep_rewards))

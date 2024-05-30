@@ -1,9 +1,10 @@
 import collections
-import functools
+from functools import partial
 import glob
 import os
 import shutil
 import sys
+from timeit import default_timer as timer
 import traceback
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
@@ -29,7 +30,7 @@ from gen_env.envs.play_env import PlayEnv
 from gen_env.utils import init_base_env, init_config
 from pcgrl_utils import get_network
 from purejaxrl.experimental.s5.wrappers import LogWrapper
-from utils import init_il_config, load_elite_envs
+from utils import evaluate_on_env_params, get_rand_train_envs, init_il_config, load_elite_envs
 
 
 
@@ -115,7 +116,7 @@ class Model:
         return self.replace(params=params)
 
 
-@functools.partial(jax.jit, static_argnames=('actor_apply_fn', 'distribution'))
+@partial(jax.jit, static_argnames=('actor_apply_fn', 'distribution'))
 def _sample_actions(
         rng: PRNGKey,
         actor_apply_fn: Callable[..., Any],
@@ -244,14 +245,14 @@ class BCLearner(object):
         actions = np.asarray(actions)
         return np.clip(actions, -1, 1)
 
-    def update(self, batch: Batch) -> InfoDict:
-        # if self.distribution == 'det':
-        # self.rng, self.actor, info = _mse_update_jit(
-        #     self.train_state, batch, self.rng)
-        # else:
-        self.rng, self.train_state, info = _log_prob_update_jit(
-            self.train_state, batch, self.rng)
-        return info
+def update(rng: jax.random.PRNGKey, train_state: TrainState, batch: Batch) -> InfoDict:
+    # if self.distribution == 'det':
+    # self.rng, self.actor, info = _mse_update_jit(
+    #     self.train_state, batch, self.rng)
+    # else:
+    rng, train_state, info = _log_prob_update_jit(
+        train_state, batch, rng)
+    return rng, train_state, info
 
         
 def split_into_trajectories(observations, actions, rewards, masks, dones_float,
@@ -378,9 +379,10 @@ class ILDataset:
 from orbax import checkpoint as ocp
 
 
-def save_checkpoint(config, ckpt_manager, train_state, t):
-    save_args = flax.training.orbax_utils.save_args_from_target(train_state)
-    ckpt_manager.save(t, train_state, save_kwargs={'save_args': save_args})
+def save_checkpoint(ckpt_manager, train_state, t, rng):
+    items = {'train_state': train_state, 'rng': rng}
+    save_args = flax.training.orbax_utils.save_args_from_target(items)
+    ckpt_manager.save(t, items=items, save_kwargs={'save_args': save_args})
     # ckpt_manager.save(t, args=ocp.args.StandardSave(train_state))
     ckpt_manager.wait_until_finished() 
 
@@ -400,6 +402,7 @@ def init_bc_agent(cfg: ILConfig, env: PlayEnv):
                       observations=env.observation_space.sample()[np.newaxis],
                       actions=np.array(env.action_space.sample())[np.newaxis], actor_lr=cfg.il_lr,
                       num_steps=cfg.il_max_steps)
+    rng, train_state = agent.rng, agent.train_state
 
     # FIXME this is silly, lift this out!
     train_state = agent.train_state
@@ -412,15 +415,26 @@ def init_bc_agent(cfg: ILConfig, env: PlayEnv):
 
     if checkpoint_manager.latest_step() is not None:
         t = checkpoint_manager.latest_step()
-        restore_args = flax.training.orbax_utils.save_args_from_target(train_state)
-        train_state = checkpoint_manager.restore(t, items=train_state, restore_kwargs={'restore_args': restore_args})
+        restore_args = flax.training.orbax_utils.save_args_from_target({'train_state': train_state, 'rng': rng})
+        ckpt = checkpoint_manager.restore(t, items=train_state, restore_kwargs={'restore_args': restore_args})
+        train_state, rng = ckpt['train_state'], ckpt['rng']
         # train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
         checkpoint_manager.wait_until_finished()
-        agent.train_state = train_state
+        # agent.train_state = train_state
     else: 
         t = 0
 
-    return agent, t, checkpoint_manager
+    return rng, train_state, t, checkpoint_manager
+
+
+def log_callback(cfg, summary_writer, update_info, i):
+    for k, v in update_info.items():
+        print(f'{k}: {v}')
+        if isinstance(v, jnp.ndarray):
+            assert v.shape == ()
+            v = v.item()
+        summary_writer.add_scalar(f'il/{k}', v, i)
+    # summary_writer.add_scalar('il/fps', cfg.il_batch_size * i / (timer() - start_time), i)
 
 
 def _main(cfg: ILConfig):
@@ -448,6 +462,33 @@ def _main(cfg: ILConfig):
     # Load the transitions from the training set
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
 
+    # Initialize tensorboard logger
+    summary_writer = SummaryWriter(
+        os.path.join(cfg._log_dir_il, 'tb', str(cfg.seed)))
+
+    _log_callback = partial(log_callback, cfg=cfg, summary_writer=summary_writer)
+
+    def log_callback_fps(cfg, summary_writer, update_info, i, start_time, t):
+        update_info.update({'fps': cfg.il_batch_size * (i + 1 - t) / (timer() - start_time)})
+        # log_callback(cfg, summary_writer, update_info, i)
+        jax.experimental.io_callback(_log_callback, None, update_info=update_info, i=i)
+
+    def eval_pct_actions_correct(ds, n, rng, train_state, i, summary_writer, cfg):
+        batch = ds.sample(cfg.il_batch_size)
+
+        rng, _ = jax.random.split(rng)
+        dist, val = train_state.apply_fn({'params': train_state.params},
+                            batch.observations,
+                            rngs={'dropout': rng})
+        actions = dist.sample(seed=rng)
+        pct_correct = (actions == batch.actions).mean()
+        jax.experimental.io_callback(_log_callback, None,
+            update_info={f'{n}_pct_correct': pct_correct}, i=i,
+        )
+        # summary_writer.add_scalar(f'il/eval/{n}_pct_correct', pct_correct, i)
+        # print(f"pct. {n} correct: {pct_correct}")
+
+
     _datasets = (train_elites, val_elites, test_elites)
     datasets = []
     for d in _datasets:
@@ -460,47 +501,73 @@ def _main(cfg: ILConfig):
         datasets.append(d)
     train_dataset, val_dataset, test_dataset = datasets
 
-    # Initialize tensorboard logger
-    summary_writer = SummaryWriter(
-        os.path.join(cfg._log_dir_il, 'tb', str(cfg.seed)))
-
     video_save_folder = None if cfg.render_freq == -1 else os.path.join(
         cfg._log_dir_il, 'video', 'eval')
 
 
     kwargs = cfg.__dict__
     kwargs['num_steps'] = cfg.il_max_steps
-    agent, t, checkpoint_manager = init_bc_agent(cfg, env)
+    rng, train_state, t, checkpoint_manager = init_bc_agent(cfg, env)
+
+    _log_callback_fps = partial(log_callback_fps, cfg=cfg, summary_writer=summary_writer, t=t)
+    _save_checkpoint = partial(save_checkpoint, ckpt_manager=checkpoint_manager)
+
+    # Prepare the evaluation functions
+    _evaluate_on_env_params = partial(
+            evaluate_on_env_params, mode="il", n_eps=1, env=env, cfg=cfg,
+            writer=summary_writer, network_apply_fn=train_state.apply_fn)
+    _evaluate_on_env_params_train = jax.jit(partial(
+            _evaluate_on_env_params, params_type="train", env_params=train_elites.env_params))
+    _evaluate_on_env_params_val = jax.jit(partial(
+            _evaluate_on_env_params, params_type="val", env_params=val_elites.env_params))
+
+
+    def eval_callback(train_state, i, rng, cfg, train_dataset, val_dataset, summary_writer):
+
+        for ds, n in zip([train_dataset, val_dataset], ['train', 'val']):
+            eval_pct_actions_correct(ds, n, rng, train_state, i, summary_writer, cfg)
+
+        _evaluate_on_env_params_train(rng=rng, 
+                            network_params={'params':train_state.params}, update_i=i,
+                            )
+        _evaluate_on_env_params_val(rng=rng,
+                            network_params={'params': train_state.params}, update_i=i,
+                            )
+
+    _eval_callback = partial(eval_callback, cfg=cfg, train_dataset=train_dataset, val_dataset=val_dataset,
+                             summary_writer=summary_writer)
+
+    rng, _ = jax.random.split(rng)
+
+    # Just evaluate the agent once then quit
+    if cfg.evaluate:
+        _evaluate_on_env_params(rng, cfg, env, train_elites.env_params, agent.train_state.apply_fn,
+                               {'params': agent.train_state.params}, t,
+                               summary_writer, n_eps=10, mode="il", params_type="train")
+        _evaluate_on_env_params(rng, cfg, env, val_elites.env_params, agent.train_state.apply_fn,
+                               {'params': agent.train_state.params}, t,
+                               summary_writer, n_eps=10, mode="il", params_type="val")
+        return
 
     eval_returns = []
-    for i in tqdm.tqdm(range(t, cfg.il_max_steps + 1),
-                       smoothing=0.1,
-                       disable=not cfg.il_tqdm):
+    start_time = timer()
+    # for i in tqdm.tqdm(range(t, cfg.il_max_steps + 1),
+    #                    smoothing=0.1,
+    #                    disable=not cfg.il_tqdm):
+
+    def train_step(carry, i):
+        rng, train_state = carry
         batch = train_dataset.sample(cfg.il_batch_size)
 
-        update_info = agent.update(batch)
+        rng, train_state, update_info = _log_prob_update_jit(batch=batch, train_state=train_state, rng=rng)
 
-        if i % cfg.log_interval == 0:
-            for k, v in update_info.items():
-                print(f'{k}: {v}')
-                if isinstance(v, jnp.ndarray):
-                    assert v.shape == ()
-                    v = v.item()
-                summary_writer.add_scalar(f'training/{k}', v, i)
-            summary_writer.flush()
+        do_log = i % cfg.log_interval == 0
+        jax.lax.cond(do_log, lambda: _log_callback_fps(update_info=update_info, i=i, start_time=start_time), lambda: None)
 
-        if cfg.eval_interval != -1 and i % cfg.eval_interval == 0:
-            for ds, n in zip([train_dataset, val_dataset], ['train', 'val']):
-                batch = ds.sample(cfg.il_batch_size)
+        do_eval = (cfg.eval_interval != -1) and (i % cfg.eval_interval == 0)
+        jax.lax.cond(do_eval,
+            lambda: _eval_callback(train_state=train_state, i=i, rng=rng), lambda: None,)
 
-                train_state = agent.train_state
-                dist, val = train_state.apply_fn({'params': train_state.params},
-                                    batch.observations,
-                                    rngs={'dropout': rng})
-                actions = dist.sample(seed=rng)
-                pct_correct = (actions == batch.actions).mean()
-                summary_writer.add_scalar(f'evaluation/pct_correct_{n}', pct_correct, i)
-                print(f"pct. {n} correct: {pct_correct}")
 
             # eval_stats = evaluate(agent, env, cfg.eval_episodes)
 
@@ -513,9 +580,14 @@ def _main(cfg: ILConfig):
             #            eval_returns,
             #            fmt=['%d', '%.1f'])
                        
-        if cfg.ckpt_interval != -1 and i % cfg.ckpt_interval == 0:
-            save_checkpoint(cfg, checkpoint_manager, agent.train_state, i)
+        do_ckpt = cfg.ckpt_interval != -1 and i % cfg.ckpt_interval == 0
+        jax.lax.cond(do_ckpt, lambda: jax.experimental.io_callback(_save_checkpoint, None, train_state=train_state, t=i,
+        rng=rng), lambda: None)
 
+        return (rng, train_state), ()
+
+    steps_remaining = cfg.il_max_steps + 1 - t
+    jax.lax.scan(train_step, (rng, train_state), jnp.arange(t, cfg.il_max_steps+1), length=steps_remaining)
 
 if __name__ == "__main__":
     main()
