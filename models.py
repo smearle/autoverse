@@ -86,19 +86,24 @@ class ConvForward(nn.Module):
         h1, h2 = self.hidden_dims
 
         map_x = nn.Conv(
-            features=h1, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
+            features=h1, kernel_size=(7, 7), strides=(2, 2), padding=(0, 0)
         )(map_x)
         act = activation(map_x)
         map_x = nn.Conv(
-            features=h1, kernel_size=(7, 7), strides=(2, 2), padding=(3, 3)
+            features=h1, kernel_size=(7, 7), strides=(2, 2), padding=(0, 0)
         )(map_x)
         map_x = activation(map_x)
 
         map_x = act.reshape((act.shape[0], -1))
+
+        flat_x = nn.Dense(
+            h2, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(flat_x)
+        flat_x = activation(flat_x)
         x = jnp.concatenate((map_x, flat_x), axis=-1)
 
         x = nn.Dense(
-            h2, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+            h1, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(x)
         x = activation(x)
 

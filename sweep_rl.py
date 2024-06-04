@@ -6,7 +6,7 @@ import hydra
 import submitit
 
 from gen_env.configs.config import SweepRLConfig, RLConfig
-from plot import main as plot_rl
+from plot_rl import main as plot_rl
 from rl_player_jax import main as train_rl
 
 

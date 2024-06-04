@@ -36,6 +36,7 @@ class GenEnvConfig:
     load_game: Optional[str] = None
     load_gen: Optional[int] = None
     render_all: bool = False
+    obs_rew_norm: bool = True
 
     _log_dir_il: Optional[str] = None
     _log_dir_rl: Optional[str] = None
@@ -67,6 +68,7 @@ class GenEnvConfig:
 
 @dataclass
 class ILConfig(GenEnvConfig):
+    MAX_GRAD_NORM: float = 0.5
     il_exp_name: str = "0"
     il_max_steps: int = int(16e6)
     il_batch_size: int = 4096
@@ -78,6 +80,7 @@ class ILConfig(GenEnvConfig):
     render_freq: int = 1
     model: str = "conv"
     n_envs: int = 100
+    obs_rew_norm: bool = True
 
     # In case we want to train only on a subset of the available training envs.
     n_train_envs: int = -1
@@ -89,7 +92,7 @@ class ILConfig(GenEnvConfig):
 class RLConfig(ILConfig):
     rl_seed: int = 0
     rl_exp_name: str = "0"
-    lr: float = 1.0e-4
+    lr: float = 1.0e-5
     num_steps: int = 200
     total_timesteps: int = int(1e9)
     update_epochs: int = 10
