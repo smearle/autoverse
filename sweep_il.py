@@ -13,8 +13,8 @@ from il_player_jax import main as train_il
 
 def main():
     sweep_cfgs = []
-    for load_gen in (5, 10, 15, 20, 65):
-    # for load_gen in (65,):
+    for load_gen in (10, 50, 100):
+    # for load_gen in (5, 10, 50, 100):
         cfg = ILConfig(
             load_gen=load_gen,
             env_exp_id=14,

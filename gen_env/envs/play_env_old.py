@@ -418,6 +418,7 @@ class PlayEnv(gym.Env):
             obs = obs[x: x + 2 * self.view_size + 1,
                       y: y + 2 * self.view_size + 1]
         assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles))
+        breakpoint()
         return obs.astype(np.float32)
 
     def observe_rules(self):

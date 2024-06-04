@@ -80,7 +80,6 @@ class GenEnvObs:
 class PlayEnv(gym.Env):
     placement_positions = np.array([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]])
     tile_size = 32
-    view_size = 9
     
     def __init__(self, width: int, height: int,
             game_def: GameDef,
@@ -118,6 +117,8 @@ class PlayEnv(gym.Env):
         # self.default_params = EnvParams(rules=rules_int)
         self._rot_dirs = jnp.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         self.map_shape = np.array([len(tiles), width, height])
+        assert width == height
+        self.view_size = width - 1
 
         # Which game in the game_archive are we loading next?
         self._game_idx = 0
@@ -425,10 +426,14 @@ class PlayEnv(gym.Env):
         #     'player_rot': np.eye(4)[self.player_rot].astype(np.float32),
         # }
         map_obs = self.observe_map(state.map, state.player_pos)
+        if self.cfg.obs_rew_norm:
+            rew_norm_obs = jnp.array([params.rew_bias / self.max_episode_steps, params.rew_scale])
+        else:
+            rew_norm_obs = jnp.zeros((2,))
         flat_obs = jnp.concatenate((
             jnp.eye(4)[state.player_rot].astype(jnp.float32).flatten(),
             self.observe_rules(params).flatten(),
-            jnp.array([params.rew_bias / self.max_episode_steps, params.rew_scale])
+            rew_norm_obs,
         ))
         return GenEnvObs(map_obs, flat_obs)
         

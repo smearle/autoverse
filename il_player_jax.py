@@ -14,6 +14,7 @@ from flax import linen as nn
 from flax import struct
 from flax.training import orbax_utils
 from flax.training.train_state import TrainState
+from gen_env.evo.individual import IndividualPlaytraceData
 import gymnax
 import hydra
 import jax
@@ -152,7 +153,8 @@ def log_prob_update(train_state, batch: Batch,
     def loss_fn(actor_params: Params) -> Tuple[jnp.ndarray, InfoDict]:
         dist, val = train_state.apply_fn({'params': actor_params},
                               batch.observations,
-                              rngs={'dropout': key})
+                              rngs={'dropout': key}
+                            )
         log_probs = dist.log_prob(batch.actions)
         actor_loss = -log_probs.mean()
         return actor_loss
@@ -175,7 +177,8 @@ def mse_update(train_state: TrainState, batch: Batch,
         dist, val = train_state.apply_fn({'params': actor_params},
                                  batch.observations,
                                 #  training=True,
-                                 rngs={'dropout': key})
+                                 rngs={'dropout': key}
+                                )
         actions = dist.sample(seed=key)
         actor_loss = ((actions - batch.actions)**2).mean()
         return actor_loss
@@ -213,8 +216,12 @@ class BCLearner(object):
 
 
         schedule_fn = optax.cosine_decay_schedule(-actor_lr, num_steps)
-        tx = optax.chain(optax.scale_by_adam(),
-                                optax.scale_by_schedule(schedule_fn))
+        tx = optax.chain(
+            optax.clip_by_global_norm(cfg.MAX_GRAD_NORM),
+            optax.adam(cfg.il_lr, eps=1e-5),
+            # optax.scale_by_adam(),
+            # optax.scale_by_schedule(schedule_fn)
+        )
 
         env, env_params = init_base_env(cfg)
         env = LogWrapper(env)
@@ -295,13 +302,17 @@ class Dataset(object):
     def __init__(self, observations: np.ndarray, actions: np.ndarray,
                  rewards: np.ndarray, masks: np.ndarray,
                  dones_float: np.ndarray,
-                 size: int):
+                 size: int, obs_rew_norm: bool):
         self.observations = observations
         self.actions = actions
         self.rewards = rewards
         self.masks = masks
         self.dones_float = dones_float
         self.size = size
+
+        # FIXME: Terrible hack
+        if not obs_rew_norm:
+            self.observations = self.observations.replace(flat=self.observations.flat.at[:, -2:].set(0))
 
     def sample(self, batch_size: int) -> Batch:
         indx = np.random.randint(self.size, size=batch_size)
@@ -316,6 +327,7 @@ class AutoverseILDataset(Dataset):
 
     def __init__(self,
                  dataset,
+                 obs_rew_norm: bool,
                  clip_to_eps: bool = True,
                  eps: float = 1e-5):
 
@@ -340,7 +352,7 @@ class AutoverseILDataset(Dataset):
                             rewards=dataset['rewards'].astype(np.float32),
                             masks=1.0 - dataset['terminals'].astype(np.float32),
                             dones_float=dones_float.astype(np.float32),
-                            size=len(dataset['rewards']))
+                            size=len(dataset['rewards']), obs_rew_norm=obs_rew_norm)
 
 
                          
@@ -415,8 +427,9 @@ def init_bc_agent(cfg: ILConfig, env: PlayEnv):
 
     if checkpoint_manager.latest_step() is not None:
         t = checkpoint_manager.latest_step()
-        restore_args = flax.training.orbax_utils.save_args_from_target({'train_state': train_state, 'rng': rng})
-        ckpt = checkpoint_manager.restore(t, items=train_state, restore_kwargs={'restore_args': restore_args})
+        items = {'train_state': train_state, 'rng': rng}
+        restore_args = flax.training.orbax_utils.save_args_from_target(items)
+        ckpt = checkpoint_manager.restore(t, items=items, restore_kwargs={'restore_args': restore_args})
         train_state, rng = ckpt['train_state'], ckpt['rng']
         # train_state = checkpoint_manager.restore(t, args=ocp.args.StandardRestore(agent.train_state))
         checkpoint_manager.wait_until_finished()
@@ -468,7 +481,7 @@ def _main(cfg: ILConfig):
 
     _log_callback = partial(log_callback, cfg=cfg, summary_writer=summary_writer)
 
-    def log_callback_fps(cfg, summary_writer, update_info, i, start_time, t):
+    def log_callback_main(cfg, summary_writer, update_info, i, start_time, t):
         update_info.update({'fps': cfg.il_batch_size * (i + 1 - t) / (timer() - start_time)})
         # log_callback(cfg, summary_writer, update_info, i)
         jax.experimental.io_callback(_log_callback, None, update_info=update_info, i=i)
@@ -479,7 +492,8 @@ def _main(cfg: ILConfig):
         rng, _ = jax.random.split(rng)
         dist, val = train_state.apply_fn({'params': train_state.params},
                             batch.observations,
-                            rngs={'dropout': rng})
+                            rngs={'dropout': rng}
+        )
         actions = dist.sample(seed=rng)
         pct_correct = (actions == batch.actions).mean()
         jax.experimental.io_callback(_log_callback, None,
@@ -497,7 +511,7 @@ def _main(cfg: ILConfig):
             obs_seq=d.obs_seq,
             rew_seq=d.rew_seq,
             done_seq=d.done_seq
-        ))
+        ), obs_rew_norm=cfg.obs_rew_norm)
         datasets.append(d)
     train_dataset, val_dataset, test_dataset = datasets
 
@@ -509,7 +523,7 @@ def _main(cfg: ILConfig):
     kwargs['num_steps'] = cfg.il_max_steps
     rng, train_state, t, checkpoint_manager = init_bc_agent(cfg, env)
 
-    _log_callback_fps = partial(log_callback_fps, cfg=cfg, summary_writer=summary_writer, t=t)
+    _log_callback_fps = partial(log_callback_main, cfg=cfg, summary_writer=summary_writer, t=t)
     _save_checkpoint = partial(save_checkpoint, ckpt_manager=checkpoint_manager)
 
     # Prepare the evaluation functions
@@ -517,10 +531,24 @@ def _main(cfg: ILConfig):
             evaluate_on_env_params, mode="il", n_eps=1, env=env, cfg=cfg,
             writer=summary_writer, network_apply_fn=train_state.apply_fn)
     _evaluate_on_env_params_train = jax.jit(partial(
-            _evaluate_on_env_params, params_type="train", env_params=train_elites.env_params))
+            _evaluate_on_env_params, params_type="train", env_params=train_elites.env_params,
+            search_rewards=train_elites.rew_seq))
     _evaluate_on_env_params_val = jax.jit(partial(
-            _evaluate_on_env_params, params_type="val", env_params=val_elites.env_params))
+            _evaluate_on_env_params, params_type="val", env_params=val_elites.env_params,
+            search_rewards=val_elites.rew_seq))
 
+    for n, elites in zip(['train', 'val'], [train_elites, val_elites]):
+        elites: IndividualPlaytraceData
+        search_rewards = elites.rew_seq.sum(axis=1)
+        search_rewards = (search_rewards + elites.env_params.rew_bias) * elites.env_params.rew_scale
+        metric = {
+            'mean_return_search': search_rewards.mean(),
+            'max_return_search': search_rewards.max(),
+            'min_return_search': search_rewards.min(),
+        }
+        for k, v in metric.items():
+            name = f'il/eval/{n}_{k}'
+            summary_writer.add_scalar(name, v, t)
 
     def eval_callback(train_state, i, rng, cfg, train_dataset, val_dataset, summary_writer):
 
@@ -541,11 +569,11 @@ def _main(cfg: ILConfig):
 
     # Just evaluate the agent once then quit
     if cfg.evaluate:
-        _evaluate_on_env_params(rng, cfg, env, train_elites.env_params, agent.train_state.apply_fn,
-                               {'params': agent.train_state.params}, t,
+        _evaluate_on_env_params(rng, cfg, env, train_elites.env_params, train_state.apply_fn,
+                               {'params': train_state.params}, t,
                                summary_writer, n_eps=10, mode="il", params_type="train")
-        _evaluate_on_env_params(rng, cfg, env, val_elites.env_params, agent.train_state.apply_fn,
-                               {'params': agent.train_state.params}, t,
+        _evaluate_on_env_params(rng, cfg, env, val_elites.env_params, train_state.apply_fn,
+                               {'params': train_state.params}, t,
                                summary_writer, n_eps=10, mode="il", params_type="val")
         return
 

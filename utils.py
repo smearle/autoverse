@@ -126,6 +126,8 @@ def evaluate_on_env_params(rng: jax.random.PRNGKey, cfg: RLConfig, env: PlayEnv,
     eval_rng = jax.random.split(rng, cfg.n_envs)
 
     curr_env_params = get_rand_train_envs(env_params, cfg.n_envs, rng, replace=True)
+    search_rewards = None if search_rewards is None else \
+        jax.tree.map(lambda x: x[curr_env_params.env_idx], search_rewards)
     rng = jax.random.split(rng)[0]
 
     obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
@@ -140,11 +142,14 @@ def evaluate_on_env_params(rng: jax.random.PRNGKey, cfg: RLConfig, env: PlayEnv,
 
     _eval_log_callback = partial(eval_log_callback, writer=writer, mode=mode, params_type=params_type)
 
-    jax.experimental.io_callback(_eval_log_callback, None, metric={
+    metric = {
         'mean_return': returns.mean(),
         'max_return': returns.max(),
         'min_return': returns.min(),
-    }, t=update_i)
+    }
+
+    jax.experimental.io_callback(_eval_log_callback, None, metric=metric,
+    t=update_i)
 
     
 def init_il_config(cfg: ILConfig):
@@ -159,7 +164,10 @@ def init_il_config(cfg: ILConfig):
     else:
         latest_gen = cfg.load_gen
 
-    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}_{cfg.il_exp_name}"
+    cfg._log_dir_il += f"_env-evo-gen-{latest_gen}_" + \
+        f"lr-{cfg.il_lr}_" + \
+        (f'noObsRewNorm_' if not cfg.obs_rew_norm else '') + \
+        f"{cfg.il_exp_name}"
     cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
 
     return latest_gen
@@ -177,5 +185,6 @@ def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
     cfg._log_dir_rl +=  f'_evogen-{cfg.load_gen}_accel-{cfg.evo_freq}_' + \
         f'ilstep-{latest_il_update_step}_' + \
         f'tenvs-{cfg.n_train_envs}_' + \
+        (f'noObsRewNorm_' if not cfg.obs_rew_norm else '') + \
         f's-{cfg.rl_seed}_{cfg.rl_exp_name}'
     return latest_il_update_step
