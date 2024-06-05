@@ -302,7 +302,7 @@ class Dataset(object):
     def __init__(self, observations: np.ndarray, actions: np.ndarray,
                  rewards: np.ndarray, masks: np.ndarray,
                  dones_float: np.ndarray,
-                 size: int, obs_rew_norm: bool):
+                 size: int, obs_rew_norm: bool, hide_rules: bool, obs_win: int):
         self.observations = observations
         self.actions = actions
         self.rewards = rewards
@@ -310,7 +310,22 @@ class Dataset(object):
         self.dones_float = dones_float
         self.size = size
 
-        # FIXME: Terrible hack
+        if obs_win != -1:
+            full_win_size = self.observations.map.shape[1]
+            assert obs_win < full_win_size
+            assert full_win_size == self.observations.map.shape[2]
+            lpad = (full_win_size - obs_win) // 2
+            rpad = full_win_size - obs_win - lpad
+            new_map_obs = jnp.zeros_like(self.observations.map)
+            new_map_obs = new_map_obs.at[:, lpad:-rpad, lpad:-rpad].set(
+                self.observations.map[:, lpad:-rpad, lpad:-rpad])
+            self.observations = self.observations.replace(map=new_map_obs)
+
+        if hide_rules:
+            self.observations = self.observations.replace(flat=self.observations.flat.at[:].set(0))
+
+        # FIXME: Terrible HACK.
+        # TODO: Make rule_reward_norm a property of the observation dataclass to avoid sketchiness here.
         if not obs_rew_norm:
             self.observations = self.observations.replace(flat=self.observations.flat.at[:, -2:].set(0))
 
@@ -328,6 +343,8 @@ class AutoverseILDataset(Dataset):
     def __init__(self,
                  dataset,
                  obs_rew_norm: bool,
+                 hide_rules: bool,
+                 obs_win: int,
                  clip_to_eps: bool = True,
                  eps: float = 1e-5):
 
@@ -352,7 +369,9 @@ class AutoverseILDataset(Dataset):
                             rewards=dataset['rewards'].astype(np.float32),
                             masks=1.0 - dataset['terminals'].astype(np.float32),
                             dones_float=dones_float.astype(np.float32),
-                            size=len(dataset['rewards']), obs_rew_norm=obs_rew_norm)
+                            size=len(dataset['rewards']), obs_rew_norm=obs_rew_norm,
+                            hide_rules=hide_rules, obs_win=obs_win,
+                            )
 
 
                          
@@ -511,7 +530,11 @@ def _main(cfg: ILConfig):
             obs_seq=d.obs_seq,
             rew_seq=d.rew_seq,
             done_seq=d.done_seq
-        ), obs_rew_norm=cfg.obs_rew_norm)
+        ), 
+        obs_rew_norm=cfg.obs_rew_norm,
+        hide_rules=cfg.hide_rules,
+        obs_win=cfg.obs_window,
+    )
         datasets.append(d)
     train_dataset, val_dataset, test_dataset = datasets
 

@@ -2,6 +2,7 @@ from functools import partial
 import os
 import pickle
 
+from evaluate import eval_elite_noop, eval_elite_random
 import hydra
 import jax
 from jax import numpy as jnp
@@ -11,44 +12,6 @@ from gen_env.envs.play_env import PlayEnv
 from gen_env.evo.individual import IndividualPlaytraceData
 from gen_env.utils import init_base_env, init_config
 from utils import load_elite_envs
-
-
-def step_env_noop(carry, _, env):
-    rng = jax.random.PRNGKey(0)  # inconsequential
-    # Hardcoded to select a rotation action
-    action = env.ROTATE_LEFT_ACTION
-    obs, state, env_params = carry
-    obs, state, reward, done, info, env_params_idx = env.step(rng, state, action, env_params, env_params) 
-    return (obs, state, env_params), reward
-
-
-def step_env_random(carry, _, env):
-    rng = jax.random.PRNGKey(0)  # inconsequential
-    # Hardcoded to select a rotation action
-    action = env.action_space.sample()
-    obs, state, env_params = carry
-    obs, state, reward, done, info, env_params_idx = env.step(rng, state, action, env_params, env_params) 
-    return (obs, state, env_params), reward
-
-
-def eval_elite_noop(params, env):
-    rng = jax.random.PRNGKey(0)  # inconsequential
-    _step_env_noop = partial(step_env_noop, env=env)
-    obs, state = env.reset(rng, params) 
-    _, rewards = jax.lax.scan(_step_env_noop, (obs, state, params), None, env.max_episode_steps)
-    ep_reward = rewards.sum()
-    return ep_reward
-
-
-def eval_elite_random(params, env, n_eps=100):
-    rng = jax.random.PRNGKey(0)  # inconsequential
-    _step_env_random = partial(step_env_random, env=env)
-    obs, state = env.reset(rng, params) 
-    _, rewards = jax.lax.scan(_step_env_random, (obs, state, params), None, env.max_episode_steps * n_eps)
-    ep_reward_mean = rewards.mean()
-    ep_reward_std = rewards.std()
-    ep_reward_max = rewards.max()
-    return ep_reward_mean, ep_reward_std, ep_reward_max
 
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
