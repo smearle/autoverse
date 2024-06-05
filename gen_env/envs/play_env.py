@@ -118,7 +118,12 @@ class PlayEnv(gym.Env):
         self._rot_dirs = jnp.array([(0, -1), (1, 0), (0, 1), (-1, 0)])
         self.map_shape = np.array([len(tiles), width, height])
         assert width == height
-        self.view_size = width - 1
+
+        self.full_view_size = width - 1
+        if cfg.obs_window == -1:
+            self.view_size = self.full_view_size
+        else:
+            self.view_size = cfg.obs_window
 
         # Which game in the game_archive are we loading next?
         self._game_idx = 0
@@ -538,17 +543,25 @@ class PlayEnv(gym.Env):
         obs = rearrange(map_arr, 'b h w -> h w b')
         # Pad map to view size.
         obs = jnp.pad(obs, (
-            (self.view_size, self.view_size),
-            (self.view_size, self.view_size), (0, 0)), 'constant')
+            (self.full_view_size, self.full_view_size),
+            (self.full_view_size, self.full_view_size), (0, 0)), 'constant')
         # Crop map to player's view.
         # if self.player_pos is not None:
         # TODO: Rotate observation?
         x, y = player_pos
-        obs = jax.lax.dynamic_slice(obs, (x, y, 0), (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles)))
+        obs = jax.lax.dynamic_slice(obs, (x, y, 0), (2 * self.full_view_size + 1, 2 * self.full_view_size + 1, len(self.tiles)))
+        if self.cfg.obs_window != -1:
+            lpad = (self.full_view_size - self.cfg.obs_window) // 2
+            rpad = self.full_view_size - self.cfg.obs_window - lpad
+            new_obs = jnp.zeros_like(obs)
+            new_obs = new_obs.at[:, lpad:-rpad, lpad:-rpad].set(
+                obs[:, lpad:-rpad, lpad:-rpad])
+            obs = new_obs
+            
         # obs = obs[x: x + 2 * self.view_size + 1,
         #           y: y + 2 * self.view_size + 1]
         n_tiles = self.map_shape[0]
-        assert obs.shape == (2 * self.view_size + 1, 2 * self.view_size + 1, len(self.tiles))
+        assert obs.shape == (2 * self.full_view_size + 1, 2 * self.full_view_size + 1, len(self.tiles))
         return obs.astype(np.float32)
 
     def observe_rules(self, params: GenEnvParams):

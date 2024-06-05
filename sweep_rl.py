@@ -5,7 +5,7 @@ from typing import Tuple
 import hydra
 import submitit
 
-from gen_env.configs.config import SweepRLConfig, RLConfig
+from gen_env.configs.config import SweepConfig, RLConfig
 from plot_rl import main as plot_rl
 from rl_player_jax import main as train_rl
 
@@ -20,7 +20,8 @@ from rl_player_jax import main as train_rl
 
 @dataclass
 class HyperParams:
-    load_gen: Tuple[int] = (5, 10, 50, 100, 136)
+    # load_gen: Tuple[int] = (5, 10, 50, 100, 136)
+    load_gen: Tuple[int] = (10, 50)
     # load_il: Tuple[bool] = (True, False)
     load_il: Tuple[bool] = (False,)
     # evo_freq: Tuple[int] = (-1, 1, 10)

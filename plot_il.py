@@ -19,8 +19,8 @@ def main(cfg: RLConfig):
     latest_evo_gen = init_il_config(cfg)
 
     keys = [
-        'il/fps',
         'il/actor_loss',
+        'il/fps',
         'il/train_pct_correct',
         'il/val_pct_correct',
         'il/eval/val_ep_return',

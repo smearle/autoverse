@@ -36,6 +36,7 @@ def load_tensorboard_logs(log_dir, keys):
 
 # Plotting the data using matplotlib
 def plot_data(log_dir, keys, stepss, valuess):
+    search_stats = {}
     for key, steps, values in zip(keys, stepss, valuess):
         if 'search' in key:
             # Assert all valuess are the same
@@ -45,6 +46,7 @@ def plot_data(log_dir, keys, stepss, valuess):
                 f.write(str(values[0]))
             # And print it
             print(f"{key}: {values[0]}")
+            search_stats.update({key: values[0]})
             continue
         plt.figure(figsize=(10, 5))
         plt.plot(steps, values, label=f'{key}')
@@ -56,6 +58,20 @@ def plot_data(log_dir, keys, stepss, valuess):
         fig_path = os.path.join(log_dir, f"{key.replace('/', '_')}.png")
         plt.savefig(fig_path)
         print(f"Plot saved to {fig_path}")
+
+        # Save as dataframe, with rows indexed by step
+        df = pd.DataFrame(data=values, index=steps, columns=[key])
+        # Save to disk
+        df.to_csv(os.path.join(log_dir, f"{key.replace('/', '_')}.csv"))
+
+    # Save search stats to a json
+    import json
+    with open(os.path.join(log_dir, 'search_stats.json'), 'w') as f:
+        json.dump(search_stats, f, indent=4)
+    
+
+
+
 
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="rl")

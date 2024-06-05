@@ -1,0 +1,7 @@
+defaults:
+  - sweep_config
+  - _self_
+
+hydra:
+  job:
+    chdir: False

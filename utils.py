@@ -166,7 +166,10 @@ def init_il_config(cfg: ILConfig):
 
     cfg._log_dir_il += f"_env-evo-gen-{latest_gen}_" + \
         f"lr-{cfg.il_lr}_" + \
+        ('hideRules_' if cfg.hide_rules else '') + \
+        f'obs_win-{cfg.obs_window}_' + \
         (f'noObsRewNorm_' if not cfg.obs_rew_norm else '') + \
+        f"s-{cfg.il_seed}_" + \
         f"{cfg.il_exp_name}"
     cfg._il_ckpt_dir = os.path.abspath(os.path.join(cfg._log_dir_il, "ckpt"))
 
@@ -182,9 +185,12 @@ def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
         latest_il_update_step = max(update_steps)
     else:
         latest_il_update_step = None
-    cfg._log_dir_rl +=  f'_evogen-{cfg.load_gen}_accel-{cfg.evo_freq}_' + \
+    cfg._log_dir_rl = os.path.join(cfg._log_dir_rl, 
+        f'_evogen-{cfg.load_gen}_accel-{cfg.evo_freq}_' + \
         f'ilstep-{latest_il_update_step}_' + \
         f'tenvs-{cfg.n_train_envs}_' + \
+        ('hideRules_' if cfg.hide_rules else '') + \
+        f'obs_win-{cfg.obs_window}_' + \
         (f'noObsRewNorm_' if not cfg.obs_rew_norm else '') + \
-        f's-{cfg.rl_seed}_{cfg.rl_exp_name}'
+        f's-{cfg.rl_seed}_{cfg.rl_exp_name}')
     return latest_il_update_step

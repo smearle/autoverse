@@ -37,6 +37,8 @@ class GenEnvConfig:
     load_gen: Optional[int] = None
     render_all: bool = False
     obs_rew_norm: bool = True
+    obs_window: int = -1
+    hide_rules: bool = False
 
     _log_dir_il: Optional[str] = None
     _log_dir_rl: Optional[str] = None
@@ -50,8 +52,6 @@ class GenEnvConfig:
     load_rl: bool = False
 
     n_rl_iters: float = 1e6
-
-    hide_rules: bool = False
     
     window_scale: float = 1.0
 
@@ -69,8 +69,9 @@ class GenEnvConfig:
 @dataclass
 class ILConfig(GenEnvConfig):
     MAX_GRAD_NORM: float = 0.5
+    il_seed: int = 0
     il_exp_name: str = "0"
-    il_max_steps: int = int(16e6)
+    il_max_steps: int = 100_000
     il_batch_size: int = 4096
     il_tqdm: bool = True
     il_lr: float = 1.0e-4
@@ -191,9 +192,12 @@ class ProfileEnvConfig(RLConfig):
 
 
 @dataclass
-class SweepRLConfig():
-    mode: str = 'train'
+class SweepConfig():
+    algo: str = 'il'  # il, rl
+    name: str = 'obs_win'
+    mode: str = 'train'  # train, eval, plot, cross_eval
     slurm: bool = True
+    skip_failures: bool = False
 
 
 cs = ConfigStore.instance()
@@ -202,7 +206,7 @@ cs.store(name="base_config", node=GenEnvConfig)
 cs.store(name="il_config", node=ILConfig)
 # cs.store(name="train_xlife", node=TrainConfig)
 cs.store(name="rl_config", node=RLConfig)
-cs.store(name="sweep_rl_config", node=SweepRLConfig)
+cs.store(name="sweep_config", node=SweepConfig)
 cs.store(name="enjoy_xlife", node=EnjoyConfig)
 # cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
 cs.store(name="eval_xlife", node=EvalConfig)
