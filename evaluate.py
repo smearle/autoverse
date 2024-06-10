@@ -68,8 +68,10 @@ def eval_elite_random(params, env, n_eps=100):
     return ep_reward_mean, ep_reward_std, ep_reward_max
 
 
-def eval_nn(cfg: ILConfig, latest_gen: int, env, apply_fn, network_params):
+def eval_nn(cfg: ILConfig, latest_gen: int, env, apply_fn, network_params, algo):
     _eval_elite_nn = partial(eval_elite_nn, env=env, apply_fn=apply_fn, network_params={'params': network_params})
+
+    log_dir = getattr(cfg, f'_log_dir_{algo}')
 
     # Load the transitions from the training set
     train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
@@ -87,5 +89,7 @@ def eval_nn(cfg: ILConfig, latest_gen: int, env, apply_fn, network_params):
         e_stats[f'{name}_min'] = nn_rewards.min().item()
 
     # Save stats to disk as json
-    with open(os.path.join(cfg._log_dir_il, f"nn_stats.json"), 'w') as f:
+    print(f'Saving stats to {log_dir}')
+    breakpoint()
+    with open(os.path.join(log_dir, f"nn_stats.json"), 'w') as f:
         json.dump(e_stats, f, indent=4)

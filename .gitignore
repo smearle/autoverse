@@ -1,6 +1,7 @@
 *.DS_Store
 runs
 saves
+cross_eval/*
 saves_evo
 submitit_logs*
 runs_il

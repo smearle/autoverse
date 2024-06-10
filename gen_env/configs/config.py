@@ -71,7 +71,7 @@ class ILConfig(GenEnvConfig):
     MAX_GRAD_NORM: float = 0.5
     il_seed: int = 0
     il_exp_name: str = "0"
-    il_max_steps: int = 100_000
+    il_max_steps: int = 1_000_000
     il_batch_size: int = 4096
     il_tqdm: bool = True
     il_lr: float = 1.0e-4

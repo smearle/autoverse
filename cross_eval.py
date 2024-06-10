@@ -1,5 +1,6 @@
 
 import copy
+import glob
 from itertools import product
 import json
 import os
@@ -139,6 +140,7 @@ def cross_eval_basic(name: str, sweep_configs: Iterable[SweepConfig], hypers, ev
         log_dir_attr = '_log_dir_il'
     else:
         log_dir_attr = '_log_dir_rl'
+    _metrics_to_keep = ['train_mean', 'test_mean']
 
     # Save the eval hypers to the cross_eval directory, so that we know of any special eval hyperparameters that were
     # applied during eval.
@@ -151,7 +153,6 @@ def cross_eval_basic(name: str, sweep_configs: Iterable[SweepConfig], hypers, ev
     eval_sweep_name = ('eval_' + '_'.join(k.strip('eval_') for k, v in eval_hypers.items() if len(v) > 1 and k != 'metrics_to_keep') if 
                         len(eval_hypers) > 0 else '')
 
-    _metrics_to_keep = None
 
     col_headers = [k for k in eval_hyper_ks]
     col_headers.insert(METRIC_COL_TPL_IDX, '')
@@ -206,7 +207,7 @@ def cross_eval_basic(name: str, sweep_configs: Iterable[SweepConfig], hypers, ev
     basic_stats_df = pd.DataFrame(row_vals, index=row_index, columns=col_index)
 
     # Sort columns
-    basic_stats_df = basic_stats_df.sort_index(axis=1)
+    basic_stats_df = basic_stats_df.sort_index(axis=1, ascending=False)
     
     # Save the dataframe to a csv
     # os.makedirs(CROSS_EVAL_DIR, exist_ok=True)
@@ -356,122 +357,17 @@ def cross_eval_basic(name: str, sweep_configs: Iterable[SweepConfig], hypers, ev
         
 def cross_eval_misc(name: str, sweep_configs: Iterable[SweepConfig], hypers, algo='il'):
     log_dir_attr = f'_log_dir_{algo}'
+    seed_name = f'{algo}_seed'
 
     # Create a dataframe with miscellaneous stats for each experiment
     row_headers = hypers
-    row_indices = []
-    row_vals = []
 
-    # Create a list of lists to show curves of metrics (e.g. reward) over the 
-    # course of training (i.e. as would be logged by tensorboard)
-    row_vals_curves = []
-    all_timesteps = []
-
-    for sc in sweep_configs:
-        sc: ILConfig
-        exp_dir = getattr(sc, log_dir_attr)
-        # exp_dir = sc._log_dir_il
-        
-        # Load the `progress.csv`
-        csv_path = os.path.join(exp_dir, 'progress.csv')
-        if not os.path.isfile(csv_path):
-            continue
-        train_metrics = pd.read_csv(csv_path)
-        train_metrics = train_metrics.sort_values(by='timestep', ascending=True)
-
-        # misc_stats_path = os.path.join(exp_dir, 'misc_stats.json')
-        # if os.path.exists(misc_stats_path):
-        #     sc_stats = json.load(open(f'{exp_dir}/misc_stats.json'))
-        # else:
-        max_timestep = train_metrics['timestep'].max()
-        sc_stats = {'n_timesteps_trained': max_timestep}
-
-        row_tpl = tuple(getattr(sc, k) for k in row_headers)
-        row_tpl = tuple(tuple(v) if isinstance(v, list) else v for v in row_tpl)
-        row_indices.append(row_tpl)
-        
-        vals = {}
-        for k, v in sc_stats.items():
-            vals[k] = v
-
-        row_vals.append(vals)
-        
-        
-        # Load the `progress.csv`
-        train_metrics = pd.read_csv(f'{exp_dir}/progress.csv')
-        train_metrics = train_metrics.sort_values(by='timestep', ascending=True)
-
-
-        # Load the `progress.csv`
-        train_metrics = pd.read_csv(f'{exp_dir}/progress.csv')
-        train_metrics = train_metrics.sort_values(by='timestep', ascending=True)
-
-        ep_returns = train_metrics['ep_return']
-        row_vals_curves.append(ep_returns)
-        sc_timesteps = train_metrics['timestep']
-        all_timesteps.append(sc_timesteps)
-
-    row_index = pd.MultiIndex.from_tuples(row_indices, names=row_headers)
-    misc_stats_df = pd.DataFrame(row_vals, index=row_index)
-
-    # Save the dataframe to a csv
-    os.makedirs(os.path.join(CROSS_EVAL_DIR, name), exist_ok=True)
-    # misc_stats_df.to_csv(os.path.join(CROSS_EVAL_DIR, name,
-    #                                     "misc_stats.csv")) 
-
-    # Save to markdown
-    with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats.md"), 'w') as f:
-        f.write(misc_stats_df.to_markdown())
-
-    # Save the dataframe as a latex table
-    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats.tex"), 'w') as f:
-    #     f.write(misc_stats_df.to_latex())
-
-    seed_name = f'{algo}_seed'
-    # Take averages of stats across seeds, keeping the original row indices
-    group_row_indices = [col for col in misc_stats_df.index.names if col != seed_name]
-    misc_stats_mean_df = misc_stats_df.groupby(group_row_indices).mean()
-
-    # Save the dataframe to a csv
-    # misc_stats_mean_df.to_csv(os.path.join(CROSS_EVAL_DIR,
-    #                                     name, "misc_stats_mean.csv"))
-    
-    # Save to markdown
-    with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_mean.md"), 'w') as f:
-        f.write(misc_stats_mean_df.to_markdown())
-    
-    # Save the dataframe as a latex table
-    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_mean.tex"), 'w') as f:
-    #     f.write(misc_stats_mean_df.to_latex())
-
-    # Now, remove all row indices that have the same value across all rows
-    levels_to_drop = \
-        [level for level in misc_stats_mean_df.index.names if 
-         misc_stats_mean_df.index.get_level_values(level).nunique() == 1]
-    levels_to_keep = \
-        [level for level in misc_stats_mean_df.index.names if
-            misc_stats_mean_df.index.get_level_values(level).nunique() > 1]
-    
-    # Drop these rows
-    misc_stats_concise_df = misc_stats_mean_df.droplevel(levels_to_drop)
-
-    # Save the dataframe to a csv
-    # misc_stats_concise_df.to_csv(os.path.join(CROSS_EVAL_DIR,
-    #                                     name, "misc_stats_concise.csv"))
-
-    # Save to markdown
-    with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_concise.md"), 'w') as f:
-        f.write(misc_stats_concise_df.to_markdown())
-
-    misc_stats_concise_df = clean_df_strings(misc_stats_concise_df)
-
-    # Bold the maximum value in each column
-    styled_misc_stats_concise_df = misc_stats_concise_df.apply(format_num)
-
-    # Save the dataframe as a latex table
-    with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_concise.tex"), 'w') as f:
-        f.write(styled_misc_stats_concise_df.to_latex())
-
+    # Get names of all training curve CSVs
+    dummy_cfg = sweep_configs[0]
+    csv_paths = glob.glob(os.path.join(getattr(dummy_cfg, log_dir_attr), '*.csv'))
+    key_names = [csv_path.split(os.sep)[-1].removesuffix('.csv') for csv_path in csv_paths]
+    stat_name_to_row_vals_curves = {}
+    stat_name_to_all_timesteps = {}
 
     def interpolate_returns(ep_returns, timesteps, all_timesteps):
         # Group by timesteps and take the mean for duplicate values
@@ -489,84 +385,191 @@ def cross_eval_misc(name: str, sweep_configs: Iterable[SweepConfig], hypers, alg
         
         return interpolated_returns
 
-    all_timesteps = np.sort(np.unique(np.concatenate(all_timesteps)))
 
-    row_vals_curves = []
-    for i, sc in enumerate(sweep_configs):
-        exp_dir = sc.exp_dir
-        csv_path = os.path.join(exp_dir, 'progress.csv')
-        if not os.path.isfile(csv_path):
-            continue
-        train_metrics = pd.read_csv(csv_path)
-        train_metrics = train_metrics.sort_values(by='timestep', ascending=True)
-        ep_returns = train_metrics['ep_return']
-        sc_timesteps = train_metrics['timestep']
-        interpolated_returns = interpolate_returns(ep_returns, sc_timesteps, all_timesteps)
-        row_vals_curves.append(interpolated_returns)
+    for key_name in key_names:
+        # Create a list of lists to show curves of metrics (e.g. reward) over the 
+        # course of training (i.e. as would be logged by tensorboard)
+        row_indices = []
+        row_vals_curves = []
+        all_timesteps = []
+        step_col_name = 'steps'
 
-    # Now, each element in row_vals_curves is a Series of interpolated returns
-    metric_curves_df = pd.DataFrame({i: vals for i, vals in enumerate(row_vals_curves)}).T
-    metric_curves_df.columns = all_timesteps
-    metric_curves_df.index = row_index
-    metric_curves_mean = metric_curves_df.groupby(group_row_indices).mean()
-    metric_curves_mean = metric_curves_mean.droplevel(levels_to_drop)
+        for sc in sweep_configs:
+            sc: ILConfig
+            exp_dir = getattr(sc, log_dir_attr)
+            # exp_dir = sc._log_dir_il
+            
+            # Load the `progress.csv`
+            csv_path = os.path.join(exp_dir, f'{key_name}.csv')
+            if not os.path.isfile(csv_path):
+                continue
+            train_metrics = pd.read_csv(csv_path, index_col=0)
+            train_metrics = train_metrics.sort_values(by=step_col_name, ascending=True)
 
-    # Create a line plot of the metric curves w.r.t. timesteps. Each row in the
-    # column corresponds to a different line
-    fig, ax = plt.subplots(
-        # figsize=(20, 10)
-    )
-    for i, row in metric_curves_df.iterrows():
-        ax.plot(row, label=str(i))
-    ax.set_xlabel('Timesteps')
-    ax.set_ylabel('Return')
-    # ax.legend()
-    plt.savefig(os.path.join(CROSS_EVAL_DIR, name, f"metric_curves.png"))
+            # misc_stats_path = os.path.join(exp_dir, 'misc_stats.json')
+            # if os.path.exists(misc_stats_path):
+            #     sc_stats = json.load(open(f'{exp_dir}/misc_stats.json'))
+            # else:
+            max_timestep = train_metrics[step_col_name].max()
+            # sc_stats = {'n_timesteps_trained': max_timestep}
 
-    fig, ax = plt.subplots()
-    # cut off the first and last 100 timesteps to remove outliers
-    metric_curves_mean = metric_curves_mean.drop(columns=metric_curves_mean.columns[:25])
-    metric_curves_mean = metric_curves_mean.drop(columns=metric_curves_mean.columns[-25:])
-    columns = copy.deepcopy(metric_curves_mean.columns)
-    # columns = columns[100:-100]
-    for i, row in metric_curves_mean.iterrows():
+            row_tpl = tuple(getattr(sc, k) for k in row_headers)
+            row_tpl = tuple(tuple(v) if isinstance(v, list) else v for v in row_tpl)
+            row_indices.append(row_tpl)
+            
+            # vals = {}
+            # for k, v in sc_stats.items():
+                # vals[k] = v
 
-        if len(row) == 0:
-            continue
+            # row_vals.append(vals)
+            
+            ep_returns = train_metrics[key_name]
+            row_vals_curves.append(ep_returns)
+            sc_timesteps = train_metrics[step_col_name]
+            all_timesteps.append(sc_timesteps)
 
-        # Apply a convolution to smooth the curve
-        row = np.convolve(row, np.ones(10), 'same') / 10
-        # row = row[100:-100]
-        # row = np.convolve(row, np.ones(10), 'valid') / 10
-        # turn it back into a pandas series
-        row = pd.Series(row, index=columns)
+        all_unique_timesteps = np.sort(np.unique(np.concatenate(all_timesteps)))
+
+        row_index = pd.MultiIndex.from_tuples(row_indices, names=row_headers)
+        # curve_stats_df = pd.DataFrame(row_vals, index=row_index)
+        # stat_name_to_row_vals_curves[key_name] = row_vals_curves
+
+        interped_row_vals_curves = []
+        for i, sc in enumerate(sweep_configs):
+            sc_timesteps = all_timesteps[i]
+            ep_returns = row_vals_curves[i]
+            interpolated_returns = interpolate_returns(ep_returns, sc_timesteps, all_unique_timesteps)
+            interped_row_vals_curves.append(interpolated_returns)
         
-        # drop the first 100 timesteps to remove outliers caused by conv
-        if row.index.shape[0] > 100:
-            row = row.drop(row.index[:25])
-            row = row.drop(row.index[-25:])
+        row_vals_curves = interped_row_vals_curves
 
-        
+        # Now, each element in row_vals_curves is a Series of interpolated returns
+        metric_curves_df = pd.DataFrame({i: vals for i, vals in enumerate(row_vals_curves)}).T
+        metric_curves_df.columns = all_unique_timesteps
+        metric_curves_df.index = row_index
+        group_row_indices = [col for col in metric_curves_df.index.names if col != seed_name]
+        metric_curves_mean = metric_curves_df.groupby(group_row_indices).mean()
+        levels_to_drop = \
+            [level for level in metric_curves_mean.index.names if
+                metric_curves_mean.index.get_level_values(level).nunique() == 1]
+        levels_to_keep = \
+            [level for level in metric_curves_mean.index.names if
+                metric_curves_mean.index.get_level_values(level).nunique() > 1]
+        metric_curves_mean = metric_curves_mean.droplevel(levels_to_drop)
 
-        ax.plot(row, label=str(i))
-    metric_curves_mean.columns = columns
-    ax.set_xlabel('Timesteps')
-    ax.set_ylabel('Return')
+        # Create a line plot of the metric curves w.r.t. timesteps. Each row in the
+        # column corresponds to a different line
+        fig, ax = plt.subplots(
+            # figsize=(20, 10)
+        )
+        for i, row in metric_curves_df.iterrows():
+            ax.plot(row, label=str(i))
+        ax.set_xlabel('Steps')
+        ax.set_ylabel(key_name)
+        # ax.legend()
+        plt.savefig(os.path.join(CROSS_EVAL_DIR, name, f"{key_name}.png"))
 
-    # To get the ymin, drop the first timesteps where there tend to be outliers
-    if metric_curves_mean.shape[1] > 100:
-        ymin = metric_curves_mean.drop(columns=metric_curves_mean.columns[:100]).min().min()
-    else:
-        ymin = metric_curves_mean.drop(columns=metric_curves_mean.columns).min().min()
+        fig, ax = plt.subplots()
+        # cut off the first and last 100 timesteps to remove outliers
+        metric_curves_mean = metric_curves_mean.drop(columns=metric_curves_mean.columns[:25])
+        metric_curves_mean = metric_curves_mean.drop(columns=metric_curves_mean.columns[-25:])
+        columns = copy.deepcopy(metric_curves_mean.columns)
+        # columns = columns[100:-100]
+        for i, row in metric_curves_mean.iterrows():
 
-    # Can manually set these bounds to tweak the visualization
-    # ax.set_ylim(ymin, 1.1 * np.nanmax(metric_curves_mean))
+            if len(row) == 0:
+                continue
 
-    legend_title = ', '.join(levels_to_keep).replace('_', ' ')
-    ax.legend(title=legend_title)
-    plt.savefig(os.path.join(CROSS_EVAL_DIR, name, f"{name}_metric_curves_mean.png"))
+            # Apply a convolution to smooth the curve
+            # row = np.convolve(row, np.ones(10), 'same') / 10
+            # row = row[100:-100]
+            # row = np.convolve(row, np.ones(10), 'valid') / 10
+            # turn it back into a pandas series
+            row = pd.Series(row, index=columns)
+            
+            # drop the first 100 timesteps to remove outliers caused by conv
+            # if row.index.shape[0] > 100:
+            #     row = row.drop(row.index[:25])
+            #     row = row.drop(row.index[-25:])
+            
 
-    print(f"Misc stats for {name} saved to {CROSS_EVAL_DIR}/{name}.")
+            ax.plot(row, label=str(i))
+        metric_curves_mean.columns = columns
+        ax.set_xlabel('Steps')
+        ax.set_ylabel(key_name)
+
+        # To get the ymin, drop the first timesteps where there tend to be outliers
+        if metric_curves_mean.shape[1] > 100:
+            ymin = metric_curves_mean.drop(columns=metric_curves_mean.columns[:100]).min().min()
+        else:
+            ymin = metric_curves_mean.drop(columns=metric_curves_mean.columns).min().min()
+
+        # Can manually set these bounds to tweak the visualization
+        # ax.set_ylim(ymin, 1.1 * np.nanmax(metric_curves_mean))
+
+        legend_title = ', '.join(levels_to_keep).replace('_', ' ')
+        ax.legend(title=legend_title)
+        plt.savefig(os.path.join(CROSS_EVAL_DIR, name, f"{key_name}_metric_curves_mean.png"))
+        print(f"Saved plot to {os.path.join(CROSS_EVAL_DIR, name, f'{key_name}_metric_curves_mean.png')}")
+
+
+    # Save the dataframe to a csv
+    # os.makedirs(os.path.join(CROSS_EVAL_DIR, name), exist_ok=True)
+    # misc_stats_df.to_csv(os.path.join(CROSS_EVAL_DIR, name,
+    #                                     "misc_stats.csv")) 
+
+    # Save to markdown
+    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats.md"), 'w') as f:
+    #     f.write(misc_stats_df.to_markdown())
+
+    # Save the dataframe as a latex table
+    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats.tex"), 'w') as f:
+    #     f.write(misc_stats_df.to_latex())
+
+    # seed_name = f'{algo}_seed'
+    # Take averages of stats across seeds, keeping the original row indices
+    # group_row_indices = [col for col in misc_stats_df.index.names if col != seed_name]
+    # misc_stats_mean_df = misc_stats_df.groupby(group_row_indices).mean()
+
+    # Save the dataframe to a csv
+    # misc_stats_mean_df.to_csv(os.path.join(CROSS_EVAL_DIR,
+    #                                     name, "misc_stats_mean.csv"))
+    
+    # Save to markdown
+    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_mean.md"), 'w') as f:
+    #     f.write(misc_stats_mean_df.to_markdown())
+    
+    # Save the dataframe as a latex table
+    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_mean.tex"), 'w') as f:
+    #     f.write(misc_stats_mean_df.to_latex())
+
+    # Now, remove all row indices that have the same value across all rows
+    # levels_to_drop = \
+    #     [level for level in misc_stats_mean_df.index.names if 
+    #      misc_stats_mean_df.index.get_level_values(level).nunique() == 1]
+    # levels_to_keep = \
+    #     [level for level in misc_stats_mean_df.index.names if
+    #         misc_stats_mean_df.index.get_level_values(level).nunique() > 1]
+    
+    # Drop these rows
+    # misc_stats_concise_df = misc_stats_mean_df.droplevel(levels_to_drop)
+
+    # Save the dataframe to a csv
+    # misc_stats_concise_df.to_csv(os.path.join(CROSS_EVAL_DIR,
+    #                                     name, "misc_stats_concise.csv"))
+
+    # Save to markdown
+    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_concise.md"), 'w') as f:
+    #     f.write(misc_stats_concise_df.to_markdown())
+
+    # misc_stats_concise_df = clean_df_strings(misc_stats_concise_df)
+
+    # Bold the maximum value in each column
+    # styled_misc_stats_concise_df = misc_stats_concise_df.apply(format_num)
+
+    # Save the dataframe as a latex table
+    # with open(os.path.join(CROSS_EVAL_DIR, name, "misc_stats_concise.tex"), 'w') as f:
+    #     f.write(styled_misc_stats_concise_df.to_latex())
 
     
 def cross_eval_il(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
@@ -577,20 +580,18 @@ def cross_eval_il(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
         init_il_config(s_cfg)
         _sweep_cfgs.append(s_cfg)
     sweep_cfgs = _sweep_cfgs
+    cross_eval_misc(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
     cross_eval_basic(name=sweep_name, sweep_configs=sweep_cfgs, hypers=hypers, algo='il')
-    # cross_eval_misc(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
 
 
 def cross_eval_rl(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
     # cross_eval_basic(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
     _sweep_cfgs = []
-    sweep_name = sweep_cfgs[0]
     for s_cfg in sweep_cfgs:
         init_config(s_cfg)
-        latest_evo_gen, _ = init_il_config(s_cfg)
+        latest_evo_gen = init_il_config(s_cfg)
         init_rl_config(s_cfg, latest_evo_gen)
         _sweep_cfgs.append(s_cfg)
-        assert sweep_name == s_cfg.name
     sweep_cfgs = _sweep_cfgs
     cross_eval_basic(name=sweep_name, sweep_configs=sweep_cfgs, hypers=hypers, algo='rl')
     # cross_eval_misc(name='il', sweep_configs=sweep_cfgs, hypers=hypers)

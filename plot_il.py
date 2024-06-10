@@ -4,12 +4,12 @@ import os
 import hydra
 import matplotlib.pyplot as plt
 import pandas as pd
-from plot_rl import load_tensorboard_logs, plot_data
 from tensorboard.backend.event_processing import event_accumulator
 import tensorflow as tf
 
 from gen_env.configs.config import RLConfig
 from gen_env.utils import init_config
+from plot import load_tensorboard_logs, plot_data
 from utils import init_il_config, init_rl_config
 
 

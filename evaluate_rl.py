@@ -14,6 +14,7 @@ from gen_env.evo.individual import IndividualPlaytraceData
 from gen_env.utils import init_base_env, init_config
 from il_player_jax import init_bc_agent
 from pcgrl_utils import get_network
+from rl_player_jax import init_checkpointer, restore_checkpoint
 from utils import init_il_config, init_rl_config, load_elite_envs
 
 
@@ -21,7 +22,7 @@ from utils import init_il_config, init_rl_config, load_elite_envs
 def eval_rl(cfg: RLConfig):
     init_config(cfg)
     latest_gen = init_il_config(cfg)
-    init_rl_config(cfg)
+    init_rl_config(cfg, latest_gen)
     assert latest_gen is not None, \
             "Must select an evo-gen from which to load playtraces for imitation learning when running IL script." +\
             "Set `load_gen=-1` to load latest generation for which playtraces have been aggregated."
@@ -34,9 +35,22 @@ def eval_rl(cfg: RLConfig):
     network = get_network(env, env_params, cfg)
     init_x = env.gen_dummy_obs(env_params)
     # init_x = env.observation_space(env_params).sample(_rng)[None, ]
-    network_params = network.init(rng, init_x)
+    # network_params = network.init(rng, init_x)
     apply_fn = network.apply
-    eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params, n_eps=100)
+
+    train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
+    train_env_params, val_env_params, test_env_params = train_elites.env_params, val_elites.env_params, test_elites.env_params
+
+    checkpoint_manager, runner_state, network, env, env_params = init_checkpointer(
+        cfg, train_env_params=train_env_params, val_env_params=val_env_params
+    )
+    runner_state = restore_checkpoint(checkpoint_manager, runner_state, cfg)
+    network_params = runner_state.train_state.params
+    apply_fn = runner_state.train_state.apply_fn
+
+    eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params['params'],
+                      algo='rl')
+    
         
 if __name__ == '__main__':
     eval_rl()

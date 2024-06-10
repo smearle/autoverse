@@ -183,6 +183,8 @@ def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
         update_steps = [os.path.basename(f) for f in il_ckpt_files]
         update_steps = [int(us) for us in update_steps if us.isnumeric()]
         latest_il_update_step = max(update_steps)
+        # We will load the IL agent with the corresponding seed.
+        cfg.il_seed = cfg.rl_seed
     else:
         latest_il_update_step = None
     cfg._log_dir_rl = os.path.join(cfg._log_dir_rl, 

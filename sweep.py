@@ -18,7 +18,6 @@ from plot_rl import main as plot_rl
 
 @dataclass
 class HyperParamsIL:
-    name: str = 'NONE'
     il_seed: Tuple[int] = (0, 1, 2,)
     load_gen: Tuple[int] = (100,)
     # load_gen: Tuple[int] = (10, 50)
@@ -34,11 +33,11 @@ class HyperParamsIL:
 
     hide_rules: Tuple[bool] = (False,)
     obs_rew_norm: Tuple[bool] = (False,)
+    n_train_envs: Tuple[int] = (-1,)
 
 
 @dataclass
 class HyperParamsRL:
-    name: str = 'NONE'
     rl_seed: int = (0, 1, 2)
     # load_gen: Tuple[int] = (5, 10, 50, 100, 136)
     load_gen: Tuple[int] = (100,)
@@ -50,33 +49,50 @@ class HyperParamsRL:
     n_train_envs: Tuple[int] = (-1,)
     # obs_window: Tuple[int] = (5, 10, 20, -1)
     obs_window: Tuple[int] = (-1,)
+    obs_rew_norm: Tuple[bool] = (False,)
+    hide_rules: Tuple[bool] = (False,)
 
 il_sweeps = {
     'obs_win': HyperParamsIL(
         obs_window=(5, 10, 20, -1),
-    )
+    ),
+    'hide_rules': HyperParamsIL(
+        hide_rules=(True, False),
+    ),
+    'obs_win_hide_rules': HyperParamsIL(
+        obs_window=(5, 10, 20, -1),
+        hide_rules=(True, False),
+    ),
+    'n_envs': HyperParamsIL(
+        n_train_envs=(1, 10, 50, 100, -1),
+    ),
 }
 
 rl_sweeps = {
     'obs_win': HyperParamsRL(
         obs_window=(5, 10, 20, -1),
-    )
+        obs_rew_norm=(True,),
+    ),
+    'hide_rules': HyperParamsRL(
+        hide_rules=(True, False),
+    ),
+    'load_il': HyperParamsRL(
+        load_il=(True, False),
+    ),
+    'evo': HyperParamsRL(
+        evo_freq=(-1, 1, 10),
+    ),
 }
-
-for s, dd in il_sweeps.items():
-    dd.name = s
-for s, dd in rl_sweeps.items():
-    dd.name = s
 
 
 @hydra.main(config_path="gen_env/configs", config_name="sweep")
 def main(cfg: SweepConfig):
+    sweep_name = cfg.name
     if cfg.algo == 'il':
         hypers = il_sweeps[cfg.name]
     elif cfg.algo == 'rl':
         hypers = rl_sweeps[cfg.name]
     hypers_dict = dict(hypers.__dict__)
-    sweep_name = hypers_dict.pop('name')
     h_ks, h_vs = zip(*hypers_dict.items())
     all_hyper_combos = list(itertools.product(*h_vs))
     all_hyper_combos = [dict(zip(h_ks, h_v)) for h_v in all_hyper_combos]
@@ -120,9 +136,16 @@ def main(cfg: SweepConfig):
             main_fn = train_rl
 
     elif cfg.mode == 'plot':
-        main_fn = plot_il
+        cfg.slurm = False
+        if cfg.algo == 'il':
+            main_fn = plot_il
+        elif cfg.algo == 'rl':
+            main_fn = plot_rl
     elif cfg.mode == 'eval':
-        main_fn = eval_il
+        if cfg.algo == 'il':
+            main_fn = eval_il
+        elif cfg.algo == 'rl':
+            main_fn = eval_rl
 
     if cfg.slurm:
         print('Submitting jobs to SLURM cluster.')

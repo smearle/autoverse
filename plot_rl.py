@@ -9,69 +9,11 @@ import tensorflow as tf
 
 from gen_env.configs.config import RLConfig
 from gen_env.utils import init_config
+from plot import load_tensorboard_logs, plot_data
 from utils import init_il_config, init_rl_config
 
 
 smoothing_factor = 1
-
-
-# Function to load TensorBoard logs
-def load_tensorboard_logs(log_dir, keys):
-    event_acc = event_accumulator.EventAccumulator(log_dir)
-    event_acc.Reload()  # Load events from file
-
-    stepss, valss = [], []
-
-    # Retrieve scalars logged under the specified tag
-    for k in keys:
-        scalar_events = event_acc.Scalars(k)
-        
-        # Extract step and value information
-        steps = [event.step for event in scalar_events]
-        values = [event.value for event in scalar_events]
-        stepss.append(steps)
-        valss.append(values)
-    
-    return stepss, valss
-
-# Plotting the data using matplotlib
-def plot_data(log_dir, keys, stepss, valuess):
-    search_stats = {}
-    for key, steps, values in zip(keys, stepss, valuess):
-        if 'search' in key:
-            # Assert all valuess are the same
-            assert all([v == values[0] for v in values])
-            # Save this value to a text file
-            with open(os.path.join(log_dir, f"{key.replace('/', '_')}.txt"), 'w') as f:
-                f.write(str(values[0]))
-            # And print it
-            print(f"{key}: {values[0]}")
-            search_stats.update({key: values[0]})
-            continue
-        plt.figure(figsize=(10, 5))
-        plt.plot(steps, values, label=f'{key}')
-        plt.xlabel('Step')
-        plt.ylabel(f'{key}')
-        plt.title(f'{key}')
-        plt.legend()
-        plt.grid(True)
-        fig_path = os.path.join(log_dir, f"{key.replace('/', '_')}.png")
-        plt.savefig(fig_path)
-        print(f"Plot saved to {fig_path}")
-
-        # Save as dataframe, with rows indexed by step
-        df = pd.DataFrame(data=values, index=steps, columns=[key])
-        # Save to disk
-        df.to_csv(os.path.join(log_dir, f"{key.replace('/', '_')}.csv"))
-
-    # Save search stats to a json
-    import json
-    with open(os.path.join(log_dir, 'search_stats.json'), 'w') as f:
-        json.dump(search_stats, f, indent=4)
-    
-
-
-
 
 
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="rl")
@@ -86,9 +28,9 @@ def main(cfg: RLConfig):
         'rl/ep_return_min',
         'rl/ep_length',
         'rl/fps',
-        'rl/eval/ep_return',
-        'rl/eval/ep_return_max',
-        'rl/eval/ep_return_min',
+        # 'rl/eval/ep_return',
+        # 'rl/eval/ep_return_max',
+        # 'rl/eval/ep_return_min',
     ]
 
     # Load and plot the data

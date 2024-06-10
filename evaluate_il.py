@@ -31,8 +31,10 @@ def eval_il(cfg: ILConfig):
     rng, train_state, t, checkpoint_manager = init_bc_agent(cfg, env)
     apply_fn = train_state.apply_fn
     network_params = train_state.params
+    breakpoint()
 
-    eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params)
+    eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params,
+                      algo='il')
         
 if __name__ == '__main__':
     eval_il()
