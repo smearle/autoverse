@@ -62,9 +62,17 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
 
     evo_rng = jax.random.split(_rng, n_envs)
     mutate_fn = jax.vmap(ind.mutate, in_axes=(0, 0, 0, None))
+
+    
     maps, ruless = mutate_fn(evo_rng, evo_env_params.map, evo_env_params.rules, env.tiles)
     new_env_params = evo_env_params.replace(map=maps, rules=ruless)
-    all_env_params = jax.tree_map(lambda x, y: jnp.vstack([x, y]), evo_env_params, new_env_params)
+    all_env_params = jax.tree_map(lambda x, y: jnp.concatenate([x, y],axis=0), evo_env_params, new_env_params)
+
+    # Weird but necessary HACK to make vstacking work below. Should probably not be using vstack then?
+    # all_env_params = all_env_params.replace(
+    #     rew_bias=jnp.concat(all_env_params.rew_bias),
+    #     rew_scale=jnp.concat(all_env_params.rew_scale),
+    # )
 
     n_candidate_envs = all_env_params.map.shape[0]
 
@@ -93,7 +101,7 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
             # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
             vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
             # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
-            obs, env_state, reward, done, info, curr_env_params = vmap_step_fn(
+            obs, env_state, reward, done, info, curr_env_param_idxs = vmap_step_fn(
                             rng_step, env_state, action,
                             curr_env_params, curr_env_params)
     
@@ -138,6 +146,7 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
         None, n_eval_batches
     )
 
+    fits = fits.reshape(-1)[:n_candidate_envs]
     fits = fits.reshape((-1, n_candidate_envs)).mean(axis=0)
     # sort the top frz maps based on the fitness
     # Get indices of the top 5 largest elements

@@ -274,8 +274,9 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
 
         # Note that there may be duplicates in this first generation due to sampling with replacement above.
         evo_env_params = runner_state.evo_state.env_params
+        n_envs = evo_env_params.map.shape[0]
 
-        evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.zeros(cfg.n_envs))
+        evo_state = EvoState(env_params=evo_env_params, top_fitness=jnp.zeros(n_envs))
 
         if cfg.evo_freq != -1:
             # To deal with mismatched shapes after calling _update_step
@@ -514,7 +515,7 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
                 jax.lax.cond(do_eval,
                              lambda: evaluate_on_env_params(rng, cfg, env, val_env_params, network.apply,
                                                             train_state.params, runner_state.update_i,
-                                          writer),
+                                          writer, mode='rl'),
                              lambda: None)
 
             metric = traj_batch.info
@@ -584,7 +585,8 @@ def init_checkpointer(config: RLConfig, train_env_params: GenEnvParams, val_env_
     )
     n_train_envs = train_env_params.rule_dones.shape[0]
     # evo_env_params = jax.tree.map(lambda x: jnp.array([x for _ in range(n_train_envs)]), env_params)
-    evo_state = EvoState(env_params=train_env_params, top_fitness=jnp.full(config.evo_pop_size, -jnp.inf))
+    # evo_state = EvoState(env_params=train_env_params, top_fitness=jnp.full(config.evo_pop_size, -jnp.inf))
+    evo_state = EvoState(env_params=train_env_params, top_fitness=jnp.full(n_train_envs, -jnp.inf))
     runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv,
                                train_env_params=train_env_params, val_env_params=val_env_params,
                                # ep_returns=jnp.full(config.num_envs, jnp.nan), 
@@ -629,8 +631,8 @@ def _main(cfg: RLConfig):
     env, env_params = init_base_env(cfg)
 
     if cfg.load_il:
-        il_agent, il_t, il_checkpoint_manager = init_bc_agent(cfg, env)
-        il_params = il_agent.train_state.params
+        _rng, train_state, t, il_checkpoint_manager = init_bc_agent(cfg, env)
+        il_params = train_state.params
         assert not os.path.exists(cfg._log_dir_rl)
     else:
         il_params = None
