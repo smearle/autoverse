@@ -1,4 +1,4 @@
-# Untitled Game Language
+# autoverse
 
 - To evolve games for maximum complexity according to a search-based player agent, run `python evo_env.py`.
 - To render the fittest environment-solution pairs found so far, run `python evo_env.py evaluate=True`
