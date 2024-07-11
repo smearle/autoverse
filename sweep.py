@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import partial
 import itertools
 from typing import Tuple
 
@@ -51,6 +52,7 @@ class HyperParamsRL:
     obs_window: Tuple[int] = (-1,)
     obs_rew_norm: Tuple[bool] = (False,)
     hide_rules: Tuple[bool] = (False,)
+    total_timesteps: int = (100_000_000,)
 
 il_sweeps = {
     'obs_win': HyperParamsIL(
@@ -81,6 +83,10 @@ rl_sweeps = {
     ),
     'evo': HyperParamsRL(
         evo_freq=(-1, 1, 10),
+        total_timesteps=1e9,
+    ),
+    'n_envs': HyperParamsIL(
+        n_train_envs=(1, 10, 50, 100, -1),
     ),
 }
 
@@ -112,7 +118,7 @@ def main(cfg: SweepConfig):
                 **h,
                 env_exp_id=14,
                 # overwrite=True,
-                total_timesteps=100_000_000,
+                # total_timesteps=100_000_000,
         )
         # Filter out invalid combinations of hyperparameters
         if e_cfg.hide_rules and e_cfg.obs_rew_norm:
@@ -123,9 +129,9 @@ def main(cfg: SweepConfig):
     # Cross-eval considers the results of all experiments together
     if cfg.mode == 'cross-eval':
         if cfg.algo == 'il':
-            cross_eval_il(sweep_cfgs, hypers=h_ks, sweep_name=sweep_name)
+            cross_eval_il(cfg, sweep_cfgs, hypers=h_ks)
         elif cfg.algo == 'rl':
-            cross_eval_rl(sweep_cfgs, hypers=h_ks, sweep_name=sweep_name)
+            cross_eval_rl(cfg, sweep_cfgs, hypers=h_ks)
         return
 
     # Set main function based on mode
@@ -146,6 +152,11 @@ def main(cfg: SweepConfig):
             main_fn = eval_il
         elif cfg.algo == 'rl':
             main_fn = eval_rl
+    elif cfg.mode == 'render':
+        if cfg.algo == 'il':
+            main_fn = partial(eval_il, render=True)
+        elif cfg.algo == 'rl':
+            main_fn = partial(eval_rl, render=True)
 
     if cfg.slurm:
         print('Submitting jobs to SLURM cluster.')

@@ -8,7 +8,7 @@ import hydra
 import jax
 import numpy as np
 
-from evaluate import eval_elite_nn, eval_nn
+from evaluate import eval_elite_nn, eval_nn, render_nn
 from gen_env.configs.config import ILConfig
 from gen_env.evo.individual import IndividualPlaytraceData
 from gen_env.utils import init_base_env, init_config
@@ -17,7 +17,7 @@ from utils import init_il_config, load_elite_envs
 
 
 @hydra.main(config_path="gen_env/configs", config_name="il")
-def eval_il(cfg: ILConfig):
+def eval_il(cfg: ILConfig, render=False):
     init_config(cfg)
     latest_gen = init_il_config(cfg)
     assert latest_gen is not None, \
@@ -31,10 +31,14 @@ def eval_il(cfg: ILConfig):
     rng, train_state, t, checkpoint_manager = init_bc_agent(cfg, env)
     apply_fn = train_state.apply_fn
     network_params = train_state.params
-    breakpoint()
 
-    eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params,
-                      algo='il')
+    if not render:
+        eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params,
+                        algo='il')
+    else:
+        render_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params,
+                        algo='il')
+
         
 if __name__ == '__main__':
     eval_il()

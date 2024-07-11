@@ -6,7 +6,7 @@ import json
 import os
 from typing import Iterable
 
-from gen_env.configs.config import ILConfig, SweepConfig
+from gen_env.configs.config import GenEnvConfig, ILConfig, SweepConfig
 from gen_env.utils import init_config
 import hydra
 import matplotlib.pyplot as plt
@@ -398,7 +398,6 @@ def cross_eval_misc(name: str, sweep_configs: Iterable[SweepConfig], hypers, alg
             sc: ILConfig
             exp_dir = getattr(sc, log_dir_attr)
             # exp_dir = sc._log_dir_il
-            
             # Load the `progress.csv`
             csv_path = os.path.join(exp_dir, f'{key_name}.csv')
             if not os.path.isfile(csv_path):
@@ -572,7 +571,7 @@ def cross_eval_misc(name: str, sweep_configs: Iterable[SweepConfig], hypers, alg
     #     f.write(styled_misc_stats_concise_df.to_latex())
 
     
-def cross_eval_il(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
+def cross_eval_il(cfg: SweepConfig, sweep_cfgs: Iterable[SweepConfig], hypers):
     # cross_eval_basic(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
     _sweep_cfgs = []
     for s_cfg in sweep_cfgs:
@@ -580,11 +579,12 @@ def cross_eval_il(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
         init_il_config(s_cfg)
         _sweep_cfgs.append(s_cfg)
     sweep_cfgs = _sweep_cfgs
-    cross_eval_misc(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
-    cross_eval_basic(name=sweep_name, sweep_configs=sweep_cfgs, hypers=hypers, algo='il')
+    init_cross_eval_config(cfg, sweep_cfgs)
+    cross_eval_misc(name=cfg.name, sweep_configs=sweep_cfgs, hypers=hypers)
+    cross_eval_basic(name=cfg.name, sweep_configs=sweep_cfgs, hypers=hypers, algo='il')
 
 
-def cross_eval_rl(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
+def cross_eval_rl(cfg: SweepConfig, sweep_cfgs: Iterable[SweepConfig], hypers):
     # cross_eval_basic(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
     _sweep_cfgs = []
     for s_cfg in sweep_cfgs:
@@ -593,5 +593,15 @@ def cross_eval_rl(sweep_cfgs: Iterable[SweepConfig], hypers, sweep_name: str):
         init_rl_config(s_cfg, latest_evo_gen)
         _sweep_cfgs.append(s_cfg)
     sweep_cfgs = _sweep_cfgs
-    cross_eval_basic(name=sweep_name, sweep_configs=sweep_cfgs, hypers=hypers, algo='rl')
-    # cross_eval_misc(name='il', sweep_configs=sweep_cfgs, hypers=hypers)
+    init_cross_eval_config(cfg, sweep_cfgs)
+    cross_eval_basic(name=cfg.name, sweep_configs=sweep_cfgs, hypers=hypers, algo='rl')
+    cross_eval_misc(name=cfg.name, sweep_configs=sweep_cfgs, hypers=hypers)
+
+    
+def init_cross_eval_config(cfg: SweepConfig, sweep_cfgs: Iterable[GenEnvConfig]):
+    # Note that we call this after initializing per-experiment directory names
+    # Here we are just renaming for the sake of cross-eval tables/plots
+    cfg.name = f'{cfg.algo}_{cfg.name}'
+    for s_cfg in sweep_cfgs:
+        if s_cfg.obs_window == -1:
+            s_cfg.obs_window = s_cfg.map_shape[0] * 2 - 1

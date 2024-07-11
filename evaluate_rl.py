@@ -19,7 +19,7 @@ from utils import init_il_config, init_rl_config, load_elite_envs
 
 
 @hydra.main(config_path="gen_env/configs", config_name="il")
-def eval_rl(cfg: RLConfig):
+def eval_rl(cfg: RLConfig, render=False):
     init_config(cfg)
     latest_gen = init_il_config(cfg)
     init_rl_config(cfg, latest_gen)
@@ -48,8 +48,13 @@ def eval_rl(cfg: RLConfig):
     network_params = runner_state.train_state.params
     apply_fn = runner_state.train_state.apply_fn
 
-    eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params['params'],
-                      algo='rl')
+    if not render:
+        eval_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params['params'],
+                        algo='rl')
+    else:
+        render_nn(cfg, latest_gen=latest_gen, env=env, apply_fn=apply_fn, network_params=network_params['params'],)
+
+                    
     
         
 if __name__ == '__main__':
