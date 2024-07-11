@@ -38,6 +38,25 @@ def step_env_nn(carry, _, env, env_params, network_params, apply_fn):
     obs, state, reward, done, info, env_params_idx = env.step(rng, state, action, env_params, env_params) 
     return (obs, state, rng), reward
 
+
+def step_env_render_nn(carry, _, env, env_params, network_params, apply_fn):
+    # Hardcoded to select a rotation action
+    obs, state, rng = carry
+    rng, _ = jax.random.split(rng)
+    obs = jax.tree.map(lambda x: x[None], obs)
+    dist, _ = apply_fn(network_params, obs)
+    action = dist.sample(seed=rng)
+    obs, state, reward, done, info, env_params_idx = env.step(rng, state, action, env_params, env_params) 
+    return (obs, state, rng), state
+
+
+def render_elite_nn(env_params, env, apply_fn, network_params, n_eps=100):
+    rng = jax.random.PRNGKey(0)  # we can get away with this here
+    _step_env_render_nn = partial(step_env_render_nn, env=env, network_params=network_params, apply_fn=apply_fn, env_params=env_params)
+    obs, state = env.reset(rng, env_params) 
+    _, states = jax.lax.scan(_step_env_render_nn, (obs, state, rng), None, env.max_episode_steps * n_eps)
+    return states
+
     
 def eval_elite_nn(env_params, env, apply_fn, network_params, n_eps=100):
     rng = jax.random.PRNGKey(0)  # we can get away with this here
@@ -90,6 +109,30 @@ def eval_nn(cfg: ILConfig, latest_gen: int, env, apply_fn, network_params, algo)
 
     # Save stats to disk as json
     print(f'Saving stats to {log_dir}')
-    breakpoint()
     with open(os.path.join(log_dir, f"nn_stats.json"), 'w') as f:
         json.dump(e_stats, f, indent=4)
+
+
+def render_nn(cfg: ILConfig, latest_gen: int, env, apply_fn, network_params, algo):
+    _render_elite_nn = partial(render_elite_nn, env=env, apply_fn=apply_fn, network_params={'params': network_params})
+
+    log_dir = getattr(cfg, f'_log_dir_{algo}')
+
+    # Load the transitions from the training set
+    train_elites, val_elites, test_elites = load_elite_envs(cfg, latest_gen)
+
+    e_stats = {}
+    for name, e in zip(['train', 'val', 'test'], [train_elites, val_elites, test_elites]):
+        e: IndividualPlaytraceData
+        n_elites = e.env_params.rule_dones.shape[0]
+        e_params = e.env_params
+        nn_states = jax.vmap(_render_elite_nn, in_axes=(0))(e_params)
+
+        nn_states_lst = [jax.tree.map(lambda x: x[i], nn_states) for i in range(n_elites)]
+
+        for elite_states in nn_states_lst:
+            elite_states_lst = [jax.tree.map(lambda x: x[i], elite_states) for i in range(elite_states.reward.shape[0])]
+
+            for i, state in enumerate(elite_states_lst):
+                frame = env.render(state)
+                breakpoint()
