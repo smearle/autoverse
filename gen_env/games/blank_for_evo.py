@@ -39,7 +39,7 @@ def make_env():
             ]
         ]),
         rotate=True,
-        reward=1,
+        reward=0,
         done=False,
         # max_applications=1,
     )

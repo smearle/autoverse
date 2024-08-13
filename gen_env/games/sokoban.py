@@ -1,9 +1,12 @@
+from enum import IntEnum
 from math import inf
+
 import numpy as np
 
 from gen_env.envs.play_env import GameDef, PlayEnv
 from gen_env.rules import Rule, RuleSet
 from gen_env.tiles import TileNot, TilePlacement, TileSet, TileType
+
 
 def make_env():
     n_crates = 3
@@ -16,7 +19,25 @@ def make_env():
     crate = TileType('crate', num=n_crates, color='brown')  # Not passable.
     target = TileType('target', num=n_crates, color='green', cooccurs=[floor])
 
+
     tiles = TileSet([player, force, crate, target, wall, floor])
+    maps = None
+    maps = np.array([
+        [
+            [4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
+            [4, 0, 5, 5, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 5, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 2, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 5, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 5, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 5, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 5, 5, 5, 5, 5, 5, 4],
+            [4, 5, 5, 5, 5, 5, 5, 5, 3, 4],
+            [4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
+        ],
+    ])
+    maps = maps[0]
+
     search_tiles = [floor, wall, target, crate, player]
 
     done_at_reward = n_crates
@@ -100,5 +121,6 @@ def make_env():
         player_placeable_tiles=[(force, TilePlacement.ADJACENT)],
         done_at_reward=n_crates,
         search_tiles=search_tiles,
+        map=maps,
     )
     return game_def

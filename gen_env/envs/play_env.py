@@ -394,7 +394,7 @@ class PlayEnv(gym.Env):
 
         move_coeff = acts_to_move_coeffs[action]
         place_tile = place_tiles[action]
-        new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot]
+        new_pos = state.player_pos + move_coeff * self._rot_dirs[player_rot][0]
         new_pos = new_pos % jnp.array(state.map.shape[1:])
         new_map = state.map
         player_pos = state.player_pos
@@ -414,7 +414,7 @@ class PlayEnv(gym.Env):
 
         # Hackish way
         n_prev = 4
-        trg_pos = player_pos + self._rot_dirs[player_rot]
+        trg_pos = player_pos + self._rot_dirs[player_rot][0]
         trg_pos = trg_pos % jnp.array(state.map.shape[1:])
         new_map = new_map.at[params.player_placeable_tiles[jnp.int16(action) - n_prev], trg_pos[0], trg_pos[1]].set(place_tile)
 
@@ -788,8 +788,9 @@ class PlayEnv(gym.Env):
         n_ims_sqrt2 = n_ims_sqrt ** 2
         n_empty_ims = n_ims_sqrt2 - n_ims
         empty_im = np.zeros(rule_ims[0].shape, dtype=np.uint8)
-        empty_ims = [empty_im] * n_empty_ims
-        rule_ims = np.concatenate([rule_ims, empty_ims])
+        if n_empty_ims > 0:
+            empty_ims = [empty_im] * n_empty_ims
+            rule_ims = np.concatenate([rule_ims, empty_ims])
         rule_ims = rule_ims.reshape(n_ims_sqrt, n_ims_sqrt, *rule_ims[0].shape)
         # rule_ims = np.concatenate(rule_ims, axis=1)
         rule_ims = rearrange(rule_ims, 'n1 n2 h w c -> (n1 h) (n2 w) c')
@@ -1233,38 +1234,6 @@ def pygame_render_im(screen, img):
     screen.blit(surf, (0, 0))
     # Flip the display
     pygame.display.flip()
-
-
-def gen_random_map(key: jax.random.PRNGKey, game_def: GameDef, map_shape):
-    """Generate frequency-based tiles with certain probabilities."""
-    tile_probs = [tile.prob for tile in game_def.tiles]
-    # int_map = np.random.choice(len(game_def.tiles), size=map_shape, p=tile_probs)
-    int_map = jax.random.choice(key, len(game_def.tiles), shape=map_shape, p=jnp.array(tile_probs))
-    # map_coords = np.argwhere(int_map != -1)
-    map_coords = jnp.argwhere(int_map != -1, size=math.prod(map_shape))
-    # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
-    n_fixed = sum([tile.num for tile in game_def.tiles if tile.num is not None])
-    fixed_coords = map_coords[jax.random.choice(key, map_coords.shape[0], shape=(n_fixed,), replace=False)]
-    i = 0
-    for tile in game_def.tiles:
-        if tile.prob == 0 and tile.num is not None:
-            coord_list = fixed_coords[i: i + tile.num]
-            # int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
-            int_map = int_map.at[coord_list[:, 0], coord_list[:, 1]].set(tile.idx)
-            i += tile.num
-    map_arr = jnp.eye(len(game_def.tiles), dtype=np.int16)[int_map]
-    map_arr = rearrange(map_arr, "h w c -> c h w")
-    # self._update_player_pos(map_arr)
-    # Activate parent/co-occuring tiles.
-    for tile in game_def.tiles:
-        coactive_tiles = tile.parents + tile.cooccurs
-        if len(coactive_tiles) > 0:
-            for cotile in coactive_tiles:
-                # Activate parent channels of any child tiles wherever the latter are active.
-                # map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
-                map_arr = map_arr.at[cotile.idx, map_arr[tile.idx] == 1].set(1)
-    # obj_set = {}
-    return map_arr.astype(jnp.int16)
 
 
 def toroidal_pad(map, pad_width=1):

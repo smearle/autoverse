@@ -187,7 +187,7 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
         cfg.n_envs * cfg.num_steps // cfg.NUM_MINIBATCHES
     )
     # _, base_env_params = init_base_env(cfg)
-    dummy_env_params = jax.tree.map(lambda x: x[0], train_env_params)
+    # dummy_env_params = jax.tree.map(lambda x: x[0], train_env_params)
     # env_r, env_params = gymnax_pcgrl_make(config.env_name, config=config)
     # env = FlattenObservationWrapper(env)
     # env = LogWrapper(env_r)
@@ -645,9 +645,13 @@ def _main(cfg: RLConfig):
     val_env_params = val_elites.env_params
 
     if cfg.load_gen is None:
-        # In this case, we generate random (probably garbage) environments upon which to begin training.
-        train_env_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
-            cfg, jax.random.split(rng, cfg.n_envs), env.game_def, env_params.rules)
+
+        if cfg.load_game is None:
+            # In this case, we generate random (probably garbage) environments upon which to begin training.
+            train_env_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
+                cfg, jax.random.split(rng, cfg.n_envs), env.game_def, env_params.rules)
+        else:
+            
     else:
         train_env_params = train_elites.env_params
 

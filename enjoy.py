@@ -11,7 +11,7 @@ from gen_env.configs.config import EnjoyConfig
 # from envs.pcgrl_env import PCGRLEnv, render_stats
 from gen_env.envs.play_env import GenEnvParams, GenEnvState, PlayEnv
 from gen_env.evo.individual import IndividualPlaytraceData
-from gen_env.utils import init_base_env
+from gen_env.utils import init_base_env, pad_frames
 from rl_player_jax import RunnerState, init_checkpointer
 from pcgrl_utils import get_network
 from gen_env.utils import init_config
@@ -147,18 +147,7 @@ def main_enjoy(train_env_params, env, cfg, network, network_params, runner_state
         # ep_frames = frames[ep_is*env.max_steps:(ep_is+1)*env.max_steps]
         # ep_frames = frames[ep_i]
 
-        frame_shapes = [frame.shape for frame in ep_frames]
-        max_frame_w, max_frame_h = max(frame_shapes, key=lambda x: x[0])[0], \
-            max(frame_shapes, key=lambda x: x[1])[1]
-        # Pad frames to be same size
-        new_ep_frames = []
-        for frame in ep_frames:
-            frame = np.pad(frame, ((0, max_frame_w - frame.shape[0]),
-                                      (0, max_frame_h - frame.shape[1]),
-                                      (0, 0)), constant_values=0)
-            # frame[:, :, 3] = 255
-            new_ep_frames.append(frame)
-        ep_frames = new_ep_frames
+        ep_frames = pad_frames(ep_frames)
 
         gif_name = f"{cfg._log_dir_rl}/anim_update-{runner_state.update_i}_ep-{ep_i}" + \
             f"{('_randAgent' if cfg.random_agent else '')}.gif"

@@ -32,9 +32,9 @@ class GenEnvConfig:
     runs_dir_il: str = "il_player"
     # When collecting elite envs/playtraces from evolution, latest gen to include (if None, include all).
     load_gen: Optional[int] = None
+    load_game: Optional[str] = None
     collect_elites: bool = False
     load_game: Optional[str] = None
-    load_gen: Optional[int] = None
     render_all: bool = False
     obs_rew_norm: bool = True
     obs_window: int = -1

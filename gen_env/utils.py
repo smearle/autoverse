@@ -1,16 +1,18 @@
 from dataclasses import dataclass
+import math
 import os
 from typing import Tuple
 import chex
 
 import cv2
+from einops import rearrange
 import imageio
 from jax import numpy as jnp
 import jax
 import numpy as np
 
 from gen_env.configs.config import GenEnvConfig
-from gen_env.envs.play_env import GameDef, PlayEnv, SB3PlayEnv, GenEnvParams, gen_random_map
+from gen_env.envs.play_env import GameDef, PlayEnv, SB3PlayEnv, GenEnvParams
 from gen_env.evo.individual import IndividualData
 from gen_env.games import GAMES
 from gen_env.rules import RuleData, compile_rule, gen_rand_rule
@@ -34,6 +36,21 @@ def init_config(cfg: GenEnvConfig):
     # cfg.log_dir_evo = os.path.join(cfg.workspace, cfg.runs_dir_evo, f"exp-{cfg.exp_id}")
     cfg._log_dir_evo = os.path.join(cfg._log_dir_common, cfg.runs_dir_evo)
 
+    
+def pad_frames(frames):
+    frame_shapes = [frame.shape for frame in frames]
+    max_frame_w, max_frame_h = max(frame_shapes, key=lambda x: x[0])[0], \
+        max(frame_shapes, key=lambda x: x[1])[1]
+    # Pad frames to be same size
+    new_frames = []
+    for frame in frames:
+        frame = np.pad(frame, ((0, max_frame_w - frame.shape[0]),
+                                    (0, max_frame_h - frame.shape[1]),
+                                    (0, 0)), constant_values=0)
+        new_frames.append(frame)
+    frames = new_frames
+    return frames
+
 
 def save_video(frames, video_path, fps=10):
     """Save a list of frames to a video file.
@@ -45,15 +62,73 @@ def save_video(frames, video_path, fps=10):
     imageio.mimwrite(video_path, frames, fps=25, quality=8, macro_block_size=1)
 
 
+def gen_random_map(key: jax.random.PRNGKey, game_def: GameDef, map_shape):
+    """Generate frequency-based tiles with certain probabilities."""
+    tile_probs = [tile.prob for tile in game_def.tiles]
+    # int_map = np.random.choice(len(game_def.tiles), size=map_shape, p=tile_probs)
+    int_map = jax.random.choice(key, len(game_def.tiles), shape=map_shape, p=jnp.array(tile_probs))
+    # map_coords = np.argwhere(int_map != -1)
+    map_coords = jnp.argwhere(int_map != -1, size=math.prod(map_shape))
+    # Overwrite frequency-based tiles with tile-types that require fixed numbers of instances.
+    n_fixed = sum([tile.num for tile in game_def.tiles if tile.num is not None])
+    fixed_coords = map_coords[jax.random.choice(key, map_coords.shape[0], shape=(n_fixed,), replace=False)]
+    i = 0
+    for tile in game_def.tiles:
+        if tile.prob == 0 and tile.num is not None:
+            coord_list = fixed_coords[i: i + tile.num]
+            # int_map[coord_list[:, 0], coord_list[:, 1]] = tile.idx
+            int_map = int_map.at[coord_list[:, 0], coord_list[:, 1]].set(tile.idx)
+            i += tile.num
+    return map_to_onehot(int_map, game_def)
+
+
+def map_to_onehot(int_map: np.ndarray, game_def: GameDef):
+    map_arr = jnp.eye(len(game_def.tiles), dtype=np.int16)[int_map]
+    map_arr = rearrange(map_arr, "h w c -> c h w")
+    # self._update_player_pos(map_arr)
+    # Activate parent/co-occuring tiles.
+    for tile in game_def.tiles:
+        coactive_tiles = tile.parents + tile.cooccurs
+        if len(coactive_tiles) > 0:
+            for cotile in coactive_tiles:
+                # Activate parent channels of any child tiles wherever the latter are active.
+                # map_arr[cotile.idx, map_arr[tile.idx] == 1] = 1
+                map_arr = map_arr.at[cotile.idx, map_arr[tile.idx] == 1].set(1)
+    # obj_set = {}
+    return map_arr.astype(jnp.int16)
+
+
 def init_base_env(cfg: GenEnvConfig, sb3=False) -> Tuple[PlayEnv, GenEnvParams]:
-    # env = GAMES[cfg.game].make_env(10, 10, cfg=cfg)
     game_def: GameDef = GAMES[cfg.game].make_env()
+    if game_def.map is not None and len(np.array(game_def.map).shape) == 3:
+        all_params = []
+        # TODO: Could vectorize this. But not a priority, because this happens only once per train loop.
+        for map_arr in game_def.map:
+            game_def = game_def._replace(map=map_arr)
+            env, params = init_base_env_single(cfg, game_def, sb3)
+            all_params.append(params)
+        # Stack all params
+        all_params = GenEnvParams(
+            rules=jnp.stack([params.rules for params in all_params]),
+            map=jnp.stack([params.map for params in all_params]),
+            rule_dones=jnp.stack([params.rule_dones for params in all_params]),
+            player_placeable_tiles=all_params[0].player_placeable_tiles,
+        )
+        return env, all_params
+    else:
+        return init_base_env_single(cfg, game_def, sb3)
+            
+
+def init_base_env_single(cfg: GenEnvConfig, game_def: GameDef, sb3=False) -> Tuple[PlayEnv, GenEnvParams]:
     for rule in game_def.rules:
         rule.n_tile_types = len(game_def.tiles)
         rule = compile_rule(rule)
     if game_def.map is None:
         key = jax.random.PRNGKey(cfg.seed)
         map_arr = gen_random_map(key, game_def, cfg.map_shape).astype(jnp.int16)
+    else:
+        map_arr = map_to_onehot(game_def.map, game_def)
+        map_arr = map_arr.astype(jnp.int16)
     # TODO: Flatten rule and subrule dimensions!
     rules_int = [rule.subrules_int for rule in game_def.rules]
 
@@ -91,7 +166,6 @@ def init_base_env(cfg: GenEnvConfig, sb3=False) -> Tuple[PlayEnv, GenEnvParams]:
     # env = sokoban.make_env(10, 10)
     # env.search_tiles = [t for t in env.tiles]
     return env, params
-
 
 
 def gen_rand_env_params(cfg: GenEnvConfig, rng: jax.random.PRNGKey, game_def, rules: RuleData) -> GenEnvParams:
