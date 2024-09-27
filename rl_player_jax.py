@@ -644,6 +644,7 @@ def _main(cfg: RLConfig):
     # train_env_params = jax.tree.map(lambda x: x[:cfg.n_envs], train_elites.env_params)
     val_env_params = val_elites.env_params
 
+    # Then we load the latest gen
     if cfg.load_gen is None:
 
         if cfg.load_game is None:
@@ -651,6 +652,7 @@ def _main(cfg: RLConfig):
             train_env_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
                 cfg, jax.random.split(rng, cfg.n_envs), env.game_def, env_params.rules)
         else:
+            train_env_params = train_elites.env_params
             
     else:
         train_env_params = train_elites.env_params
