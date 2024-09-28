@@ -190,6 +190,7 @@ def init_rl_config(cfg: RLConfig, latest_evo_gen: int):
         latest_il_update_step = None
     cfg._log_dir_rl = os.path.join(cfg._log_dir_rl, 
         f'_evogen-{cfg.load_gen}_accel-{cfg.evo_freq}_' + \
+        (f'nGens-{cfg.n_evo_gens}_' if cfg.n_evo_gens != 1 else '') + \
         f'ilstep-{latest_il_update_step}_' + \
         f'tenvs-{cfg.n_train_envs}_' + \
         ('hideRules_' if cfg.hide_rules else '') + \

@@ -113,6 +113,7 @@ class RLConfig(ILConfig):
     representation: str = "narrow"
 
     evo_freq: int = -1
+    n_evo_gens: int = 1
     val_freq: int = 10
     n_envs: int = 100
     evo_pop_size: int = 10
@@ -154,6 +155,7 @@ class RLConfig(ILConfig):
     NUM_UPDATES: Optional[int] = None
     MINIBATCH_SIZE: Optional[int] = None
     ###########################################################################
+
 
 # @dataclass
 # class TrainAccelConfig(TrainConfig):
@@ -208,7 +210,7 @@ cs.store(name="il_config", node=ILConfig)
 # cs.store(name="train_xlife", node=TrainConfig)
 cs.store(name="rl_config", node=RLConfig)
 cs.store(name="sweep_config", node=SweepConfig)
-cs.store(name="enjoy_xlife", node=EnjoyConfig)
+cs.store(name="enjoy_config", node=EnjoyConfig)
 # cs.store(name="enjoy_accel_xlife", node=EnjoyAccelConfig)
 cs.store(name="eval_xlife", node=EvalConfig)
 cs.store(name="profile_xlife", node=ProfileEnvConfig)

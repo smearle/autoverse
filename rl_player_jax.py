@@ -91,93 +91,6 @@ def log_callback(metric, steps_prev_complete, cfg: RLConfig, writer, train_start
         print(f"fps: {fps}")
 
 
-def render(train_env_params, env, cfg, network, network_params, runner_state):
-
-    rng = jax.random.PRNGKey(cfg.seed)
-    n_train_envs = train_env_params.rule_dones.shape[0]
-    rng_reset = jax.random.split(rng, cfg.n_render_eps)
-
-    # This is just for reference
-    dummy_env_params = jax.tree.map(lambda x: x[0], train_env_params)
-
-    obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(rng_reset, train_env_params)
-
-    def step_env(carry, _):
-        rng, obs, env_state = carry
-        rng, rng_act = jax.random.split(rng)
-        if cfg.random_agent:
-            action = env.action_space(dummy_env_params).sample(rng_act)
-        else:
-            # obs = jax.tree_map(lambda x: x[None, ...], obs)
-            action = network.apply(network_params, obs)[
-                0].sample(seed=rng_act)
-        rng_step = jax.random.split(rng, cfg.n_eps)
-        # obs, env_state, reward, done, info = env.step(
-        #     rng_step, env_state, action[..., 0], env_params
-        # )
-        env_state: GenEnvState
-        obs, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))(
-            rng_step, env_state, action, env_state.params, train_env_params
-
-        )
-        # frames = jax.vmap(env.render, in_axes=(0))(env_state, env_params)
-        # frame = env.render(env_state)
-        rng = jax.random.split(rng)[0]
-        # Can't concretize these values inside jitted function (?)
-        # So we add the stats on cpu later (below)
-        # frame = render_stats(env, env_state, frame)
-        return (rng, obs, env_state), (env_state, reward, done, info)
-
-    step_env = jax.jit(step_env, backend='cpu')
-    print('Scanning episode steps:')
-    _, (states, rewards, dones, infos) = jax.lax.scan(
-        step_env, (rng, obs, env_state), None,
-        length=1*env.max_episode_steps)
-
-    jax.tree.map(lambda x: jax.device_put(x, jax.devices('cpu')[0]), states)
-
-    states = jax.device_put(states, jax.devices('cpu')[0])
-    
-    print('Rendering gifs:')
-    # Since we can't jit our render function (yet)
-    frames = []
-    for ep_i in range(states.ep_rew.shape[1]):
-        ep_frames = []
-        for step_i in range(states.ep_rew.shape[0]):
-            state_i = jax.tree.map(lambda x: x[step_i, ep_i], states)
-            env_params_i = jax.tree.map(lambda x: x[ep_i], train_env_params)
-            ep_frames.append(env.render(state_i, env_params_i, mode='rgb_array'))
-        frames.append(ep_frames)
-        # Print reward
-        env_params_i: GenEnvParams
-        # train_elite_i: IndividualPlaytraceData = jax.tree_map(lambda x: x[ep_i], train_elites)
-        print(f'Rendered ep {ep_i}.')
-
-        frame_shapes = [frame.shape for frame in ep_frames]
-        max_frame_w, max_frame_h = max(frame_shapes, key=lambda x: x[0])[0], \
-            max(frame_shapes, key=lambda x: x[1])[1]
-        # Pad frames to be same size
-        new_ep_frames = []
-        for frame in ep_frames:
-            frame = np.pad(frame, ((0, max_frame_w - frame.shape[0]),
-                                      (0, max_frame_h - frame.shape[1]),
-                                      (0, 0)), constant_values=0)
-            # frame[:, :, 3] = 255
-            new_ep_frames.append(frame)
-        ep_frames = new_ep_frames
-
-        gif_name = f"{cfg._log_dir_rl}/anim_update-{runner_state.update_i}_ep-{ep_i}" + \
-            f"{('_randAgent' if cfg.random_agent else '')}.gif"
-        vid_name = gif_name[:-4] + ".mp4"
-        imageio.v3.imwrite(
-            gif_name,
-            ep_frames,
-            duration=100,
-            loop=0,
-        )
-        # imageio.mimwrite(vid_name, ep_frames, fps=10, quality=8, macro_block_size=1)
-
-
 def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpoint_manager, train_env_params: GenEnvParams,
                val_env_params: GenEnvParams, network, env: LogWrapper):
     cfg.NUM_UPDATES = (
@@ -283,10 +196,6 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
             train_env_params = evo_state.env_params
 
         # exp_dir = get_exp_dir(config)
-
-        if cfg.render:
-            render(train_env_params, env, cfg, network, network_params, runner_state)
-            return
 
         _log_callback = partial(log_callback, cfg=cfg, writer=writer,
                                train_start_time=train_start_time,
@@ -493,14 +402,21 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
             # be evaluated each time.                  
             if cfg.evo_freq != -1:
                 do_evo = runner_state.update_i % cfg.evo_freq == 0
+                def apply_multiple_evo(evo_state):
+                    def evo_step(i, evo_state):
+                        return apply_evo(
+                            rng=rng, env=env, ind=evo_individual, evo_state=evo_state,
+                            network_params=network_params, network=network,
+                            cfg=cfg, discount_factor_matrix=discount_factors_matrix
+                        )
+                    
+                    return jax.lax.fori_loop(0, cfg.n_evo_gens, evo_step, evo_state)
+
                 evo_state: EvoState = jax.lax.cond(
                     do_evo,
-                    lambda: apply_evo(
-                        rng=rng, env=env, ind=evo_individual, evo_state=evo_state, 
-                        network_params=network_params, network=network,
-                        cfg=cfg,
-                        discount_factor_matrix=discount_factors_matrix),
-                    lambda: evo_state)
+                    lambda: apply_multiple_evo(evo_state),
+                    lambda: evo_state
+                )
 
                 next_train_env_params = evo_state.env_params
             else:
