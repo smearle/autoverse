@@ -1,6 +1,7 @@
 '''
 get the fitness of the evolved frz map (or other thingys we want to evolve)
 '''
+from functools import partial
 import math
 import os
 import distrax
@@ -37,6 +38,30 @@ def distribute_evo_envs_to_train(cfg: RLConfig, evo_env_params: GenEnvParams):
     n_reps = max(1, cfg.n_envs // cfg.evo_pop_size)
     return jax.tree_map(lambda x: jnp.concatenate([x for _ in range(n_reps)])
                         [:cfg.n_envs], evo_env_params)
+
+
+
+def step_env_evo_eval(carry, _, env, cfg, all_env_params, network):
+    rng, obs, env_state, curr_env_param_idxs, network_params = carry
+    curr_env_params = jax.tree.map(lambda x: x[curr_env_param_idxs], all_env_params)
+    rng, _rng = jax.random.split(rng)
+
+    pi: distrax.Categorical
+    pi, value = network.apply(network_params, obs)
+    action = pi.sample(seed=rng)
+    # action_r = jnp.full(action_r.shape, 0) # FIXME dumdum Debugging evo 
+
+    rng_step = jax.random.split(_rng, cfg.n_envs)
+
+    # rng_step_r = rng_step_r.reshape((config.n_gpus, -1) + rng_step_r.shape[1:])
+    vmap_step_fn = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0))
+    # pmap_step_fn = jax.pmap(vmap_step_fn, in_axes=(0, 0, 0, None))
+    obs, env_state, reward, done, info, curr_env_param_idxs = vmap_step_fn(
+                    rng_step, env_state, action,
+                    curr_env_params, curr_env_params)
+
+    return (rng, obs, env_state, curr_env_param_idxs, network_params),\
+        (env_state, reward, done, info, value)
 
 
 @struct.dataclass # need to make a carrier for for the fitness to the tensorboard logging? hmm unnecessary
@@ -77,6 +102,8 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
     n_candidate_envs = all_env_params.map.shape[0]
 
     n_eps = 1
+
+    _step_env_evo_eval = partial(step_env_evo_eval, env=env, cfg=cfg, all_env_params=all_env_params, network=network)
  
     def eval_params(carry, unused):
         all_env_params, network_params, next_env_idxs = carry
@@ -109,7 +136,7 @@ def apply_evo(rng, env: PlayEnv, ind: Individual, evo_state: EvoState, network_p
                 (env_state, reward, done, info, value)
 
         _, (states, rewards, dones, infos, values) = jax.lax.scan(
-            step_env_evo_eval, (rng, obsv, env_state, curr_env_params, network_params),
+            _step_env_evo_eval, (rng, obsv, env_state, next_env_idxs, network_params),
             None, n_eps*env.max_episode_steps)
 
         n_steps = rewards.shape[0]

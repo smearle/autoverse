@@ -18,9 +18,9 @@ from flax.training.train_state import TrainState
 from flax.training import orbax_utils
 import imageio
 import jax.numpy as jnp
+from omegaconf import OmegaConf
 import optax
-import orbax
-from orbax import checkpoint as ocp
+import orbax.checkpoint as ocp
 from purejaxrl.wrappers import LogEnvState
 from tensorboardX import SummaryWriter
 
@@ -306,12 +306,10 @@ def make_train(cfg: RLConfig, init_runner_state: RunnerState, il_params, checkpo
                             t - latest_ckpt_step >= cfg.ckpt_freq):
                         print(f"Saving checkpoint at step {t}")
                         ckpt = {'runner_state': runner_state,
-                                'config': cfg, 
+                                # 'config': OmegaConf.to_container(cfg), 
                                 'step_i': t}
                         # ckpt = {'step_i': t}
-                        save_args = orbax_utils.save_args_from_target(ckpt)
-                        checkpoint_manager.save(t, ckpt, save_kwargs={
-                                                'save_args': save_args})
+                        checkpoint_manager.save(t, args=ocp.args.StandardSave(ckpt))
                     break
 
 
@@ -593,18 +591,20 @@ def init_checkpointer(config: RLConfig, train_env_params: GenEnvParams, val_env_
                                rng=rng, update_i=0, evo_state=evo_state,
                                curr_env_param_idxs=curr_env_param_idxs,
                             )
-    options = orbax.checkpoint.CheckpointManagerOptions(
+    options = ocp.CheckpointManagerOptions(
         max_to_keep=2, create=True)
-    checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        ckpt_dir, orbax.checkpoint.PyTreeCheckpointer(), options)
+    checkpoint_manager = ocp.CheckpointManager(
+        os.path.abspath(ckpt_dir), 
+        # orbax.checkpoint.PyTreeCheckpointer(), 
+        options=options)
 
     return checkpoint_manager, runner_state, network, env, env_params
 
 
 def restore_checkpoint(checkpoint_manager, runner_state, config):
     steps_prev_complete = checkpoint_manager.latest_step()
-    items = {'runner_state': runner_state, 'config': config, 'step_i': 0}
-    ckpt = checkpoint_manager.restore(steps_prev_complete, items=items)
+    items = {'runner_state': runner_state, 'step_i': 0}
+    ckpt = checkpoint_manager.restore(steps_prev_complete, args=ocp.args.StandardRestore(items))
     runner_state = ckpt['runner_state']
     return runner_state
     

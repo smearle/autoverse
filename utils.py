@@ -153,8 +153,8 @@ def evaluate_on_env_params(rng: jax.random.PRNGKey, cfg: RLConfig, env: PlayEnv,
 
     
 def init_il_config(cfg: ILConfig):
-    # glob files of form `gen-XX*elites.npz` and get highest gen number
-    if cfg.load_gen == -1:
+    if cfg.load_gen == -1 or cfg.load_gen == None:
+        # glob files of form `gen-XX*elites.npz` and get highest gen number
         gen_files = glob.glob(os.path.join(cfg._log_dir_common, "gen-*_elites.pkl"))
         gen_nums = [int(os.path.basename(f).split("_")[0].split("-")[1]) for f in gen_files]
         if len(gen_nums) == 0:

@@ -54,10 +54,10 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
     # Get the highest generation number
     gen_nums = [int(f.split('-')[-1].split('.')[0]) for f in elite_files]
     if cfg.load_gen is None:
-        latest_gen = max(gen_nums)
+        load_gen = max(gen_nums)
     else:
-        latest_gen = cfg.load_gen
-        elite_files_gns = [(ef, gn) for gn, ef in zip(gen_nums, elite_files) if gn <= latest_gen]
+        load_gen = cfg.load_gen
+    elite_files_gns = [(ef, gn) for gn, ef in zip(gen_nums, elite_files) if gn <= load_gen]
     # An elite is a set of game rules, a game map, and a solution/playtrace
     # elite_hashes = set()
     elites = {}
@@ -146,7 +146,14 @@ def collect_elites(cfg: GenEnvConfig, max_episode_steps: int):
 
     train_elites, val_elites, test_elites = split_elites(cfg, playtraces)
 
-    compute_noop_rewards(cfg, train_elites, val_elites, test_elites)
+    train_elites, val_elites, test_elites = compute_noop_rewards(cfg, train_elites, val_elites, test_elites)
+    # Save elite files under names above
+    with open(os.path.join(cfg._log_dir_common, f"gen-{load_gen}_filtered_train_elites.pkl"), 'wb') as f:
+        pickle.dump(train_elites, f)
+    with open(os.path.join(cfg._log_dir_common, f"gen-{load_gen}_filtered_val_elites.pkl"), 'wb') as f:
+        pickle.dump(val_elites, f)
+    with open(os.path.join(cfg._log_dir_common, f"gen-{load_gen}_filtered_test_elites.pkl"), 'wb') as f:
+        pickle.dump(test_elites, f)
     
     # Save elites to file
     # np.savez(os.path.join(cfg._log_dir_common, f'gen-{latest_gen}_train_elites.npz'), train_elites)

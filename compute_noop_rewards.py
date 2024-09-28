@@ -60,14 +60,7 @@ def compute_noop_rewards(cfg: GenEnvConfig, train_elites: IndividualPlaytraceDat
         
         new_elite_sets.append(e)
 
-    train_elites, val_elites, test_elites = new_elite_sets
-    # Save elite files under names above
-    with open(os.path.join(cfg._log_dir_common, f"gen-{cfg.load_gen}_filtered_train_elites.pkl"), 'wb') as f:
-        pickle.dump(train_elites, f)
-    with open(os.path.join(cfg._log_dir_common, f"gen-{cfg.load_gen}_filtered_val_elites.pkl"), 'wb') as f:
-        pickle.dump(val_elites, f)
-    with open(os.path.join(cfg._log_dir_common, f"gen-{cfg.load_gen}_filtered_test_elites.pkl"), 'wb') as f:
-        pickle.dump(test_elites, f)
+    return new_elite_sets
 
 
 if __name__ == '__main__':

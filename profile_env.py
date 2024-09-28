@@ -3,7 +3,7 @@ from timeit import default_timer as timer
 import hydra
 import jax
 
-from gen_env.utils import init_base_env, init_evo_config
+from gen_env.utils import init_base_env, init_config
 from gen_env.configs.config import GenEnvConfig
 from search_agent import batched_bfs
 
@@ -13,7 +13,7 @@ n_steps = 10000
 # def main(exp_id='0', overwrite=False, load=False, multi_proc=False, render=False):
 @hydra.main(version_base='1.3', config_path="gen_env/configs", config_name="evo")
 def profile(cfg: GenEnvConfig):
-    init_evo_config(cfg)
+    init_config(cfg)
     env, params = init_base_env(cfg)
     start_time = timer()
     total_reset_time = 0
@@ -27,7 +27,7 @@ def profile(cfg: GenEnvConfig):
             key = jax.random.split(key)[0]
             obs, state, reward, done, info = \
                 env.step(key, action=env.action_space.sample(), state=state,
-                         params=params)
+                         params=params, reset_params=params)
             if cfg.render:
                 env.render(state=state, params=params)
     done_time = timer()
