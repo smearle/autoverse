@@ -64,6 +64,7 @@ def load_elite_envs(cfg, latest_gen) -> Tuple[IndividualPlaytraceData]:
     with open(os.path.join(cfg._log_dir_common, f"gen-{latest_gen}_filtered_test_elites.pkl"), 'rb') as f:
         test_elites = pickle.load(f)
     
+    # Assign unique ids to each elite
     elites = []
     for e in [train_elites, val_elites, test_elites]:
         e: IndividualPlaytraceData

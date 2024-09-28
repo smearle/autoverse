@@ -645,20 +645,20 @@ def _main(cfg: RLConfig):
     val_env_params = val_elites.env_params
 
     # Then we load the latest gen
-    if cfg.load_gen is None:
-
-        if cfg.load_game is None:
-            # In this case, we generate random (probably garbage) environments upon which to begin training.
-            train_env_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
-                cfg, jax.random.split(rng, cfg.n_envs), env.game_def, env_params.rules)
-        else:
-            train_env_params = train_elites.env_params
+    if cfg.load_gen is None and cfg.load_game is None:
+        # In this case, we generate random (probably garbage) environments upon which to begin training.
+        train_env_params = jax.vmap(gen_rand_env_params, in_axes=(None, 0, None, None))(
+            cfg, jax.random.split(rng, cfg.n_envs), env.game_def, env_params.rules)
             
     else:
         train_env_params = train_elites.env_params
 
-        if cfg.n_train_envs != -1:
-            train_env_params = jax.tree.map(lambda x: x[-cfg.n_train_envs:], train_env_params)
+    if cfg.n_train_envs != -1:
+        train_env_params = jax.tree.map(lambda x: x[-cfg.n_train_envs:], train_env_params)
+    if cfg.n_val_envs != -1:
+        val_env_params = jax.tree.map(lambda x: x[-cfg.n_val_envs:], val_env_params)
+
+    del train_elites, val_elites, test_elites
 
     checkpoint_manager, runner_state, network, env, env_params = init_checkpointer(
         cfg, train_env_params=train_env_params, val_env_params=val_env_params

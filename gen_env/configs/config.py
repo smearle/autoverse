@@ -84,7 +84,8 @@ class ILConfig(GenEnvConfig):
     obs_rew_norm: bool = True
 
     # In case we want to train only on a subset of the available training envs.
-    n_train_envs: int = -1
+    n_train_envs: int = 100
+    n_val_envs: int = 100
 
     _il_ckpt_dir: Optional[str] = None
 
